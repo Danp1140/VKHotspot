@@ -1,13 +1,17 @@
 #include <vulkan/vulkan.h>
 #include <glm/ext.hpp>
-#include <GLFW/glfw3.h>
+#include <SDL.h>
+#include <SDL_vulkan.h>
 
 #include <iostream>
 #include <fstream>
 
+#include "Errors.h"
+
 #define GH_SWAPCHAIN_IMAGE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 #define GH_MAX_FRAMES_IN_FLIGHT 6
 #define WORKING_DIRECTORY "/Users/danp/Desktop/C Coding/WaveBox/"
+
 #define NUM_SHADER_STAGES_SUPPORTED 5
 const VkShaderStageFlagBits supportedshaderstages[NUM_SHADER_STAGES_SUPPORTED] = {
 	VK_SHADER_STAGE_COMPUTE_BIT,
@@ -24,7 +28,9 @@ const char* const shaderstagestrs[NUM_SHADER_STAGES_SUPPORTED] = {
 	"frag"
 };
 
-
+/*
+ * Vulkan Type Wrapper Structs
+ */
 
 typedef struct ImageInfo {
 	VkImage image = VK_NULL_HANDLE;
@@ -41,9 +47,13 @@ typedef struct PipelineInfo {
 	VkDescriptorSetLayout dsl = VK_NULL_HANDLE;
 	VkShaderStageFlags stages = 0u;
 	const char* shaderfilepathprefix = nullptr;
-	VkDescriptorSetLayoutCreateInfo descsetlayoutci = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+	VkDescriptorSetLayoutCreateInfo descsetlayoutci = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
+	};
 	VkPushConstantRange pushconstantrange = {};
-	VkPipelineVertexInputStateCreateInfo vertexinputstateci = {.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+	VkPipelineVertexInputStateCreateInfo vertexinputstateci = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+	};
 	bool depthtest = false;
 	VkSpecializationInfo specinfo = {};
 	VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -60,7 +70,7 @@ public:
 
 	void loop();
 
-	bool endLoop() {return glfwWindowShouldClose(primarywindow);}
+	bool endLoop() {return false;}
 
 	void createPipeline(PipelineInfo& pi);
 	void destroyPipeline(PipelineInfo& pi);
@@ -72,7 +82,7 @@ public:
 	void destroyImage(ImageInfo& i);
 
 private:
-	GLFWwindow* primarywindow;
+	SDL_Window* primarywindow;
 	VkInstance instance;
 	VkSurfaceKHR primarysurface;
 	VkDebugUtilsMessengerEXT debugmessenger;
@@ -94,6 +104,8 @@ private:
 	VkFence* submitfinishedfences;
 	const VkClearValue primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 0.};
 
+	SDL_Event sdlevent;
+
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively
 	 * simple and so are not worth exhaustively commenting on. Generally, those with names create_____ or 
@@ -102,12 +114,14 @@ private:
 	 * Some functions have sparse comments for things they do that are not self-explanatory.
 	 */
 	// TODO: Ensure createWindow checks if glfw is initialized before calling glfwInit()
-	void createWindow(GLFWwindow*& w);
-	void destroyWindow(GLFWwindow*& w);
+	void createWindow(SDL_Window*& w);
+	void destroyWindow(SDL_Window*& w);
+
 	// init/terminateVulkanInstance also handle the primary surface & window, as they will always exist for a GH
 	// TODO: Remove hard-coding and enhance initVulkanInstance's ability to dynamically enable needed extensions.
 	void initVulkanInstance();
 	void terminateVulkanInstance();
+
 	static VkResult createDebugMessenger(
 		VkInstance instance,
 		const VkDebugUtilsMessengerCreateInfoEXT* createinfo,
@@ -119,25 +133,34 @@ private:
 		const VkAllocationCallbacks* allocator);
 	void initDebug();
 	void terminateDebug();
+
 	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, 
 	// and hardware to use
 	void initDevicesAndQueues();
 	void terminateDevicesAndQueues();
+
 	void initSwapchain();
 	void terminateSwapchain();
+
 	void initRenderpasses();
 	void terminateRenderpasses();
+
 	void initDepthBuffer();
 	void terminateDepthBuffer();
+
 	void initFramebuffers();
 	void terminateFramebuffers();
+
 	// Due to low total draw numbers, for now we will only need one thread and so one of each pool
 	void initCommandPools();
 	void terminateCommandPools();
+
 	void initCommandBuffers();
 	void terminateCommandBuffers();
+
 	void initDescriptorPoolsAndSetLayouts();
 	void terminateDescriptorPoolsAndSetLayouts();
+	
 	void initSyncObjects();
 	void terminateSyncObjects();
 

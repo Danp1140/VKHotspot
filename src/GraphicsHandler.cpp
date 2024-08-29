@@ -1,5 +1,11 @@
 #include "GraphicsHandler.h"
 
+/*
+ * Parameters:
+ *  - Which monitor
+ *  - Window fullscreen or size otherwise
+ *  - Which GPU
+ */
 GH::GH() {
 	initVulkanInstance();
 	initDebug();
@@ -36,26 +42,41 @@ void GH::loop() {
 			      imageacquiredsemaphores[sciindex],
 			      VK_NULL_HANDLE,
 			      &sciindex);
-	glfwPollEvents();
+
+	while (SDL_PollEvent(&sdlevent)) {
+		if (sdlevent.type == SDL_WINDOWEVENT) {
+			if (sdlevent.window.event == SDL_WINDOWEVENT_CLOSE) {
+				exit(0);
+			}
+		}
+	}
+
 	recordPrimaryCommandBuffer();
 	submitAndPresent();
-	glfwSwapBuffers(primarywindow); // unsure of proper buffer swap timing
 	fifindex++;
 	if (fifindex == GH_MAX_FRAMES_IN_FLIGHT) fifindex = 0;
 }
 
-void GH::createWindow(GLFWwindow*& w) {
-	glfwInit();
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-	const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-	w = glfwCreateWindow(mode->width, mode->height, "WaveBox", nullptr, nullptr);
-	glfwMakeContextCurrent(w);
+void GH::createWindow(SDL_Window*& w) {
+	if (!SDL_WasInit(SDL_INIT_VIDEO) && SDL_Init(SDL_INIT_VIDEO) < 0) {
+		FatalError(
+			std::string("SDL2 Initialization Failed! From SDL_GetError():\n") 
+			 + SDL_GetError()).raise();
+	}
+	SDL_DisplayMode displaymode;
+	SDL_GetCurrentDisplayMode(0, &displaymode);
+	// TODO: use SDL_GetWindowWMInfo for system-dependent window info
+
+	w = SDL_CreateWindow(
+		"Vulkan Project", 
+		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
+		800, 600, 
+		SDL_WINDOW_VULKAN);
 }
 
-void GH::destroyWindow(GLFWwindow*& w) {
-	glfwDestroyWindow(w);
-	glfwTerminate();
+void GH::destroyWindow(SDL_Window*& w) {
+	SDL_DestroyWindow(w);
+	SDL_Quit();
 }
 
 void GH::initVulkanInstance() {
@@ -88,8 +109,10 @@ void GH::initVulkanInstance() {
 	};
 	vkCreateInstance(&instancecreateinfo, nullptr, &instance);
 
-	glfwCreateWindowSurface(instance, primarywindow, nullptr, &primarysurface);
-
+	SDL_Vulkan_CreateSurface(
+		primarywindow, 
+		instance,
+		&primarysurface);
 }
 
 void GH::terminateVulkanInstance() {
