@@ -1,5 +1,5 @@
-#include <vulkan/vulkan.h>
-#include <glm/ext.hpp>
+#include <vulkan.h>
+#include <ext.hpp>
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
