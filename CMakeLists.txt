@@ -22,9 +22,6 @@ endif ()
 include_directories(${VULKAN_INCLUDE})
 link_directories(${VULKAN_LIB})
 
-message(WARNING ${VULKAN_INCLUDE})
-message(WARNING ${VULKAN_LIB})
-
 #[[ SDL ]]
 if (DEFINED ENV{PATH_TO_SDL_INCLUDE}) 
 	set(SDL_INCLUDE $ENV{PATH_TO_SDL_INCLUDE})
@@ -40,9 +37,6 @@ endif ()
 include_directories(${SDL_INCLUDE})
 link_directories(${SDL_LIB})
 
-message(WARNING ${SDL_INCLUDE})
-message(WARNING ${SDL_LIB})
-
 #[[ GLM ]]
 if (DEFINED ENV{PATH_TO_GLM_INCLUDE}) 
 	set(GLM_INCLUDE $ENV{PATH_TO_GLM_INCLUDE})
@@ -50,9 +44,6 @@ else ()
 	find_path(GLM_INCLUDE NAMES glm.hpp PATH_SUFFIXES include/glm/)
 endif ()
 include_directories(${GLM_INCLUDE})
-
-message(WARNING ${GLM_INCLUDE})
-
 
 add_executable(VulkanProject 
 	src/main.cpp 
