@@ -2,9 +2,10 @@
 
 int main() {
 	GH graphicshandler = GH();
+	WindowInfo w = WindowInfo();
 
-	while (!graphicshandler.endLoop()){
-		graphicshandler.loop();
+	while (!w.shouldClose()) {
+		w.frameCallback();
 	}
 
 	return 1;

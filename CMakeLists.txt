@@ -50,4 +50,4 @@ add_executable(VulkanProject
 	src/GraphicsHandler.cpp src/GraphicsHandler.h
 	src/Errors.cpp src/Errors.h)
 
-target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 SDL2 -m64)
+target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 SDL3 -m64)

@@ -1,86 +1,372 @@
 #include "GraphicsHandler.h"
 
-/*
- * Parameters:
- *  - Which monitor
- *  - Window fullscreen or size otherwise
- *  - Which GPU
- */
-GH::GH() {
-	initVulkanInstance();
-	initDebug();
-	initDevicesAndQueues();
-	initSwapchain();
-	initRenderpasses();
-	initDepthBuffer();
-	initFramebuffers();
-	initCommandPools();
-	initCommandBuffers();
-	initDescriptorPoolsAndSetLayouts();
-	initSyncObjects();
+const VkPipelineStageFlags WindowInfo::defaultsubmitwaitstage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+const VkCommandBufferBeginInfo WindowInfo::primarycbbegininfo = {
+	VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	nullptr,
+	0,
+	nullptr
+};
+const VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
+	VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+	nullptr,
+	GH::getCommandPool(),
+	VK_COMMAND_BUFFER_LEVEL_SECONDARY,
+	1u
+};
+
+WindowInfo::WindowInfo() {
+	int ndisplays;
+	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
+	if (ndisplays == 0 || !displays) {
+		FatalError(std::string("SDL found no displays. From SDL_GetError:\n") + SDL_GetError()).raise();
+	}
+	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(displays[0]);
+	// TODO: use SDL_GetWindowWMInfo for system-dependent window info
+	SDL_free(displays);
+
+	// TODO: ensure swapchain is properly scaled to this width/height
+	sdlwindow = SDL_CreateWindow(
+		"Vulkan Project", 
+		displaymode->w, displaymode->h, 
+		SDL_WINDOW_VULKAN);
+
+	shouldclose = false;
+	SDL_AddEventWatch(defaultEventCallback, &shouldclose);
+
+	SDL_Vulkan_CreateSurface(
+		sdlwindow, 
+		GH::getInstance(),
+		nullptr,
+		&surface);
+
+	VkBool32 surfacesupport;
+	vkGetPhysicalDeviceSurfaceSupportKHR(
+		GH::getPD(), 
+		GH::getQueueFamilyIndex(), 
+		surface, 
+		&surfacesupport);
+	if (!surfacesupport) FatalError("Window does not support surface\n").raise();
+
+	VkSurfaceCapabilitiesKHR surfacecaps;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+		GH::getPD(),
+		surface,
+		&surfacecaps);
+	numscis = surfacecaps.maxImageCount;
+
+	VkSwapchainCreateInfoKHR swapchaincreateinfo {
+		VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		nullptr,
+		0,
+		surface,
+		numscis,
+		GH_SWAPCHAIN_IMAGE_FORMAT,
+		VK_COLORSPACE_SRGB_NONLINEAR_KHR,
+		surfacecaps.currentExtent,
+		1,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0, nullptr,
+		surfacecaps.currentTransform,
+		VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		VK_PRESENT_MODE_FIFO_KHR,
+		VK_TRUE,
+		VK_NULL_HANDLE
+	};
+	vkCreateSwapchainKHR(GH::getLD(), &swapchaincreateinfo, nullptr, &swapchain);
+
+	vkGetSwapchainImagesKHR(GH::getLD(), swapchain, &numscis, nullptr);
+	scimages = new ImageInfo[numscis];
+	VkImage scitemp[numscis];
+	vkGetSwapchainImagesKHR(GH::getLD(), swapchain, &numscis, &scitemp[0]);
+	for (sciindex = 0; sciindex < numscis; sciindex++) scimages[sciindex].image = scitemp[sciindex];
+	for (sciindex = 0; sciindex < numscis; sciindex++) {
+		scimages[sciindex].extent = surfacecaps.currentExtent;
+		scimages[sciindex].memory = VK_NULL_HANDLE;
+		scimages[sciindex].format = GH_SWAPCHAIN_IMAGE_FORMAT;
+		VkImageViewCreateInfo imageviewcreateinfo {
+			VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			nullptr,
+			0,
+			scimages[sciindex].image,
+			VK_IMAGE_VIEW_TYPE_2D,
+			GH_SWAPCHAIN_IMAGE_FORMAT,
+			{VK_COMPONENT_SWIZZLE_IDENTITY,
+			 VK_COMPONENT_SWIZZLE_IDENTITY,
+			 VK_COMPONENT_SWIZZLE_IDENTITY,
+			 VK_COMPONENT_SWIZZLE_IDENTITY},
+			{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+		};
+		vkCreateImageView(GH::getLD(), &imageviewcreateinfo, nullptr, &scimages[sciindex].view);
+	}
+	sciindex = 0;
+
+	depthbuffer.extent = scimages[0].extent;
+	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
+	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	GH::createImage(depthbuffer);
+
+	createSyncObjects();
+	createPresentationFBs();
+	createPrimaryCBs();
 }
 
-GH::~GH() {
-	vkQueueWaitIdle(genericqueue);
-	terminateSyncObjects();
-	terminateDescriptorPoolsAndSetLayouts();
-	terminateCommandBuffers();
-	terminateCommandPools();
-	terminateFramebuffers();
-	terminateDepthBuffer();
-	terminateRenderpasses();
-	terminateSwapchain();
-	terminateDevicesAndQueues();
-	terminateDebug();
-	terminateVulkanInstance();
+WindowInfo::~WindowInfo() {
+	vkQueueWaitIdle(GH::getGenericQueue());
+	destroyPrimaryCBs();
+	destroyPresentationFBs();
+	destroySyncObjects();
+	GH::destroyImage(depthbuffer);
+	for (sciindex = 0; sciindex < numscis; sciindex++) {
+		vkDestroyImageView(GH::getLD(), scimages[sciindex].view, nullptr);
+	}
+	vkDestroySwapchainKHR(GH::getLD(), swapchain, nullptr);
+	delete[] scimages;
+	SDL_Vulkan_DestroySurface(GH::getInstance(), surface, nullptr);
+	SDL_DestroyWindow(sdlwindow);
 }
 
-void GH::loop() {
-	vkAcquireNextImageKHR(logicaldevice,
-			      swapchain,
-			      UINT64_MAX,
-			      imageacquiredsemaphores[sciindex],
-			      VK_NULL_HANDLE,
-			      &sciindex);
+void WindowInfo::frameCallback() {
+	vkAcquireNextImageKHR(
+		GH::getLD(),
+		swapchain,
+		UINT64_MAX,
+		imgacquiresema,
+		VK_NULL_HANDLE,
+		&sciindex);
 
-	while (SDL_PollEvent(&sdlevent)) {
-		if (sdlevent.type == SDL_WINDOWEVENT) {
-			if (sdlevent.window.event == SDL_WINDOWEVENT_CLOSE) {
-				exit(0);
+	rectasks.push(cbRecTask({
+		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+		nullptr,
+		GH::getPresentationRenderPass(),
+		presentationfbs[sciindex],
+		{{0, 0}, scimages[sciindex].extent},
+		2, GH::getPresentationClearsPtr()
+	}));
+
+	processRecordingTasks(fifindex, 0, rectasks, collectinfos, secondarycbset);
+
+	collectPrimaryCB();
+
+	SDL_PumpEvents();
+
+	submitAndPresent();
+}
+
+void WindowInfo::createSyncObjects() {
+	VkSemaphoreCreateInfo imgacquiresemacreateinfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0};
+	vkCreateSemaphore(GH::getLD(), &imgacquiresemacreateinfo, nullptr, &imgacquiresema);
+	VkSemaphoreCreateInfo subfinishsemacreateinfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0};
+	VkFenceCreateInfo subfinishfencecreateinfo {
+		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, 
+		nullptr, 
+		VK_FENCE_CREATE_SIGNALED_BIT
+	};
+	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
+		vkCreateSemaphore(GH::getLD(), &subfinishsemacreateinfo, nullptr, &subfinishsemas[fifi]);
+		vkCreateFence(GH::getLD(), &subfinishfencecreateinfo, nullptr, &subfinishfences[fifi]);
+	}
+}
+
+void WindowInfo::destroySyncObjects() {
+	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
+		vkDestroyFence(GH::getLD(), subfinishfences[fifi], nullptr);
+		vkDestroySemaphore(GH::getLD(), subfinishsemas[fifi], nullptr);
+	}
+	vkDestroySemaphore(GH::getLD(), imgacquiresema, nullptr);
+}
+
+void WindowInfo::createPresentationFBs() {
+	presentationfbs = new VkFramebuffer[numscis];
+	VkImageView attachments[2];
+	attachments[1] = depthbuffer.view;
+	VkFramebufferCreateInfo framebufferci {
+		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		GH::getPresentationRenderPass(),
+		2, &attachments[0],
+		scimages[0].extent.width, scimages[0].extent.height, 1
+	};
+	for (uint8_t scii = 0; scii < numscis; scii++) {
+		attachments[0] = scimages[scii].view;
+		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
+	}
+}
+
+void WindowInfo::destroyPresentationFBs() {
+	for (uint8_t scii = 0; scii < numscis; scii++) {
+		vkDestroyFramebuffer(GH::getLD(), presentationfbs[scii], nullptr);
+	}
+	delete[] presentationfbs;
+}
+
+void WindowInfo::createPrimaryCBs() {
+	fifindex = 0u;
+	VkCommandBufferAllocateInfo commandbufferai {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		nullptr,
+		GH::getCommandPool(),
+		VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		GH_MAX_FRAMES_IN_FLIGHT,
+	};
+	vkAllocateCommandBuffers(GH::getLD(), &commandbufferai, &primarycbs[0]);
+}
+
+void WindowInfo::destroyPrimaryCBs() {
+	vkFreeCommandBuffers(GH::getLD(), GH::getCommandPool(), GH_MAX_FRAMES_IN_FLIGHT, &primarycbs[0]);
+}
+
+void WindowInfo::processRecordingTasks(
+	uint8_t fifindex,
+	uint8_t threadindex,
+	std::queue<cbRecTask>& rectasks,
+	std::queue<cbCollectInfo>& collectinfos,
+	std::vector<VkCommandBuffer>& secondarycbset) {
+	size_t bufferidx = 0;
+	cbRecFunc recfunc;
+	while (!rectasks.empty()) {
+		if (rectasks.front().type == cbRecTask::cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
+			collectinfos.push(cbCollectInfo(rectasks.front().data.rpbi));
+			rectasks.pop();
+			continue;
+		}
+		if (rectasks.front().type == cbRecTask::cbRecTaskType::CB_REC_TASK_TYPE_DEPENDENCY) {
+			collectinfos.push(cbCollectInfo(rectasks.front().data.di));
+			rectasks.pop();
+			continue;
+		}
+		recfunc = rectasks.front().data.func;
+		rectasks.pop();
+		if (bufferidx == secondarycbset.size()) {
+			if (bufferidx == secondarycbset.size()) {
+				secondarycbset.push_back(VK_NULL_HANDLE);
+				vkAllocateCommandBuffers(
+					GH::getLD(),
+					&cballocinfo,
+					&secondarycbset.back());
 			}
 		}
+		collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
+		recfunc(secondarycbset[bufferidx]);
 	}
+}
 
-	recordPrimaryCommandBuffer();
-	submitAndPresent();
+void WindowInfo::collectPrimaryCB() {
+	// TODO: better timeout logic
+	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
+	vkBeginCommandBuffer(primarycbs[fifindex], &primarycbbegininfo);
+	bool inrp = false;
+	while (!collectinfos.empty()) {
+		if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_COMMAND_BUFFER) {
+			vkCmdExecuteCommands(
+				primarycbs[fifindex],
+				1,
+				&collectinfos.front().data.cmdbuf);
+		} 
+		else if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_RENDERPASS) {
+			// ending an rp w/o starting another is done by passing a renderpassbi 
+			// as if to begin, but with a null handle as renderpass
+			if (inrp) vkCmdEndRenderPass(primarycbs[fifindex]);
+			else inrp = true;
+			if (collectinfos.front().data.rpbi.renderPass != VK_NULL_HANDLE) {
+				vkCmdBeginRenderPass(
+					primarycbs[fifindex],
+					&collectinfos.front().data.rpbi,
+					VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+			}
+			else inrp = false;
+		}
+		else if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_DEPENDENCY) {
+			if (collectinfos.front().data.di.imageMemoryBarrierCount) {
+				FatalError("Collection of dependencies/pipeline barriers not yet supported\n").raise();
+				/*
+				if (inrp) {
+					vkCmdEndRenderPass(primarycbs[fifindex]);
+					inrp = false;
+				}
+
+				// i feel like we should be able to use vkCmdPipelineBarrier2(KHR), but it crashed when I tried...
+				GraphicsHandler::pipelineBarrierFromKHR(secondarybuffers.front().data.di);
+				delete[] secondarybuffers.front().data.di.pImageMemoryBarriers;
+				*/
+			}
+		}
+		collectinfos.pop();
+	}
+	if (inrp) vkCmdEndRenderPass(primarycbs[fifindex]);
+	vkEndCommandBuffer(primarycbs[fifindex]);
+}
+
+void WindowInfo::submitAndPresent() {
+	submitinfo = {
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		nullptr,
+		1, &imgacquiresema,
+		&defaultsubmitwaitstage,
+		1, &primarycbs[fifindex],
+		1, &subfinishsemas[fifindex]
+	};
+	vkQueueSubmit(GH::getGenericQueue(), 1, &submitinfo, subfinishfences[fifindex]);
+
+	presentinfo = {
+		VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+		nullptr,
+		1, &subfinishsemas[fifindex],
+		1, &swapchain, &sciindex,
+		nullptr
+	};
+	vkQueuePresentKHR(GH::getGenericQueue(), &presentinfo);
+
 	fifindex++;
 	if (fifindex == GH_MAX_FRAMES_IN_FLIGHT) fifindex = 0;
 }
 
-void GH::createWindow(SDL_Window*& w) {
-	if (!SDL_WasInit(SDL_INIT_VIDEO) && SDL_Init(SDL_INIT_VIDEO) < 0) {
+bool WindowInfo::defaultEventCallback(void* data, SDL_Event* e) {
+	if (e->type == SDL_EVENT_QUIT) {
+		*static_cast<bool*>(data) = true;
+		return SDL_FALSE;
+	}
+	return SDL_TRUE;
+}
+
+VkInstance GH::instance = VK_NULL_HANDLE;
+VkDevice GH::logicaldevice = VK_NULL_HANDLE;
+VkPhysicalDevice GH::physicaldevice = VK_NULL_HANDLE;
+VkQueue GH::genericqueue = VK_NULL_HANDLE;
+uint8_t GH::queuefamilyindex = 0xff;
+VkRenderPass GH::primaryrenderpass = VK_NULL_HANDLE;
+VkCommandPool GH::commandpool = VK_NULL_HANDLE;
+const VkClearValue GH::primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 0.};
+
+GH::GH() {
+	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		FatalError(
 			std::string("SDL2 Initialization Failed! From SDL_GetError():\n") 
 			 + SDL_GetError()).raise();
 	}
-	SDL_DisplayMode displaymode;
-	SDL_GetCurrentDisplayMode(0, &displaymode);
-	// TODO: use SDL_GetWindowWMInfo for system-dependent window info
-
-	w = SDL_CreateWindow(
-		"Vulkan Project", 
-		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
-		800, 600, 
-		SDL_WINDOW_VULKAN);
+	initVulkanInstance();
+	initDebug();
+	initDevicesAndQueues();
+	initRenderpasses();
+	initCommandPools();
+	initDescriptorPoolsAndSetLayouts();
 }
 
-void GH::destroyWindow(SDL_Window*& w) {
-	SDL_DestroyWindow(w);
+GH::~GH() {
+	vkQueueWaitIdle(genericqueue);
+	terminateDescriptorPoolsAndSetLayouts();
+	terminateCommandPools();
+	terminateRenderpasses();
+	terminateDevicesAndQueues();
+	terminateDebug();
+	terminateVulkanInstance();
 	SDL_Quit();
 }
 
 void GH::initVulkanInstance() {
-	createWindow(primarywindow);
 	VkApplicationInfo appinfo {
 		VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		nullptr,
@@ -108,17 +394,10 @@ void GH::initVulkanInstance() {
 		5, &extensions[0]
 	};
 	vkCreateInstance(&instancecreateinfo, nullptr, &instance);
-
-	SDL_Vulkan_CreateSurface(
-		primarywindow, 
-		instance,
-		&primarysurface);
 }
 
 void GH::terminateVulkanInstance() {
-	vkDestroySurfaceKHR(instance, primarysurface, nullptr);
 	vkDestroyInstance(instance, nullptr);
-	destroyWindow(primarywindow);
 }
 
 VkResult GH::createDebugMessenger(
@@ -166,9 +445,7 @@ void GH::initDevicesAndQueues() {
 	vkGetPhysicalDeviceQueueFamilyProperties(physicaldevice, &numqueuefamilies, nullptr);
 	VkQueueFamilyProperties queuefamilyprops[numqueuefamilies];
 	vkGetPhysicalDeviceQueueFamilyProperties(physicaldevice, &numqueuefamilies, &queuefamilyprops[0]);
-	VkBool32 surfacesupport;
 	queuefamilyindex = 0;
-	vkGetPhysicalDeviceSurfaceSupportKHR(physicaldevice, queuefamilyindex, primarysurface, &surfacesupport);
 	const float priorities[1] = {1.f};
 	VkDeviceQueueCreateInfo queuecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -199,65 +476,6 @@ void GH::initDevicesAndQueues() {
 
 void GH::terminateDevicesAndQueues() {
 	vkDestroyDevice(logicaldevice, nullptr);
-}
-
-void GH::initSwapchain() {
-	VkSurfaceCapabilitiesKHR surfacecaps;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicaldevice, primarysurface, &surfacecaps);
-	numsci = surfacecaps.maxImageCount;
-	VkSwapchainCreateInfoKHR swapchaincreateinfo {
-		VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		nullptr,
-		0,
-		primarysurface,
-		surfacecaps.maxImageCount,
-		GH_SWAPCHAIN_IMAGE_FORMAT,
-		VK_COLORSPACE_SRGB_NONLINEAR_KHR,
-		surfacecaps.currentExtent,
-		1,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		VK_SHARING_MODE_EXCLUSIVE,
-		0, nullptr,
-		surfacecaps.currentTransform,
-		VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		VK_PRESENT_MODE_FIFO_KHR,
-		VK_TRUE,
-		VK_NULL_HANDLE
-	};
-	vkCreateSwapchainKHR(logicaldevice, &swapchaincreateinfo, nullptr, &swapchain);
-	vkGetSwapchainImagesKHR(logicaldevice, swapchain, &numsci, nullptr);
-	swapchainimages = new ImageInfo[numsci];
-	VkImage scitemp[numsci];
-	vkGetSwapchainImagesKHR(logicaldevice, swapchain, &numsci, &scitemp[0]);
-	for (sciindex = 0; sciindex < numsci; sciindex++) swapchainimages[sciindex].image = scitemp[sciindex];
-	for (sciindex = 0; sciindex < numsci; sciindex++) {
-		swapchainimages[sciindex].extent = surfacecaps.currentExtent;
-		swapchainimages[sciindex].memory = VK_NULL_HANDLE;
-		swapchainimages[sciindex].format = GH_SWAPCHAIN_IMAGE_FORMAT;
-		VkImageViewCreateInfo imageviewcreateinfo {
-			VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			nullptr,
-			0,
-			swapchainimages[sciindex].image,
-			VK_IMAGE_VIEW_TYPE_2D,
-			GH_SWAPCHAIN_IMAGE_FORMAT,
-			{VK_COMPONENT_SWIZZLE_IDENTITY,
-			 VK_COMPONENT_SWIZZLE_IDENTITY,
-			 VK_COMPONENT_SWIZZLE_IDENTITY,
-			 VK_COMPONENT_SWIZZLE_IDENTITY},
-			{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
-		};
-		vkCreateImageView(logicaldevice, &imageviewcreateinfo, nullptr, &swapchainimages[sciindex].view);
-	}
-	sciindex = 0u;
-}
-
-void GH::terminateSwapchain() {
-	vkDestroySwapchainKHR(logicaldevice, swapchain, nullptr);
-	for (uint8_t scii = 0; scii < numsci; scii++) {
-		vkDestroyImageView(logicaldevice, swapchainimages[scii].view, nullptr);
-	}
-	delete[] swapchainimages;
 }
 
 void GH::initRenderpasses() {
@@ -318,41 +536,6 @@ void GH::terminateRenderpasses() {
 	vkDestroyRenderPass(logicaldevice, primaryrenderpass, nullptr);
 }
 
-void GH::initDepthBuffer() {
-	depthbuffer.extent = swapchainimages[0].extent;
-	depthbuffer.format = VK_FORMAT_D32_SFLOAT;
-	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-	createImage(depthbuffer);
-}
-
-void GH::terminateDepthBuffer() {
-	destroyImage(depthbuffer);
-}
-
-void GH::initFramebuffers() {
-	framebuffers = new VkFramebuffer[numsci];
-	VkImageView attachments[2];
-	attachments[1] = depthbuffer.view;
-	VkFramebufferCreateInfo framebufferci {
-		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-		nullptr,
-		0,
-		primaryrenderpass,
-		2, &attachments[0],
-		swapchainimages[0].extent.width, swapchainimages[0].extent.height, 1
-	};
-	for (uint8_t scii = 0; scii < numsci; scii++) {
-		attachments[0] = swapchainimages[scii].view;
-		vkCreateFramebuffer(logicaldevice, &framebufferci, nullptr, &framebuffers[scii]);
-	}
-}
-
-void GH::terminateFramebuffers() {
-	for (uint8_t scii = 0; scii < numsci; scii++) {
-		vkDestroyFramebuffer(logicaldevice, framebuffers[scii], nullptr);
-	}
-	delete[] framebuffers;
-}
 void GH::initCommandPools() {
 	VkCommandPoolCreateInfo commandpoolci {
 		VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -365,24 +548,6 @@ void GH::initCommandPools() {
 
 void GH::terminateCommandPools() {
 	vkDestroyCommandPool(logicaldevice, commandpool, nullptr);
-}
-
-void GH::initCommandBuffers() {
-	fifindex = 0u;
-	primarycommandbuffers = new VkCommandBuffer[GH_MAX_FRAMES_IN_FLIGHT];
-	VkCommandBufferAllocateInfo commandbufferai {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		nullptr,
-		commandpool,
-		VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		GH_MAX_FRAMES_IN_FLIGHT,
-	};
-	vkAllocateCommandBuffers(logicaldevice, &commandbufferai, &primarycommandbuffers[0]);
-}
-
-void GH::terminateCommandBuffers() {
-	vkFreeCommandBuffers(logicaldevice, commandpool, GH_MAX_FRAMES_IN_FLIGHT, &primarycommandbuffers[0]);
-	delete[] primarycommandbuffers;
 }
 
 void GH::initDescriptorPoolsAndSetLayouts() {
@@ -400,45 +565,6 @@ void GH::initDescriptorPoolsAndSetLayouts() {
 
 void GH::terminateDescriptorPoolsAndSetLayouts() {
 	// vkDestroyDescriptorPool(logicaldevice, descriptorpool, nullptr);
-}
-
-void GH::initSyncObjects() {
-	imageacquiredsemaphores = new VkSemaphore[numsci];
-	VkSemaphoreCreateInfo imageacquiredsemaphorecreateinfo {
-		VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-		nullptr,
-		0
-	};
-	for (uint8_t scii = 0; scii < numsci; scii++) {
-		vkCreateSemaphore(logicaldevice, &imageacquiredsemaphorecreateinfo, nullptr, &imageacquiredsemaphores[scii]);
-	}
-	submitfinishedfences = new VkFence[GH_MAX_FRAMES_IN_FLIGHT];
-	VkFenceCreateInfo submitfinishedfencecreateinfo {
-		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-		nullptr,
-		VK_FENCE_CREATE_SIGNALED_BIT
-	};
-	submitfinishedsemaphores = new VkSemaphore[GH_MAX_FRAMES_IN_FLIGHT];
-	VkSemaphoreCreateInfo submitfinishedsemaphorecreateinfo {
-		VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-		nullptr,
-		0
-	};
-	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
-		vkCreateFence(logicaldevice, &submitfinishedfencecreateinfo, nullptr, &submitfinishedfences[fifi]);
-		vkCreateSemaphore(logicaldevice, &submitfinishedsemaphorecreateinfo, nullptr, &submitfinishedsemaphores[fifi]);
-	}
-}
-
-void GH::terminateSyncObjects() {
-	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
-		if (fifi < numsci) vkDestroySemaphore(logicaldevice, imageacquiredsemaphores[fifi], nullptr);
-		vkDestroyFence(logicaldevice, submitfinishedfences[fifi], nullptr);
-		vkDestroySemaphore(logicaldevice, submitfinishedsemaphores[fifi], nullptr);
-	}
-	delete[] submitfinishedsemaphores;
-	delete[] submitfinishedfences;
-	delete[] imageacquiredsemaphores;
 }
 
 void GH::createPipeline (PipelineInfo& pi) {
@@ -487,6 +613,11 @@ void GH::createPipeline (PipelineInfo& pi) {
 		delete shaderstagecreateinfo;
 		destroyShader(*shadermodule);
 		delete shadermodule;
+		return;
+	}
+
+	if (pi.extent.width == 0 || pi.extent.height) {
+		WarningError("GH::createPipeline given a PipelineInfo struct with zero height or width\n").raise();
 		return;
 	}
 
@@ -547,7 +678,6 @@ void GH::createPipeline (PipelineInfo& pi) {
 		0,
 		3
 	};
-	if (pi.extent.width == 0) pi.extent = swapchainimages[0].extent;
 	VkViewport viewporttemp {
 		0.0f, 0.0f,
 		float(pi.extent.width), float(pi.extent.height),
@@ -798,9 +928,6 @@ void GH::createImage(ImageInfo& i) {
 	allocateDeviceMemory(VK_NULL_HANDLE, i.image, i.memory, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	vkBindImageMemory(logicaldevice, i.image, i.memory, 0);
 
-	VkImageAspectFlags aspect = (i.format == VK_FORMAT_D32_SFLOAT) ? 
-		VK_IMAGE_ASPECT_DEPTH_BIT : 
-		VK_IMAGE_ASPECT_COLOR_BIT;
 	VkImageViewCreateInfo imageviewci {
 		VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		nullptr,
@@ -812,7 +939,7 @@ void GH::createImage(ImageInfo& i) {
 		 VK_COMPONENT_SWIZZLE_IDENTITY,
 		 VK_COMPONENT_SWIZZLE_IDENTITY,
 		 VK_COMPONENT_SWIZZLE_IDENTITY},
-		{aspect, 0, 1, 0, 1}
+		i.getDefaultSubresourceRange()
 	};
 	vkCreateImageView(logicaldevice, &imageviewci, nullptr, &i.view);
 }
@@ -821,53 +948,6 @@ void GH::destroyImage(ImageInfo& i) {
 	vkDestroyImageView(logicaldevice, i.view, nullptr);
 	freeDeviceMemory(i.memory);
 	vkDestroyImage(logicaldevice, i.image, nullptr);
-}
-
-void GH::recordPrimaryCommandBuffer() {
-	VkCommandBufferBeginInfo primarycommandbufferbi {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		nullptr,
-		0,
-		nullptr
-	};
-	vkWaitForFences(logicaldevice, 1, &submitfinishedfences[fifindex], VK_FALSE, UINT64_MAX);
-	vkBeginCommandBuffer(primarycommandbuffers[fifindex], &primarycommandbufferbi);
-	VkRenderPassBeginInfo rpbi {
-		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-		nullptr,
-		primaryrenderpass,
-		framebuffers[sciindex],
-		{{0, 0}, swapchainimages[sciindex].extent},
-		2,
-		&primaryclears[0]
-	};
-	vkCmdBeginRenderPass(primarycommandbuffers[fifindex], &rpbi, VK_SUBPASS_CONTENTS_INLINE);
-
-	vkCmdEndRenderPass(primarycommandbuffers[fifindex]);
-	vkEndCommandBuffer(primarycommandbuffers[fifindex]);
-}
-
-void GH::submitAndPresent() {
-	VkPipelineStageFlags waitstage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	vkResetFences(logicaldevice, 1, &submitfinishedfences[fifindex]);
-	VkSubmitInfo submitinfo {
-		VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		nullptr,
-		1, &imageacquiredsemaphores[sciindex],
-		&waitstage,
-		1, &primarycommandbuffers[fifindex],
-		1, &submitfinishedsemaphores[fifindex]
-	};
-	vkQueueSubmit(genericqueue, 1, &submitinfo, submitfinishedfences[fifindex]);
-
-	VkPresentInfoKHR presentinfo {
-		VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-		nullptr,
-		1, &submitfinishedsemaphores[fifindex],
-		1, &swapchain, &sciindex,
-		nullptr
-	};
-	vkQueuePresentKHR(genericqueue, &presentinfo);
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
