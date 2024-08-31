@@ -31,8 +31,7 @@ WindowInfo::WindowInfo() {
 		displaymode->w, displaymode->h, 
 		SDL_WINDOW_VULKAN);
 
-	shouldclose = false;
-	SDL_AddEventWatch(defaultEventCallback, &shouldclose);
+	sdlwindowid = SDL_GetWindowID(sdlwindow);
 
 	SDL_Vulkan_CreateSurface(
 		sdlwindow, 
@@ -322,14 +321,6 @@ void WindowInfo::submitAndPresent() {
 
 	fifindex++;
 	if (fifindex == GH_MAX_FRAMES_IN_FLIGHT) fifindex = 0;
-}
-
-bool WindowInfo::defaultEventCallback(void* data, SDL_Event* e) {
-	if (e->type == SDL_EVENT_QUIT) {
-		*static_cast<bool*>(data) = true;
-		return SDL_FALSE;
-	}
-	return SDL_TRUE;
 }
 
 VkInstance GH::instance = VK_NULL_HANDLE;

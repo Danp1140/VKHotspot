@@ -174,13 +174,13 @@ public:
 	~WindowInfo();
 
 	void frameCallback();
-	const bool shouldClose() const {return shouldclose;}
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
 
 private:
 	SDL_Window* sdlwindow;
+	uint32_t sdlwindowid;
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
 	ImageInfo* scimages, depthbuffer;
@@ -193,7 +193,6 @@ private:
 	std::queue<cbRecTask> rectasks;
 	std::queue<cbCollectInfo> collectinfos;
 	std::vector<VkCommandBuffer> secondarycbset;
-	bool shouldclose;
 
 	// below members are temp to make ops done every frame faster
 	// these are used directly after they're set, and should not be read elsewhere
@@ -223,8 +222,6 @@ private:
 		std::vector<VkCommandBuffer>& secondarycbset);
 	void collectPrimaryCB();
 	void submitAndPresent();
-
-	static bool defaultEventCallback(void* data, SDL_Event* e);
 };
 
 class GH {
