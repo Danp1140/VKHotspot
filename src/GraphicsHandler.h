@@ -1,3 +1,6 @@
+#ifndef GRAPHICS_HANDLER_H
+#define GRAPHICS_HANDLER_H
+
 #include <vulkan.h>
 #include <ext.hpp>
 #include <SDL3/SDL.h>
@@ -323,3 +326,4 @@ private:
 			const VkDebugUtilsMessengerCallbackDataEXT* callbackdata,
 			void* userdata);
 };
+#endif

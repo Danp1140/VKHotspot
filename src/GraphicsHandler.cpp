@@ -1,5 +1,9 @@
 #include "GraphicsHandler.h"
 
+/*
+ * WindowInfo
+ */
+
 const VkPipelineStageFlags WindowInfo::defaultsubmitwaitstage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 const VkCommandBufferBeginInfo WindowInfo::primarycbbegininfo = {
 	VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -322,6 +326,10 @@ void WindowInfo::submitAndPresent() {
 	fifindex++;
 	if (fifindex == GH_MAX_FRAMES_IN_FLIGHT) fifindex = 0;
 }
+
+/*
+ * GraphicsHandler
+ */
 
 VkInstance GH::instance = VK_NULL_HANDLE;
 VkDevice GH::logicaldevice = VK_NULL_HANDLE;
