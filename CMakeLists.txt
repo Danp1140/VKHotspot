@@ -45,9 +45,40 @@ else ()
 endif ()
 include_directories(${GLM_INCLUDE})
 
+#[[ FreeType ]]
+if (DEFINED ENV{PATH_TO_FREETYPE_INCLUDE}) 
+	set(FREETYPE_INCLUDE $ENV{PATH_TO_FREETYPE_INCLUDE})
+else () 
+	find_path(FREETYPE_INCLUDE NAMES UI.h ONLY_CMAKE_FIND_ROOT_PATH)
+endif ()
+
+if (DEFINED ENV{PATH_TO_FREETYPE_LIB}) 
+	set(FREETYPE_LIB $ENV{PATH_TO_FREETYPE_LIB})
+else () 
+	find_library(FREETYPE_LIB NAMES UI)
+endif ()
+include_directories(${FREETYPE_INCLUDE})
+link_directories(${FREETYPE_LIB})
+
+#[[ UsMInt ]]
+if (DEFINED ENV{PATH_TO_USMINT_INCLUDE}) 
+	set(USMINT_INCLUDE $ENV{PATH_TO_USMINT_INCLUDE})
+else () 
+	find_path(USMINT_INCLUDE NAMES UI.h ONLY_CMAKE_FIND_ROOT_PATH)
+endif ()
+
+if (DEFINED ENV{PATH_TO_USMINT_LIB}) 
+	set(USMINT_LIB $ENV{PATH_TO_USMINT_LIB})
+else () 
+	find_library(USMINT_LIB NAMES UI)
+endif ()
+include_directories(${USMINT_INCLUDE})
+link_directories(${USMINT_LIB})
+
 add_executable(VulkanProject 
 	src/main.cpp 
 	src/GraphicsHandler.cpp src/GraphicsHandler.h
-	src/Errors.cpp src/Errors.h)
+	src/Errors.cpp src/Errors.h
+	src/UIHandler.cpp src/UIHandler.h)
 
-target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 SDL3 -m64)
+target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 SDL3 UI freetype bz2 -m64)

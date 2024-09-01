@@ -173,7 +173,13 @@ public:
 	 * - Resolution (can this vary relative to window size?)
 	 * - Monitor
 	 */
+	// perhaps make private if we don't ever want to alow no presentation rp
+	// may need a default constructor tho...
 	WindowInfo();
+	WindowInfo(const VkRenderPass& presrp);
+	// explicitly delete these until we can safely implement them
+	WindowInfo(const WindowInfo& lvalue) = delete;
+	WindowInfo(WindowInfo&& rvalue) = delete;
 	~WindowInfo();
 
 	void frameCallback();
@@ -190,7 +196,7 @@ private:
 	uint32_t numscis, sciindex, fifindex;
 	VkSemaphore imgacquiresema, subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
 	VkFence subfinishfences[GH_MAX_FRAMES_IN_FLIGHT];
-	// TODO: better framebuffer management system (intersects with GH renderpass system)
+	VkRenderPass presentationrp;
 	VkFramebuffer* presentationfbs;
 	VkCommandBuffer primarycbs[GH_MAX_FRAMES_IN_FLIGHT];
 	std::queue<cbRecTask> rectasks;
@@ -231,6 +237,14 @@ class GH {
 public:
 	GH();
 	~GH();
+
+	static void createRenderPass(
+		VkRenderPass& rp,
+		uint8_t numattachments,
+		VkAttachmentDescription* attachmentdescs,
+		VkAttachmentReference* colorattachmentrefs,
+		VkAttachmentReference* depthattachmentref);
+	static void destroyRenderPass(VkRenderPass& rp);
 
 	void createPipeline(PipelineInfo& pi);
 	void destroyPipeline(PipelineInfo& pi);

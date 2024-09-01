@@ -19,7 +19,7 @@ const VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo() {
+WindowInfo::WindowInfo() : presentationrp(VK_NULL_HANDLE), presentationfbs(nullptr) {
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
@@ -111,8 +111,12 @@ WindowInfo::WindowInfo() {
 	GH::createImage(depthbuffer);
 
 	createSyncObjects();
-	createPresentationFBs();
 	createPrimaryCBs();
+}
+
+WindowInfo::WindowInfo(const VkRenderPass& presrp) : WindowInfo() {
+	presentationrp = presrp;
+	createPresentationFBs();
 }
 
 WindowInfo::~WindowInfo() {
@@ -142,17 +146,15 @@ void WindowInfo::frameCallback() {
 	rectasks.push(cbRecTask({
 		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		nullptr,
-		GH::getPresentationRenderPass(),
+		presentationrp,
 		presentationfbs[sciindex],
 		{{0, 0}, scimages[sciindex].extent},
-		2, GH::getPresentationClearsPtr()
+		1, GH::getPresentationClearsPtr()
 	}));
 
 	processRecordingTasks(fifindex, 0, rectasks, collectinfos, secondarycbset);
 
 	collectPrimaryCB();
-
-	SDL_PumpEvents();
 
 	submitAndPresent();
 }
@@ -182,13 +184,14 @@ void WindowInfo::destroySyncObjects() {
 
 void WindowInfo::createPresentationFBs() {
 	presentationfbs = new VkFramebuffer[numscis];
+	/*
 	VkImageView attachments[2];
 	attachments[1] = depthbuffer.view;
 	VkFramebufferCreateInfo framebufferci {
 		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 		nullptr,
 		0,
-		GH::getPresentationRenderPass(),
+		presentationrp,
 		2, &attachments[0],
 		scimages[0].extent.width, scimages[0].extent.height, 1
 	};
@@ -196,13 +199,29 @@ void WindowInfo::createPresentationFBs() {
 		attachments[0] = scimages[scii].view;
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
 	}
+	*/
+	VkFramebufferCreateInfo framebufferci {
+		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		presentationrp,
+		1, nullptr,
+		scimages[0].extent.width, scimages[0].extent.height, 1
+	};
+	for (uint8_t scii = 0; scii < numscis; scii++) {
+		framebufferci.pAttachments = &scimages[scii].view;
+		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
+	}
+
 }
 
 void WindowInfo::destroyPresentationFBs() {
-	for (uint8_t scii = 0; scii < numscis; scii++) {
-		vkDestroyFramebuffer(GH::getLD(), presentationfbs[scii], nullptr);
+	if (presentationfbs) {
+		for (uint8_t scii = 0; scii < numscis; scii++) {
+			vkDestroyFramebuffer(GH::getLD(), presentationfbs[scii], nullptr);
+		}
+		delete[] presentationfbs;
 	}
-	delete[] presentationfbs;
 }
 
 void WindowInfo::createPrimaryCBs() {
@@ -564,6 +583,43 @@ void GH::initDescriptorPoolsAndSetLayouts() {
 
 void GH::terminateDescriptorPoolsAndSetLayouts() {
 	// vkDestroyDescriptorPool(logicaldevice, descriptorpool, nullptr);
+}
+
+void GH::createRenderPass(
+	VkRenderPass& rp,
+	uint8_t numattachments,
+	VkAttachmentDescription* attachmentdescs,
+	VkAttachmentReference* colorattachmentrefs,
+	VkAttachmentReference* depthattachmentref) {
+	VkSubpassDescription primarysubpassdescription {
+		0,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		0, nullptr,
+		static_cast<uint32_t>(numattachments - (depthattachmentref ? 1 : 0)), 
+		colorattachmentrefs, nullptr, depthattachmentref,
+		0, nullptr
+	};
+	VkSubpassDependency subpassdependency {
+		VK_SUBPASS_EXTERNAL, 0,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+		VK_ACCESS_SHADER_READ_BIT,
+		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		0
+	};
+	VkRenderPassCreateInfo rpcreateinfo {
+		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+		nullptr,
+		0,
+		numattachments, &attachmentdescs[0],
+		1, &primarysubpassdescription,
+		1, &subpassdependency
+	};
+	vkCreateRenderPass(logicaldevice, &rpcreateinfo, nullptr, &rp);
+}
+
+void GH::destroyRenderPass(VkRenderPass& rp) {
+	vkDestroyRenderPass(logicaldevice, rp, nullptr);
 }
 
 void GH::createPipeline (PipelineInfo& pi) {
