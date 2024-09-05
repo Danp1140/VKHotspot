@@ -2,10 +2,21 @@
 
 int main() {
 	GH graphicshandler = GH();
-	UIHandler::init();
-	WindowInfo w(UIHandler::getRenderPass());
+	WindowInfo w;
+	UIHandler ui(w.getSCExtent());
+	w.setPresentationRP(ui.getRenderPass());
 
-	UIText testtex("please work", glm::vec2(100, 100));
+	VkExtent2D tempext[w.getNumSCIs()];
+	for (uint8_t scii = 0; scii < w.getNumSCIs(); scii++) tempext[scii] = w.getSCImages()[scii].extent;
+	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(
+		ui.getRenderPass(),
+		w.getPresentationFBs(),
+		tempext,
+		1, &ui.getColorClear(),
+		w.getNumSCIs())));
+	w.addTask(cbRecFunc([&ui, &w] (VkCommandBuffer& cb) {
+		ui.draw(cb, w.getCurrentPresentationFB());
+	}));
 
 	bool xpressed = false;
 	SDL_Event eventtemp;
@@ -20,7 +31,5 @@ int main() {
 		}
 	}
 
-
-	UIHandler::terminate();
-	return 1;
+	return 0;
 }

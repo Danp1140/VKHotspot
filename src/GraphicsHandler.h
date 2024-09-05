@@ -18,6 +18,7 @@
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
 #define GH_MAX_FRAMES_IN_FLIGHT 6
 #define WORKING_DIRECTORY "/Users/danp/Desktop/C Coding/WaveBox/"
+#define SHADER_DIRECTORY "/Users/danp/Desktop/C Coding/VKHotspot/resources/shaders/SPIRV/"
 
 #define NUM_SHADER_STAGES_SUPPORTED 5
 const VkShaderStageFlagBits supportedshaderstages[NUM_SHADER_STAGES_SUPPORTED] = {
@@ -46,6 +47,7 @@ typedef struct ImageInfo {
 	VkExtent2D extent = {0, 0};
 	VkFormat format = VK_FORMAT_UNDEFINED;
 	VkImageUsageFlags usage = 0u;
+	VkImageLayout layout = VK_IMAGE_LAYOUT_PREINITIALIZED;
 
 	VkImageSubresourceRange getDefaultSubresourceRange() const {
 		return {
@@ -74,10 +76,17 @@ typedef struct PipelineInfo {
 	VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	VkExtent2D extent = {0, 0}; 
 	VkCullModeFlags cullmode = VK_CULL_MODE_BACK_BIT;
-	VkRenderPass renderpass = VK_NULL_HANDLE; // if not set, will default to primaryrenderpass
+	VkRenderPass renderpass;
 } PipelineInfo;
 
 typedef std::function<void (VkCommandBuffer&)> cbRecFunc;
+
+typedef enum cbRecTaskType {
+		CB_REC_TASK_TYPE_UNINITIALIZED,
+		CB_REC_TASK_TYPE_COMMAND_BUFFER,
+		CB_REC_TASK_TYPE_RENDERPASS,
+		CB_REC_TASK_TYPE_DEPENDENCY,
+} cbRecTaskType;
 
 typedef struct cbRecTask {
 	cbRecTask () : type(CB_REC_TASK_TYPE_UNINITIALIZED), data() {}
@@ -113,12 +122,7 @@ typedef struct cbRecTask {
 		data.~cbRecTaskData();
 	}
 
-	enum cbRecTaskType {
-		CB_REC_TASK_TYPE_UNINITIALIZED,
-		CB_REC_TASK_TYPE_COMMAND_BUFFER,
-		CB_REC_TASK_TYPE_RENDERPASS,
-		CB_REC_TASK_TYPE_DEPENDENCY,
-	} type;
+	cbRecTaskType type;
 
 	union cbRecTaskData {
 		cbRecTaskData () {}
@@ -157,6 +161,59 @@ typedef struct cbCollectInfo {
 	} data;
 } cbCollectInfo;
 
+typedef struct cbRecTaskRenderPassTemplate {
+	VkRenderPass rp;
+	const VkFramebuffer* fbs;
+	const VkExtent2D* exts;
+	uint32_t nclears, numscis;
+	const VkClearValue* clears;
+
+	cbRecTaskRenderPassTemplate() = delete;
+	cbRecTaskRenderPassTemplate(
+		const VkRenderPass r,
+		const VkFramebuffer* const f,
+		const VkExtent2D* const e,
+		uint32_t nc,
+		const VkClearValue* const c, 
+		uint32_t ns) :
+		rp(r),
+		fbs(f),
+		exts(e),
+		nclears(nc),
+		numscis(ns),
+		clears(c) {}
+	~cbRecTaskRenderPassTemplate() {}
+} cbRecTaskRenderPassTemplate;
+
+typedef struct cbRecTaskTemplate {
+	cbRecTaskTemplate() = default;
+	cbRecTaskTemplate(cbRecFunc&& f) {
+		type = CB_REC_TASK_TYPE_COMMAND_BUFFER;
+		// still no clue what this line does
+		new(&data.func) cbRecFunc(f);
+	}
+	cbRecTaskTemplate(cbRecTaskRenderPassTemplate r) {
+		type = CB_REC_TASK_TYPE_RENDERPASS;
+		data.rpi = r;
+	}
+	~cbRecTaskTemplate() {
+		if (type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+			if (data.func) data.func.~function();
+		}
+	}
+
+
+	cbRecTaskType type;
+
+	union cbRecTaskTemplateData {
+		cbRecTaskTemplateData () {}
+		~cbRecTaskTemplateData () {}
+
+		cbRecFunc func;
+		cbRecTaskRenderPassTemplate rpi;
+	} data;
+} cbRecTaskTemplate;
+
 class GH;
 
 class WindowInfo {
@@ -183,9 +240,18 @@ public:
 	~WindowInfo();
 
 	void frameCallback();
+	void addTask(cbRecTaskTemplate&& t);
+
+	// rebuilds presentation fbs too
+	void setPresentationRP(const VkRenderPass& presrp);
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
+	const ImageInfo* const getSCImages() const {return scimages;}
+	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
+	const VkFramebuffer* const getPresentationFBs() const {return presentationfbs;}
+	const VkFramebuffer& getCurrentPresentationFB() const {return presentationfbs[sciindex];}
+	uint32_t getNumSCIs() const {return numscis;}
 
 private:
 	SDL_Window* sdlwindow;
@@ -199,15 +265,16 @@ private:
 	VkRenderPass presentationrp;
 	VkFramebuffer* presentationfbs;
 	VkCommandBuffer primarycbs[GH_MAX_FRAMES_IN_FLIGHT];
-	std::queue<cbRecTask> rectasks;
+	std::vector<cbRecTask>* rectaskvec;
+	std::queue<cbRecTask> rectasks; // TODO: rename to rectaskqueue
 	std::queue<cbCollectInfo> collectinfos;
-	std::vector<VkCommandBuffer> secondarycbset;
+	std::vector<VkCommandBuffer> secondarycbset[GH_MAX_FRAMES_IN_FLIGHT];
 
 	// below members are temp to make ops done every frame faster
 	// these are used directly after they're set, and should not be read elsewhere
 	static const VkPipelineStageFlags defaultsubmitwaitstage;
 	static const VkCommandBufferBeginInfo primarycbbegininfo; 
-	static const VkCommandBufferAllocateInfo cballocinfo;
+	static VkCommandBufferAllocateInfo cballocinfo;
 	VkSubmitInfo submitinfo;
 	VkPresentInfoKHR presentinfo;
 
@@ -246,8 +313,8 @@ public:
 		VkAttachmentReference* depthattachmentref);
 	static void destroyRenderPass(VkRenderPass& rp);
 
-	void createPipeline(PipelineInfo& pi);
-	void destroyPipeline(PipelineInfo& pi);
+	static void createPipeline(PipelineInfo& pi);
+	static void destroyPipeline(PipelineInfo& pi);
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set
 	 * in i before calling createImage.
@@ -318,13 +385,13 @@ private:
 	void initDescriptorPoolsAndSetLayouts();
 	void terminateDescriptorPoolsAndSetLayouts();
 	
-	void createShader(
+	static void createShader(
 		VkShaderStageFlags stages,
 		const char** filepaths,
 		VkShaderModule** modules,
 		VkPipelineShaderStageCreateInfo** createinfos,
 		VkSpecializationInfo* specializationinfos);
-	void destroyShader(VkShaderModule shader);
+	static void destroyShader(VkShaderModule shader);
 
 	// TODO: BufferInfo class
 	static void allocateDeviceMemory(

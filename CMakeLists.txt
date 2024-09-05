@@ -70,7 +70,7 @@ endif ()
 if (DEFINED ENV{PATH_TO_USMINT_LIB}) 
 	set(USMINT_LIB $ENV{PATH_TO_USMINT_LIB})
 else () 
-	find_library(USMINT_LIB NAMES UI)
+	find_library(USMINT_LIB NAMES UsMInt)
 endif ()
 include_directories(${USMINT_INCLUDE})
 link_directories(${USMINT_LIB})
@@ -81,4 +81,4 @@ add_executable(VulkanProject
 	src/Errors.cpp src/Errors.h
 	src/UIHandler.cpp src/UIHandler.h)
 
-target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 SDL3 UI freetype bz2 -m64)
+target_link_libraries(${PROJECT_NAME} vulkan.1.2.176 SDL3 UsMInt freetype bz2 -m64)

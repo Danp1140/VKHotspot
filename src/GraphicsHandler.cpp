@@ -11,10 +11,10 @@ const VkCommandBufferBeginInfo WindowInfo::primarycbbegininfo = {
 	0,
 	nullptr
 };
-const VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
+VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 	nullptr,
-	GH::getCommandPool(),
+	VK_NULL_HANDLE,
 	VK_COMMAND_BUFFER_LEVEL_SECONDARY,
 	1u
 };
@@ -112,6 +112,9 @@ WindowInfo::WindowInfo() : presentationrp(VK_NULL_HANDLE), presentationfbs(nullp
 
 	createSyncObjects();
 	createPrimaryCBs();
+
+	rectaskvec = new std::vector<cbRecTask>[numscis];
+	cballocinfo.commandPool = GH::getCommandPool();
 }
 
 WindowInfo::WindowInfo(const VkRenderPass& presrp) : WindowInfo() {
@@ -121,6 +124,7 @@ WindowInfo::WindowInfo(const VkRenderPass& presrp) : WindowInfo() {
 
 WindowInfo::~WindowInfo() {
 	vkQueueWaitIdle(GH::getGenericQueue());
+	delete[] rectaskvec;
 	destroyPrimaryCBs();
 	destroyPresentationFBs();
 	destroySyncObjects();
@@ -143,20 +147,43 @@ void WindowInfo::frameCallback() {
 		VK_NULL_HANDLE,
 		&sciindex);
 
-	rectasks.push(cbRecTask({
-		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-		nullptr,
-		presentationrp,
-		presentationfbs[sciindex],
-		{{0, 0}, scimages[sciindex].extent},
-		1, GH::getPresentationClearsPtr()
-	}));
+	for (const cbRecTask& t : rectaskvec[sciindex]) rectasks.push(t);
 
-	processRecordingTasks(fifindex, 0, rectasks, collectinfos, secondarycbset);
+	// TODO: better timeout logic
+	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
+	processRecordingTasks(fifindex, 0, rectasks, collectinfos, secondarycbset[fifindex]);
 
 	collectPrimaryCB();
 
 	submitAndPresent();
+}
+
+void WindowInfo::addTask(cbRecTaskTemplate&& t) {
+	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+		for (uint8_t scii = 0; scii < numscis; scii++) {
+			rectaskvec[scii].push_back(cbRecTask(t.data.func));
+		}
+	}
+	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
+		for (uint8_t scii = 0; scii < numscis; scii++) {
+			rectaskvec[scii].push_back(cbRecTask((VkRenderPassBeginInfo){
+				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+				nullptr,
+				t.data.rpi.rp,
+				t.data.rpi.fbs[scii],
+				{{0, 0}, t.data.rpi.exts[scii]},
+				t.data.rpi.nclears, t.data.rpi.clears
+			}));
+		}
+	}
+}
+
+void WindowInfo::setPresentationRP(const VkRenderPass& presrp) {
+	vkQueueWaitIdle(GH::getGenericQueue());
+	presentationrp = presrp;
+	destroyPresentationFBs();
+	createPresentationFBs();
 }
 
 void WindowInfo::createSyncObjects() {
@@ -249,12 +276,12 @@ void WindowInfo::processRecordingTasks(
 	size_t bufferidx = 0;
 	cbRecFunc recfunc;
 	while (!rectasks.empty()) {
-		if (rectasks.front().type == cbRecTask::cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
+		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.rpbi));
 			rectasks.pop();
 			continue;
 		}
-		if (rectasks.front().type == cbRecTask::cbRecTaskType::CB_REC_TASK_TYPE_DEPENDENCY) {
+		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_DEPENDENCY) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.di));
 			rectasks.pop();
 			continue;
@@ -276,9 +303,6 @@ void WindowInfo::processRecordingTasks(
 }
 
 void WindowInfo::collectPrimaryCB() {
-	// TODO: better timeout logic
-	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
-	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
 	vkBeginCommandBuffer(primarycbs[fifindex], &primarycbbegininfo);
 	bool inrp = false;
 	while (!collectinfos.empty()) {
@@ -641,7 +665,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 					&pi.layout);
 		VkShaderModule* shadermodule = new VkShaderModule;
 		VkPipelineShaderStageCreateInfo* shaderstagecreateinfo = new VkPipelineShaderStageCreateInfo;
-		std::string tempstr = std::string(WORKING_DIRECTORY "resources/shaders/SPIRV/")
+		std::string tempstr = std::string(SHADER_DIRECTORY)
 			.append(pi.shaderfilepathprefix)
 			.append("comp.spv");
 		const char* filepath = tempstr.c_str();
@@ -671,7 +695,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		return;
 	}
 
-	if (pi.extent.width == 0 || pi.extent.height) {
+	if (pi.extent.width == 0 || pi.extent.height == 0) {
 		WarningError("GH::createPipeline given a PipelineInfo struct with zero height or width\n").raise();
 		return;
 	}
@@ -681,7 +705,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 	std::string temp;
 	for (uint8_t i = 0; i < NUM_SHADER_STAGES_SUPPORTED; i++) {
 		if (supportedshaderstages[i] & pi.stages) {
-			temp = std::string(WORKING_DIRECTORY "resources/shaders/SPIRV/")
+			temp = std::string(SHADER_DIRECTORY)
 				.append(pi.shaderfilepathprefix)
 				.append(shaderstagestrs[i])
 				.append(".spv");
@@ -691,6 +715,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 			numshaderstages++;
 		}
 	}
+	// TODO: why are these allocated with new???
 	VkShaderModule* shadermodules = new VkShaderModule[numshaderstages];
 	VkPipelineShaderStageCreateInfo* shaderstagecreateinfos = new VkPipelineShaderStageCreateInfo[numshaderstages];
 	createShader(pi.stages,
@@ -831,7 +856,6 @@ void GH::createPipeline (PipelineInfo& pi) {
 		1, &colorblendattachmentstate,
 		{0.0f, 0.0f, 0.0f, 0.0f}
 	};
-	if (pi.renderpass == VK_NULL_HANDLE) pi.renderpass = primaryrenderpass;
 	VkGraphicsPipelineCreateInfo pipelinecreateinfo = {
 		VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
 		nullptr,
@@ -997,6 +1021,10 @@ void GH::createImage(ImageInfo& i) {
 		i.getDefaultSubresourceRange()
 	};
 	vkCreateImageView(logicaldevice, &imageviewci, nullptr, &i.view);
+
+	/*
+	 * TODO: transition image layout to whatever is in the layout field!!
+	 */
 }
 
 void GH::destroyImage(ImageInfo& i) {
