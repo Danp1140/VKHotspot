@@ -21,6 +21,22 @@ void FatalError::raise() {
 	exit(1);
 }
 
+void FatalError::vkCatch(VkResult r) {
+	if (r != VK_SUCCESS) {
+		message += "VkResult: "; 
+		message += string_VkResult(r);
+		raise();
+	}
+}
+
+void FatalError::sdlCatch(SDL_bool r) {
+	if (!r) {
+		message += "SDL_GetError(): ";
+		message += SDL_GetError();
+		raise();
+	}
+}
+
 /*
  * WarningError
  */

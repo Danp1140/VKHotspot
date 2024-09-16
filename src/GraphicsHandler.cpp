@@ -58,7 +58,7 @@ WindowInfo::WindowInfo() : presentationrp(VK_NULL_HANDLE), presentationfbs(nullp
 		&surfacecaps);
 	numscis = surfacecaps.maxImageCount;
 
-	VkSwapchainCreateInfoKHR swapchaincreateinfo {
+	const VkSwapchainCreateInfoKHR swapchaincreateinfo {
 		VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		nullptr,
 		0,
@@ -108,6 +108,7 @@ WindowInfo::WindowInfo() : presentationrp(VK_NULL_HANDLE), presentationfbs(nullp
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
 	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	depthbuffer.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	GH::createImage(depthbuffer);
 
 	createSyncObjects();
@@ -381,12 +382,15 @@ VkQueue GH::genericqueue = VK_NULL_HANDLE;
 uint8_t GH::queuefamilyindex = 0xff;
 VkRenderPass GH::primaryrenderpass = VK_NULL_HANDLE;
 VkCommandPool GH::commandpool = VK_NULL_HANDLE;
+VkCommandBuffer GH::interimcb = VK_NULL_HANDLE;
 const VkClearValue GH::primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 0.};
+VkDescriptorPool GH::descriptorpool = VK_NULL_HANDLE;
+VkSampler GH::nearestsampler = VK_NULL_HANDLE;
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		FatalError(
-			std::string("SDL2 Initialization Failed! From SDL_GetError():\n") 
+			std::string("SDL3 Initialization Failed! From SDL_GetError():\n") 
 			 + SDL_GetError()).raise();
 	}
 	initVulkanInstance();
@@ -394,12 +398,14 @@ GH::GH() {
 	initDevicesAndQueues();
 	initRenderpasses();
 	initCommandPools();
+	initSamplers();
 	initDescriptorPoolsAndSetLayouts();
 }
 
 GH::~GH() {
 	vkQueueWaitIdle(genericqueue);
 	terminateDescriptorPoolsAndSetLayouts();
+	terminateSamplers();
 	terminateCommandPools();
 	terminateRenderpasses();
 	terminateDevicesAndQueues();
@@ -419,23 +425,48 @@ void GH::initVulkanInstance() {
 		VK_MAKE_API_VERSION(0, 1, 0, 0)
 	};
 
+	/*
+	 * SDL extensions should handle surface and metal surface, but its unclear if 
+	 * surface should be included regardless of SDL extension response.
+	 */
+	uint32_t nsdlexts;
+	char const * const * sdlexts = SDL_Vulkan_GetInstanceExtensions(&nsdlexts);
 	const char* layers[1] {"VK_LAYER_KHRONOS_validation"};
-	const char* extensions[5] {
-		"VK_MVK_macos_surface",
-		"VK_KHR_surface",
-		"VK_EXT_metal_surface",
-		"VK_KHR_get_physical_device_properties2",
-		"VK_EXT_debug_utils"
+	uint32_t nallowedexts;
+	vkEnumerateInstanceExtensionProperties(nullptr, &nallowedexts, nullptr);
+	VkExtensionProperties allowedexts[nallowedexts];
+	vkEnumerateInstanceExtensionProperties(nullptr, &nallowedexts, &allowedexts[0]);
+	std::vector<const char*> extensions = {
+		"VK_MVK_macos_surface", // only required on OSX, TODO: add os build maacro check
+		"VK_KHR_get_physical_device_properties2", // unclear why this is needeed
+		"VK_EXT_debug_utils" // for val layers, not needed in final compilation
 	};
+	bool allowed;
+	for (uint32_t i = 0; i < nsdlexts; i++) {
+		allowed = false;
+		for (uint32_t j = 0; j < nallowedexts; j++) {
+			if (strcmp(sdlexts[i], &allowedexts[j].extensionName[0]) == 0) {
+				allowed = true;
+				break;
+			}
+		}
+		if (!allowed) {
+			WarningError(std::string("SDL requested unsupported instance extension ") + sdlexts[i]).raise();
+		}
+		else {
+			extensions.push_back(sdlexts[i]);
+		}
+	}
 	VkInstanceCreateInfo instancecreateinfo {
 		VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		nullptr,
 		0,
 		&appinfo,
 		1, &layers[0],
-		5, &extensions[0]
+		static_cast<uint32_t>(extensions.size()), extensions.data() 
 	};
-	vkCreateInstance(&instancecreateinfo, nullptr, &instance);
+	FatalError("Vulkan instance creation error\n")
+		.vkCatch(vkCreateInstance(&instancecreateinfo, nullptr, &instance));
 }
 
 void GH::terminateVulkanInstance() {
@@ -586,27 +617,69 @@ void GH::initCommandPools() {
 		queuefamilyindex
 	};
 	vkCreateCommandPool(logicaldevice, &commandpoolci, nullptr, &commandpool);
+
+	VkCommandBufferAllocateInfo cballocinfo {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		nullptr,
+		commandpool,
+		VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		1
+	};
+	vkAllocateCommandBuffers(
+		logicaldevice,
+		&cballocinfo,
+		&interimcb);
 }
 
 void GH::terminateCommandPools() {
+	vkFreeCommandBuffers(
+			logicaldevice, 
+			commandpool,
+			1, &interimcb);
+
 	vkDestroyCommandPool(logicaldevice, commandpool, nullptr);
 }
 
+void GH::initSamplers() {
+	VkSamplerCreateInfo samplerci {
+		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		nullptr,
+		0,
+		VK_FILTER_NEAREST, VK_FILTER_NEAREST,
+		VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		0.,
+		VK_FALSE, 0.,
+		VK_FALSE, VK_COMPARE_OP_NEVER,
+		0., 0., 
+		VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+		VK_FALSE
+	};
+	vkCreateSampler(logicaldevice, &samplerci, nullptr, &nearestsampler);
+}
+
+void GH::terminateSamplers() {
+	vkDestroySampler(logicaldevice, nearestsampler, nullptr);
+}
+
 void GH::initDescriptorPoolsAndSetLayouts() {
-	VkDescriptorPoolSize poolsizes[0];
+	VkDescriptorPoolSize poolsizes[1] {
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
+	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		0,
-		0, nullptr
+		1,
+		1, &poolsizes[0] 
 	};
-	// uncomment this and line in terminateDescriptorPoolsAndSetLayouts when we actually have a DS to alloc
-	// vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
+	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
 }
 
 void GH::terminateDescriptorPoolsAndSetLayouts() {
-	// vkDestroyDescriptorPool(logicaldevice, descriptorpool, nullptr);
+	vkDestroyDescriptorPool(logicaldevice, descriptorpool, nullptr);
 }
 
 void GH::createRenderPass(
@@ -947,30 +1020,26 @@ void GH::destroyShader(VkShaderModule shader) {
 
 void GH::allocateDeviceMemory(
 	const VkBuffer& buffer,
-	const VkImage& image,
-	VkDeviceMemory& memory,
-	VkMemoryPropertyFlags memprops) {
-	if (buffer == VK_NULL_HANDLE && image == VK_NULL_HANDLE) {
-		throw std::runtime_error("allocateDeviceMemory error: both buffer and image are VK_NULL_HANDLE");
-	}
-	if (buffer != VK_NULL_HANDLE && image != VK_NULL_HANDLE) {
-		throw std::runtime_error("allocateDeviceMemory error: both buffer and image are defined");
-	}
+	const ImageInfo& i,
+	VkDeviceMemory& memory) {
 	VkMemoryRequirements memreqs;
 	if (buffer != VK_NULL_HANDLE) vkGetBufferMemoryRequirements(logicaldevice, buffer, &memreqs);
-	else vkGetImageMemoryRequirements(logicaldevice, image, &memreqs);
+	else vkGetImageMemoryRequirements(logicaldevice, i.image, &memreqs);
 	VkPhysicalDeviceMemoryProperties physicaldevicememprops;
 	vkGetPhysicalDeviceMemoryProperties(physicaldevice, &physicaldevicememprops);
+	// TODO: BufferInfo struct so we don't hard-code this
+	const VkMemoryPropertyFlags memprops = buffer ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT : i.memprops;
 	uint32_t finalmemindex = -1u;
 	for (uint32_t memindex = 0; memindex < physicaldevicememprops.memoryTypeCount; memindex++) {
 		if (memreqs.memoryTypeBits & (1 << memindex)
-		    && physicaldevicememprops.memoryTypes[memindex].propertyFlags & memprops) {
+		    && (physicaldevicememprops.memoryTypes[memindex].propertyFlags & memprops) == memprops) {
 			finalmemindex = memindex;
 			break;
 		}
 	}
 	if (finalmemindex == -1u) {
-		throw std::runtime_error("Couldn't find appropriate memory to allocate");
+		FatalError("Couldn't find appropriate memory to allocate\n"
+				"Likely to be a tiling compatability issue").raise();
 	}
 	VkMemoryAllocateInfo memoryai {
 			VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -985,7 +1054,62 @@ void GH::freeDeviceMemory(VkDeviceMemory& memory) {
 	vkFreeMemory(logicaldevice, memory, nullptr);
 }
 
+void GH::createDS(const PipelineInfo& p, VkDescriptorSet& ds) {
+	VkDescriptorSetAllocateInfo allocinfo {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		nullptr,
+		descriptorpool,
+		1, &p.dsl
+	};
+	vkAllocateDescriptorSets(logicaldevice, &allocinfo, &ds);
+}
+
+void GH::updateDS(
+	const VkDescriptorSet& ds, 
+	uint32_t i,
+	VkDescriptorType t,
+	VkDescriptorImageInfo ii,
+	VkDescriptorBufferInfo bi) {
+	VkWriteDescriptorSet write {
+		VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		nullptr,
+		ds,
+		i,
+		0,
+		1,
+		t,
+		&ii, &bi, nullptr
+	};
+	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
+}
+
+void GH::updateWholeDS(
+	const VkDescriptorSet& ds, 
+	std::vector<VkDescriptorType>&& t,
+	std::vector<VkDescriptorImageInfo>&& ii,
+	std::vector<VkDescriptorBufferInfo>&& bi) {
+	VkWriteDescriptorSet writes[t.size()];
+	for (uint32_t i = 0; i < t.size(); i++) {
+		writes[i] = {
+			VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			nullptr,
+			ds,
+			i,
+			0,
+			1,
+			t[i],
+			&ii[i], &bi[i], nullptr
+		};
+	}
+	vkUpdateDescriptorSets(logicaldevice, t.size(), &writes[0], 0, nullptr);
+}
+
 void GH::createImage(ImageInfo& i) {
+	// stolen from other code i wrote, unsure why tiling should be determined this way
+	// in reality this is likely to be system-dependent requiring some device capability querying
+	i.tiling = i.format != VK_FORMAT_D32_SFLOAT ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
+	VkImageLayout finallayout = i.layout;
+	i.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 	VkImageCreateInfo imageci {
 		VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		nullptr,
@@ -996,15 +1120,18 @@ void GH::createImage(ImageInfo& i) {
 		1,
 		1,
 		VK_SAMPLE_COUNT_1_BIT,
-		VK_IMAGE_TILING_OPTIMAL,
+		i.tiling,
 		i.usage,
 		VK_SHARING_MODE_EXCLUSIVE,
 		0, nullptr,
-		VK_IMAGE_LAYOUT_UNDEFINED
+		i.layout
 	};
 	vkCreateImage(logicaldevice, &imageci, nullptr, &i.image);
 
-	allocateDeviceMemory(VK_NULL_HANDLE, i.image, i.memory, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	allocateDeviceMemory(
+		VK_NULL_HANDLE, 
+		i,
+		i.memory);
 	vkBindImageMemory(logicaldevice, i.image, i.memory, 0);
 
 	VkImageViewCreateInfo imageviewci {
@@ -1022,15 +1149,137 @@ void GH::createImage(ImageInfo& i) {
 	};
 	vkCreateImageView(logicaldevice, &imageviewci, nullptr, &i.view);
 
-	/*
-	 * TODO: transition image layout to whatever is in the layout field!!
-	 */
+	transitionImageLayout(i, finallayout);
 }
 
 void GH::destroyImage(ImageInfo& i) {
 	vkDestroyImageView(logicaldevice, i.view, nullptr);
 	freeDeviceMemory(i.memory);
 	vkDestroyImage(logicaldevice, i.image, nullptr);
+}
+
+void GH::updateImage(ImageInfo& i, void* src) {
+	// TODO: handle image transitions when required
+	// TODO: handle device local images using a staging buffer
+	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
+	VkSubresourceLayout subresourcelayout;
+	VkImageSubresource imgsubresource = i.getDefaultSubresource();
+	if (querysubresource) {
+		vkGetImageSubresourceLayout(
+			logicaldevice, 
+			i.image, 
+			&imgsubresource, 
+			&subresourcelayout);
+	}
+	void* dst;
+	vkMapMemory(logicaldevice,
+		i.memory,
+		0,
+		VK_WHOLE_SIZE,
+		0,
+		&dst);
+	VkDeviceSize pitch;
+	if (querysubresource) pitch = subresourcelayout.rowPitch;
+	else pitch = i.extent.width * i.getPixelSize();
+	char* dstscan = reinterpret_cast<char*>(dst), * srcscan = reinterpret_cast<char*>(src);
+	for (uint32_t x = 0; x < i.extent.height; x++) {
+		memcpy(reinterpret_cast<void*>(dstscan), 
+			reinterpret_cast<void*>(srcscan),
+			i.extent.width * i.getPixelSize());
+		dstscan += pitch;
+		srcscan += i.extent.width * i.getPixelSize();
+	}
+	vkUnmapMemory(logicaldevice, i.memory);
+}
+
+void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
+	VkImageMemoryBarrier imgmembarrier {
+		VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		nullptr,
+		0,
+		0,
+		i.layout,
+		newlayout,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED,
+		i.image,
+		i.getDefaultSubresourceRange()
+	};
+	VkPipelineStageFlags srcmask, dstmask;
+	switch (i.layout) {
+		case VK_IMAGE_LAYOUT_UNDEFINED:
+			imgmembarrier.srcAccessMask = 0;
+			srcmask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+			imgmembarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			srcmask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+			imgmembarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			srcmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+			imgmembarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT 
+							| VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			srcmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+			imgmembarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			srcmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		default:
+			WarningError("unknown initial layout for img transition").raise();
+	}
+	switch (newlayout) {
+		case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			dstmask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			dstmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | 
+							VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_GENERAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+			dstmask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | 
+							VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+		default:
+			WarningError("unknown final layout for img transition").raise();
+	}
+
+	vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
+	vkCmdPipelineBarrier(
+		interimcb, 
+		srcmask, dstmask, 
+		0, 
+		0, nullptr, 
+		0, nullptr,
+		1, &imgmembarrier);
+	vkEndCommandBuffer(interimcb);
+	VkSubmitInfo subinfo {
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		nullptr,
+		0,
+		nullptr,
+		nullptr,
+		1,
+		&interimcb,
+		0,
+		nullptr
+	};
+	vkQueueSubmit(genericqueue, 1, &subinfo, VK_NULL_HANDLE);
+	i.layout = newlayout;
+	vkQueueWaitIdle(genericqueue);
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(

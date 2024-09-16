@@ -15,6 +15,7 @@
 #include "Errors.h"
 
 #define GH_SWAPCHAIN_IMAGE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
+// TODO: constider making this a D16_UNORM
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
 #define GH_MAX_FRAMES_IN_FLIGHT 6
 #define WORKING_DIRECTORY "/Users/danp/Desktop/C Coding/WaveBox/"
@@ -36,6 +37,13 @@ const char* const shaderstagestrs[NUM_SHADER_STAGES_SUPPORTED] = {
 	"frag"
 };
 
+const VkCommandBufferBeginInfo interimcbbegininfo {
+	VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	nullptr,
+	VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	nullptr
+};
+
 /*
  * Vulkan Type Wrapper Structs
  */
@@ -48,13 +56,34 @@ typedef struct ImageInfo {
 	VkFormat format = VK_FORMAT_UNDEFINED;
 	VkImageUsageFlags usage = 0u;
 	VkImageLayout layout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+	VkSampler sampler = VK_NULL_HANDLE;
+	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	VkImageTiling tiling; // set by ci depending on img props
 
-	VkImageSubresourceRange getDefaultSubresourceRange() const {
+	constexpr VkImageSubresource getDefaultSubresource() const {
+		return {
+			format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+			0, 0
+		};
+	}
+	constexpr VkImageSubresourceRange getDefaultSubresourceRange() const {
 		return {
 			format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
 			0, 1,
 			0, 1
 		};
+	}
+	constexpr VkDescriptorImageInfo getDII() const {
+		return {sampler, view, layout};
+	}
+	constexpr size_t getPixelSize() const {
+		switch (format) { 
+			case VK_FORMAT_R8_UNORM:
+				return 1;
+			default:
+				FatalError("Unknown format for getPixelSize()\n").raise();
+				return -1u;
+		}
 	}
 } ImageInfo;
 
@@ -315,12 +344,27 @@ public:
 
 	static void createPipeline(PipelineInfo& pi);
 	static void destroyPipeline(PipelineInfo& pi);
+
+	static void createDS(const PipelineInfo& p, VkDescriptorSet& ds);
+	static void updateDS(
+		const VkDescriptorSet& ds, 
+		uint32_t i,
+		VkDescriptorType t,
+		VkDescriptorImageInfo ii,
+		VkDescriptorBufferInfo bi);
+	static void updateWholeDS(
+		const VkDescriptorSet& ds, 
+		std::vector<VkDescriptorType>&& t,
+		std::vector<VkDescriptorImageInfo>&& ii,
+		std::vector<VkDescriptorBufferInfo>&& bi);
+
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set
 	 * in i before calling createImage.
 	 */
 	static void createImage(ImageInfo& i);
 	static void destroyImage(ImageInfo& i);
+	static void updateImage(ImageInfo& i, void* src);
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
@@ -332,6 +376,7 @@ public:
 	static const VkRenderPass& getPresentationRenderPass() {return primaryrenderpass;}
 	static const VkCommandPool& getCommandPool() {return commandpool;}
 	static const VkClearValue* const getPresentationClearsPtr() {return &primaryclears[0];}
+	static const VkSampler& getNearestSampler() {return nearestsampler;}
 
 private:
 	static VkInstance instance;
@@ -342,9 +387,11 @@ private:
 	static uint8_t queuefamilyindex;
 	static VkRenderPass primaryrenderpass;
 	static VkCommandPool commandpool;
-	VkDescriptorPool descriptorpool;
+	static VkCommandBuffer interimcb; // unsure if this is an efficient model, but will use until proven not to be
+	static VkDescriptorPool descriptorpool;
 	// TODO: re-check which of these are necessary after getting a bare-bones draw loop finished
 	static const VkClearValue primaryclears[2];
+	static VkSampler nearestsampler;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively
@@ -382,9 +429,14 @@ private:
 	void initCommandPools();
 	void terminateCommandPools();
 
-	void initDescriptorPoolsAndSetLayouts();
-	void terminateDescriptorPoolsAndSetLayouts();
-	
+	void initSamplers();
+	void terminateSamplers();
+
+	static void initDescriptorPoolsAndSetLayouts();
+	static void terminateDescriptorPoolsAndSetLayouts();
+
+	static void transitionImageLayout(ImageInfo& i, VkImageLayout newlayout);
+
 	static void createShader(
 		VkShaderStageFlags stages,
 		const char** filepaths,
@@ -396,9 +448,8 @@ private:
 	// TODO: BufferInfo class
 	static void allocateDeviceMemory(
 		const VkBuffer& buffer,
-		const VkImage& image,
-		VkDeviceMemory& memory,
-		VkMemoryPropertyFlags memprops);
+		const ImageInfo& image,
+		VkDeviceMemory& memory);
 	static void freeDeviceMemory(VkDeviceMemory& memory);
 
 	static VKAPI_ATTR VkBool32 VKAPI_CALL validationCallback(

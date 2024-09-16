@@ -33,7 +33,8 @@ public:
 			i.layout
 		};
 	}
-	static constexpr ImageInfo uiToGHImageInfo(const UIImageInfo& i) {
+	// can't be constexpr because it needs to grab the GH sampler
+	static ImageInfo uiToGHImageInfo(const UIImageInfo& i) {
 		return (ImageInfo) {
 			i.image,
 			i.memory,
@@ -41,7 +42,10 @@ public:
 			i.extent,
 			VK_FORMAT_R8_UNORM, // should probably be def'd in UI.h
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, // for now assuming dynamic text
-			VK_IMAGE_LAYOUT_GENERAL
+			VK_IMAGE_LAYOUT_GENERAL,
+			GH::getNearestSampler(),
+			// below should probably depend on static vs dynamic tex
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		};
 	}
 

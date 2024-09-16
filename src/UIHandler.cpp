@@ -16,46 +16,6 @@ UIHandler::UIHandler(VkExtent2D extent) :
 	VkAttachmentReference colorref {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
 	GH::createRenderPass(renderpass, 1, &colordesc, &colorref, nullptr);
 
-	UIText::setTexLoadFunc([] (UIText* t, unorm* d) {
-		ImageInfo i = uiToGHImageInfo(t->getTex());
-		if (i.image != VK_NULL_HANDLE) {
-			vkQueueWaitIdle(GH::getGenericQueue());
-			GH::destroyImage(i);
-		}
-		GH::createImage(i);
-
-		// TODO: update image with data in d
-		
-		t->setTex(ghToUIImageInfo(i));
-	});
-	UIText::setTexDestroyFunc([] (UIText* t) {
-		ImageInfo i = uiToGHImageInfo(t->getTex());
-		GH::destroyImage(i);
-		t->setTex(ghToUIImageInfo(i));
-	});
-
-	// should just set draw func of our root object
-	UIComponent::setDefaultDrawFunc([] (const UIComponent* const c, const VkCommandBuffer& cb) {
-		vkCmdBindPipeline(
-			cb, 
-			VK_PIPELINE_BIND_POINT_GRAPHICS,
-			c->getGraphicsPipeline().pipeline);
-		vkCmdPushConstants(
-			cb,
-			c->getGraphicsPipeline().layout,
-			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-			0, sizeof(UIPushConstantData),
-			&c->getPCData());
-		std::cout << "position: {" << c->getPCData().position.x << ", " 
-			<< c->getPCData().position.y << "}\nextent: {" 
-			<< c->getPCData().extent.x << ", " 
-			<< c->getPCData().extent.y << "}" << std::endl;
-		vkCmdDraw(cb, 6, 1, 0, 0);
-	});
-
-	// root = UIText(L"please work", UICoord(extent.width / 2, extent.height / 2));
-	root = UIText(L"please work", UICoord(100));
-
 	graphicspipeline.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	graphicspipeline.shaderfilepathprefix = "UI";
 	graphicspipeline.renderpass = renderpass;
@@ -79,6 +39,54 @@ UIHandler::UIHandler(VkExtent2D extent) :
 		1, &dslbindings[0]
 	};
 	GH::createPipeline(graphicspipeline);
+
+	// v quick & dirty
+	VkDescriptorSet ds;
+	GH::createDS(graphicspipeline, ds);
+	UIComponent::setDefaultDS(ds);
+
+	UIText::setTexLoadFunc([] (UIText* t, unorm* d) {
+		ImageInfo i = uiToGHImageInfo(t->getTex());
+		if (i.image != VK_NULL_HANDLE) {
+			vkQueueWaitIdle(GH::getGenericQueue());
+			GH::destroyImage(i);
+		}
+		GH::createImage(i);
+		GH::updateImage(i, d);
+		GH::updateDS(t->getDS(), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i.getDII(), {});
+		
+		t->setTex(ghToUIImageInfo(i));
+	});
+	UIText::setTexDestroyFunc([] (UIText* t) {
+		ImageInfo i = uiToGHImageInfo(t->getTex());
+		GH::destroyImage(i);
+		t->setTex(ghToUIImageInfo(i));
+	});
+
+	// should just set draw func of our root object
+	UIComponent::setDefaultDrawFunc([] (const UIComponent* const c, const VkCommandBuffer& cb) {
+		vkCmdBindPipeline(
+			cb, 
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			c->getGraphicsPipeline().pipeline);
+		vkCmdBindDescriptorSets(
+			cb,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			c->getGraphicsPipeline().layout,
+			0, 1, &c->getDS(), 
+			0, nullptr);
+		vkCmdPushConstants(
+			cb,
+			c->getGraphicsPipeline().layout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			0, sizeof(UIPushConstantData),
+			&c->getPCData());
+		vkCmdDraw(cb, 6, 1, 0, 0);
+	});
+
+	root = UIText(L"please work", UICoord(extent.width / 2, extent.height / 2));
+	// root = UIText(L"please work", UICoord(100));
+
 	root.setGraphicsPipeline(ghToUIPipelineInfo(graphicspipeline));
 
 	cbbegininfo = {
