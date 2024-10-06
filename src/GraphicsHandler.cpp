@@ -666,13 +666,13 @@ void GH::terminateSamplers() {
 
 void GH::initDescriptorPoolsAndSetLayouts() {
 	VkDescriptorPoolSize poolsizes[1] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3}
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		1,
+		3,
 		1, &poolsizes[0] 
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);

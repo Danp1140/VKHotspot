@@ -1,6 +1,8 @@
 #include "GraphicsHandler.h"
 #include "UI.h"
 
+// #define VERBOSE_UI_CALLBACKS
+
 class UIHandler {
 public:
 	UIHandler() = delete;
@@ -8,9 +10,6 @@ public:
 	UIHandler(UIHandler&& rvalue) = delete;
 	UIHandler(VkExtent2D extent);
 	~UIHandler();
-
-	// later make this a container component
-	UIText root;
 
 	void draw(VkCommandBuffer& cb, const VkFramebuffer& f) ;
 
@@ -60,4 +59,6 @@ private:
 	VkCommandBufferBeginInfo cbbegininfo;
 	VkCommandBufferInheritanceInfo cbinherinfo;
 	const VkClearValue colorclear;
+
+	UIContainer root;
 };

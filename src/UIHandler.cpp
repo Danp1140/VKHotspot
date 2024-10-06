@@ -40,12 +40,19 @@ UIHandler::UIHandler(VkExtent2D extent) :
 	};
 	GH::createPipeline(graphicspipeline);
 
-	// v quick & dirty
 	VkDescriptorSet ds;
 	GH::createDS(graphicspipeline, ds);
 	UIComponent::setDefaultDS(ds);
+	ImageInfo i;
+	// little bodge to populate default fields like format
+	i = uiToGHImageInfo(ghToUIImageInfo(i));
+	i.extent = {1, 1};
+	GH::createImage(i);
+	UIComponent::setNoTex(ghToUIImageInfo(i));
+	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i.getDII(), {});
 
 	UIText::setTexLoadFunc([] (UIText* t, unorm* d) {
+		if (t->getDS() == VK_NULL_HANDLE || t->getDS() == UIComponent::getDefaultDS()) return;
 		ImageInfo i = uiToGHImageInfo(t->getTex());
 		if (i.image != VK_NULL_HANDLE) {
 			vkQueueWaitIdle(GH::getGenericQueue());
@@ -56,9 +63,16 @@ UIHandler::UIHandler(VkExtent2D extent) :
 		GH::updateDS(t->getDS(), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i.getDII(), {});
 		
 		t->setTex(ghToUIImageInfo(i));
+
+#ifdef VERBOSE_UI_CALLBACKS
+		std::cout << "created image " << i.image << " with view " << i.view << std::endl;
+#endif
 	});
 	UIText::setTexDestroyFunc([] (UIText* t) {
 		ImageInfo i = uiToGHImageInfo(t->getTex());
+#ifdef VERBOSE_UI_CALLBACKS 
+		std::cout << "destroyed image " << i.image << " with view " << i.view << std::endl;
+#endif
 		GH::destroyImage(i);
 		t->setTex(ghToUIImageInfo(i));
 	});
@@ -84,8 +98,15 @@ UIHandler::UIHandler(VkExtent2D extent) :
 		vkCmdDraw(cb, 6, 1, 0, 0);
 	});
 
-	root = UIText(L"please work", UICoord(extent.width / 2, extent.height / 2));
-	// root = UIText(L"please work", UICoord(100));
+	root = UIContainer();
+	GH::createDS(graphicspipeline, ds);
+	UIText temp = UIText(L"please work", UICoord(extent.width / 2, extent.height / 2));
+	temp.setDS(ds);
+	root.addChild(temp);
+	GH::createDS(graphicspipeline, ds);
+	temp = UIText(L"please work too ;-;", UICoord(extent.width / 4, extent.height / 4));
+	temp.setDS(ds);
+	root.addChild(temp);
 
 	root.setGraphicsPipeline(ghToUIPipelineInfo(graphicspipeline));
 
@@ -107,6 +128,8 @@ UIHandler::UIHandler(VkExtent2D extent) :
 
 UIHandler::~UIHandler() {
 	vkQueueWaitIdle(GH::getGenericQueue());
+	ImageInfo temp = uiToGHImageInfo(UIComponent::getNoTex());
+	GH::destroyImage(temp);
 	GH::destroyPipeline(graphicspipeline);
 	GH::destroyRenderPass(renderpass);
 }
