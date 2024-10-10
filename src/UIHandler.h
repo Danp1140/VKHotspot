@@ -39,7 +39,7 @@ public:
 			i.memory,
 			i.view,
 			i.extent,
-			VK_FORMAT_R8_UNORM, // should probably be def'd in UI.h
+			i.format,
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, // for now assuming dynamic text
 			VK_IMAGE_LAYOUT_GENERAL,
 			GH::getNearestSampler(),
