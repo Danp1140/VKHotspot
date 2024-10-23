@@ -1018,21 +1018,28 @@ void GH::destroyShader(VkShaderModule shader) {
 	vkDestroyShaderModule(logicaldevice, shader, nullptr);
 }
 
-void GH::allocateDeviceMemory(
-	const VkBuffer& buffer,
-	const ImageInfo& i,
-	VkDeviceMemory& memory) {
+void GH::allocateBufferMemory(BufferInfo& b) {
 	VkMemoryRequirements memreqs;
-	if (buffer != VK_NULL_HANDLE) vkGetBufferMemoryRequirements(logicaldevice, buffer, &memreqs);
-	else vkGetImageMemoryRequirements(logicaldevice, i.image, &memreqs);
+	vkGetBufferMemoryRequirements(logicaldevice, b.buffer, &memreqs);
+	allocateDeviceMemory(b.memprops, memreqs, b.memory);
+}
+
+void GH::allocateImageMemory(ImageInfo& i) {
+	VkMemoryRequirements memreqs;
+	vkGetImageMemoryRequirements(logicaldevice, i.image, &memreqs);
+	allocateDeviceMemory(i.memprops, memreqs, i.memory);
+}
+
+void GH::allocateDeviceMemory(
+		const VkMemoryPropertyFlags mp, 
+		const VkMemoryRequirements mr, 
+		VkDeviceMemory& m) {
 	VkPhysicalDeviceMemoryProperties physicaldevicememprops;
 	vkGetPhysicalDeviceMemoryProperties(physicaldevice, &physicaldevicememprops);
-	// TODO: BufferInfo struct so we don't hard-code this
-	const VkMemoryPropertyFlags memprops = buffer ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT : i.memprops;
 	uint32_t finalmemindex = -1u;
 	for (uint32_t memindex = 0; memindex < physicaldevicememprops.memoryTypeCount; memindex++) {
-		if (memreqs.memoryTypeBits & (1 << memindex)
-		    && (physicaldevicememprops.memoryTypes[memindex].propertyFlags & memprops) == memprops) {
+		if (mr.memoryTypeBits & (1 << memindex)
+		    && (physicaldevicememprops.memoryTypes[memindex].propertyFlags & mp) == mp) {
 			finalmemindex = memindex;
 			break;
 		}
@@ -1042,16 +1049,16 @@ void GH::allocateDeviceMemory(
 				"Likely to be a tiling compatability issue").raise();
 	}
 	VkMemoryAllocateInfo memoryai {
-			VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			nullptr,
-			memreqs.size,
-			finalmemindex
+		VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		nullptr,
+		mr.size,
+		finalmemindex
 	};
-	vkAllocateMemory(logicaldevice, &memoryai, nullptr, &memory);
+	vkAllocateMemory(logicaldevice, &memoryai, nullptr, &m);
 }
 
-void GH::freeDeviceMemory(VkDeviceMemory& memory) {
-	vkFreeMemory(logicaldevice, memory, nullptr);
+void GH::freeDeviceMemory(VkDeviceMemory& m) {
+	vkFreeMemory(logicaldevice, m, nullptr);
 }
 
 void GH::createDS(const PipelineInfo& p, VkDescriptorSet& ds) {
@@ -1104,6 +1111,28 @@ void GH::updateWholeDS(
 	vkUpdateDescriptorSets(logicaldevice, t.size(), &writes[0], 0, nullptr);
 }
 
+void GH::createBuffer(BufferInfo& b) {
+	VkBufferCreateInfo bufferci {
+		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		b.size,
+		b.usage,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0,
+		nullptr
+	};
+	vkCreateBuffer(logicaldevice, &bufferci, nullptr, &b.buffer);
+
+	allocateBufferMemory(b);
+	vkBindBufferMemory(logicaldevice, b.buffer, b.memory, 0);
+}
+
+void GH::destroyBuffer(BufferInfo& b) {
+	freeDeviceMemory(b.memory);
+	vkDestroyBuffer(logicaldevice, b.buffer, nullptr);
+}
+
 void GH::createImage(ImageInfo& i) {
 	// stolen from other code i wrote, unsure why tiling should be determined this way
 	// in reality this is likely to be system-dependent requiring some device capability querying
@@ -1128,10 +1157,7 @@ void GH::createImage(ImageInfo& i) {
 	};
 	vkCreateImage(logicaldevice, &imageci, nullptr, &i.image);
 
-	allocateDeviceMemory(
-		VK_NULL_HANDLE, 
-		i,
-		i.memory);
+	allocateImageMemory(i);
 	vkBindImageMemory(logicaldevice, i.image, i.memory, 0);
 
 	VkImageViewCreateInfo imageviewci {

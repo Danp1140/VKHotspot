@@ -15,8 +15,8 @@ size_t Mesh::getVertexBufferElementSize() const {
 }
 
 void Mesh::loadOBJ(const char* fp) {
-	// tris = std::vector<Tri>();
-	// vertices = std::vector<Vertex>();
+	// TODO: further optimizations like not reallocing inside each loop
+	// can be done once we actually render to screen
 	std::vector<unsigned int> vertexindices, uvindices, normalindices;
 	std::vector<glm::vec3> vertextemps, normaltemps;
 	std::vector<glm::vec2> uvtemps;
@@ -26,7 +26,6 @@ void Mesh::loadOBJ(const char* fp) {
 	if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) expectedmatches += 3;
 	if (vbtraits & VERTEX_BUFFER_TRAIT_UV) expectedmatches += 3;
 	if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) expectedmatches += 3;
-	// TODO: further optimizations like not reallocing inside each loop
 	while (true) {
 		char lineheader[128];
 		int res = fscanf(obj, "%s", lineheader);

@@ -54,6 +54,9 @@ const VkCommandBufferBeginInfo interimcbbegininfo {
 typedef struct BufferInfo {
 	VkBuffer buffer = VK_NULL_HANDLE;
 	VkDeviceMemory memory = VK_NULL_HANDLE;
+	VkBufferUsageFlags usage = 0x0;
+	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	VkDeviceSize size;
 } BufferInfo;
 
 typedef struct ImageInfo {
@@ -368,12 +371,16 @@ public:
 		std::vector<VkDescriptorImageInfo>&& ii,
 		std::vector<VkDescriptorBufferInfo>&& bi);
 
+	static void createBuffer(BufferInfo& b);
+	static void destroyBuffer(BufferInfo& b);
+
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set
 	 * in i before calling createImage.
 	 */
 	static void createImage(ImageInfo& i);
 	static void destroyImage(ImageInfo& i);
+	// TODO: make work with DEVICE_LOCAL memory/images
 	static void updateImage(ImageInfo& i, void* src);
 
 	static const VkInstance& getInstance() {return instance;}
@@ -455,12 +462,13 @@ private:
 		VkSpecializationInfo* specializationinfos);
 	static void destroyShader(VkShaderModule shader);
 
-	// TODO: BufferInfo class
+	static void allocateBufferMemory(BufferInfo& b);
+	static void allocateImageMemory(ImageInfo& i);
 	static void allocateDeviceMemory(
-		const VkBuffer& buffer,
-		const ImageInfo& image,
-		VkDeviceMemory& memory);
-	static void freeDeviceMemory(VkDeviceMemory& memory);
+		const VkMemoryPropertyFlags mp, 
+		const VkMemoryRequirements mr, 
+		VkDeviceMemory& m);
+	static void freeDeviceMemory(VkDeviceMemory& m);
 
 	static VKAPI_ATTR VkBool32 VKAPI_CALL validationCallback(
 			VkDebugUtilsMessageSeverityFlagBitsEXT severity,
