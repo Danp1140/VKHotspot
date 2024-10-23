@@ -11,6 +11,23 @@ public:
 	UIHandler(VkExtent2D extent);
 	~UIHandler();
 
+	// void addComponent(UIComponent c);
+	/* 
+	 * another hack to get polymorphic functions to work
+	 * (e.g., text needs to regen tex on ds set)
+	 */
+	template <class T>
+	void addComponent(T c) {
+		/*
+		VkDescriptorSet dstemp;
+		GH::createDS(graphicspipeline, dstemp);
+		c.setDS(dstemp);
+		*/
+		c.setGraphicsPipeline(root.getGraphicsPipeline());
+		root.addChild(c);
+	}
+	void setTex(UIImage& i, const ImageInfo& ii);
+
 	void draw(VkCommandBuffer& cb, const VkFramebuffer& f) ;
 
 	static constexpr UIPipelineInfo ghToUIPipelineInfo(const PipelineInfo& p) {

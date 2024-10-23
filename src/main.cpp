@@ -1,4 +1,5 @@
 #include "UIHandler.h"
+#include "Mesh.h"
 
 int main() {
 	GH graphicshandler = GH();
@@ -22,6 +23,7 @@ int main() {
 	w.addTask(cbRecFunc([&ui, &w] (VkCommandBuffer& cb) {
 		ui.draw(cb, w.getCurrentPresentationFB());
 	}));
+	ui.addComponent(UIText(L"text from main", UICoord(1000, 1000)));
 
 	/*
 	w2.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(
@@ -34,6 +36,8 @@ int main() {
 		ui2.draw(cb, w2.getCurrentPresentationFB());
 	}));
 	*/
+
+	Mesh m("resources/models/objs/cube.obj");
 
 	bool xpressed = false;
 	SDL_Event eventtemp;

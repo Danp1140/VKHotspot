@@ -20,6 +20,7 @@
 // may be capable of a D16_UNORM, while most if not all will be able to use a D32_SFLOAT
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
 #define GH_MAX_FRAMES_IN_FLIGHT 6
+// TODO: get these out of here asap
 #define WORKING_DIRECTORY "/Users/danp/Desktop/C Coding/WaveBox/"
 #define SHADER_DIRECTORY "/Users/danp/Desktop/C Coding/UsMInt/resources/shaders/SPIRV/"
 
@@ -49,6 +50,11 @@ const VkCommandBufferBeginInfo interimcbbegininfo {
 /*
  * Vulkan Type Wrapper Structs
  */
+
+typedef struct BufferInfo {
+	VkBuffer buffer = VK_NULL_HANDLE;
+	VkDeviceMemory memory = VK_NULL_HANDLE;
+} BufferInfo;
 
 typedef struct ImageInfo {
 	VkImage image = VK_NULL_HANDLE;
