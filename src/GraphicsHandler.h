@@ -373,6 +373,7 @@ public:
 
 	static void createBuffer(BufferInfo& b);
 	static void destroyBuffer(BufferInfo& b);
+	static void updateWholeBuffer(const BufferInfo& b, void* src);
 
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set
@@ -405,10 +406,12 @@ private:
 	static VkRenderPass primaryrenderpass;
 	static VkCommandPool commandpool;
 	static VkCommandBuffer interimcb; // unsure if this is an efficient model, but will use until proven not to be
+	static VkFence interimfence; // created initCommandPools w/ interimcb 
 	static VkDescriptorPool descriptorpool;
 	// TODO: re-check which of these are necessary after getting a bare-bones draw loop finished
 	static const VkClearValue primaryclears[2];
 	static VkSampler nearestsampler;
+	static BufferInfo scratchbuffer;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively

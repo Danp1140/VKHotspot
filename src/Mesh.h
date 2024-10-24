@@ -14,7 +14,7 @@ class Mesh {
 public:
 	Mesh() : vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
 	Mesh(const char* f);
-	~Mesh() = default;
+	~Mesh();
 
 private:
 	glm::vec3 position, scale;
@@ -26,6 +26,10 @@ private:
 
 	size_t getVertexBufferElementSize() const;
 	
+	/*
+	 * Also creates buffers, so make sure there aren't valid buffers that will get
+	 * lost in vertexbuffer and indebuffer before you call this
+	 */
 	void loadOBJ(const char* fp);
 };
 

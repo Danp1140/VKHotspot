@@ -383,9 +383,17 @@ uint8_t GH::queuefamilyindex = 0xff;
 VkRenderPass GH::primaryrenderpass = VK_NULL_HANDLE;
 VkCommandPool GH::commandpool = VK_NULL_HANDLE;
 VkCommandBuffer GH::interimcb = VK_NULL_HANDLE;
+VkFence GH::interimfence = VK_NULL_HANDLE;
 const VkClearValue GH::primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 0.};
 VkDescriptorPool GH::descriptorpool = VK_NULL_HANDLE;
 VkSampler GH::nearestsampler = VK_NULL_HANDLE;
+BufferInfo GH::scratchbuffer = {
+	VK_NULL_HANDLE,
+	VK_NULL_HANDLE,
+	VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	0
+};
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -629,9 +637,16 @@ void GH::initCommandPools() {
 		logicaldevice,
 		&cballocinfo,
 		&interimcb);
+	VkFenceCreateInfo fenceci {
+		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+		nullptr,
+		0
+	};
+	vkCreateFence(logicaldevice, &fenceci, nullptr, &interimfence);
 }
 
 void GH::terminateCommandPools() {
+	vkDestroyFence(logicaldevice, interimfence, nullptr);
 	vkFreeCommandBuffers(
 			logicaldevice, 
 			commandpool,
@@ -1131,6 +1146,44 @@ void GH::createBuffer(BufferInfo& b) {
 void GH::destroyBuffer(BufferInfo& b) {
 	freeDeviceMemory(b.memory);
 	vkDestroyBuffer(logicaldevice, b.buffer, nullptr);
+}
+
+void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
+	void* dst;
+	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
+		&& b.memprops & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
+		vkMapMemory(logicaldevice, b.memory, 0, b.size, 0, &dst);
+		memcpy(dst, src, b.size);
+		vkUnmapMemory(logicaldevice, b.memory);
+	}
+	else {
+		scratchbuffer.size = b.size;
+		createBuffer(scratchbuffer);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, scratchbuffer.size, 0, &dst);
+		memcpy(dst, src, scratchbuffer.size);
+		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
+		VkBufferCopy cpyregion {0, 0, b.size};
+		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
+		vkCmdCopyBuffer(
+			interimcb,
+			scratchbuffer.buffer,
+			b.buffer,
+			1, &cpyregion);
+		vkEndCommandBuffer(interimcb);
+		vkResetFences(logicaldevice, 1, &interimfence);
+		const VkSubmitInfo si {
+			VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			nullptr,
+			0, nullptr, nullptr,
+			1, &interimcb,
+			0, nullptr
+		};
+		vkQueueSubmit(genericqueue, 1, &si, interimfence);
+		FatalError("Buffer copy took too long\n").vkCatch(
+			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
+		);
+		destroyBuffer(scratchbuffer);
+	}
 }
 
 void GH::createImage(ImageInfo& i) {

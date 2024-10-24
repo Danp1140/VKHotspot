@@ -4,6 +4,11 @@ Mesh::Mesh(const char* f) : Mesh() {
 	loadOBJ(f);
 }
 
+Mesh::~Mesh() {
+	if (vertexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(vertexbuffer);
+	if (indexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(indexbuffer);
+}
+
 // could maybe make this constexpr
 size_t Mesh::getVertexBufferElementSize() const {
 	size_t result = 0;
@@ -57,8 +62,14 @@ void Mesh::loadOBJ(const char* fp) {
 		}
 	}
 
-	void* vdst = malloc(getVertexBufferElementSize() * vertexindices.size()),
-		* idst = malloc(sizeof(MeshIndex) * vertexindices.size());
+	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	vertexbuffer.size = getVertexBufferElementSize() * vertexindices.size();
+	GH::createBuffer(vertexbuffer);
+	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	indexbuffer.size = sizeof(MeshIndex) * vertexindices.size();
+	GH::createBuffer(indexbuffer);
+	void* vdst = malloc(vertexbuffer.size),
+		* idst = malloc(indexbuffer.size);
 	char* vscan = static_cast<char*>(vdst),
 		* iscan = static_cast<char*>(idst);
 	MeshIndex itemp;
@@ -84,8 +95,8 @@ void Mesh::loadOBJ(const char* fp) {
 			iscan += sizeof(MeshIndex);
 		}
 	}
-	// GH::updateBuffer(vertexbuffer, vdst);
+	GH::updateWholeBuffer(vertexbuffer, vdst);
 	free(vdst);
-	// GH::updateBuffer(indexbuffer, idst);
+	GH::updateWholeBuffer(indexbuffer, idst);
 	free(idst);
 }
