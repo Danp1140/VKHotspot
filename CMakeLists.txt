@@ -16,7 +16,7 @@ endif()
 find_package(Freetype REQUIRED)
 find_package(Vulkan REQUIRED)
 # would love to use SDL3's package, but it's not working out with the include directory
-# find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared Headers)
+find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared Headers)
 
 find_path(SDL_INCLUDE SDL3/SDL.h REQUIRED)
 find_path(GLM_INCLUDE glm.hpp PATH_SUFFIXES glm REQUIRED)
@@ -27,8 +27,8 @@ find_library(USMINT_LIB UsMInt REQUIRED)
 
 include_directories(
 	${FREETYPE_INCLUDE_DIRS} 
-	${VULKAN_INCLUDE_DIRS} 
-	${SDL_INCLUDE}
+	Vulkan::Headers
+	SDL3::Headers
 	${GLM_INCLUDE}
 	${USMINT_INCLUDE})
 
@@ -41,6 +41,6 @@ add_executable(VulkanProject
 target_link_libraries(
 	${PROJECT_NAME} 
 	${USMINT_LIB} 
-	${FREETYPE_LIBRARIES} 
+	Freetype::Freetype
 	Vulkan::Vulkan
-	${SDL_LIB})
+	SDL3::SDL3)

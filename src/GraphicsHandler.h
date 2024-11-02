@@ -21,7 +21,7 @@
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
 #define GH_MAX_FRAMES_IN_FLIGHT 6
 #define WORKING_DIRECTORY "/Users/danp/Desktop/C Coding/WaveBox/"
-#define SHADER_DIRECTORY "/Users/danp/Desktop/C Coding/UsMInt/resources/shaders/SPIRV/"
+#define SHADER_DIRECTORY "/home/danp/Programming/VKHotspot/resources/shaders/SPIRV/"
 
 #define NUM_SHADER_STAGES_SUPPORTED 5
 const VkShaderStageFlagBits supportedshaderstages[NUM_SHADER_STAGES_SUPPORTED] = {

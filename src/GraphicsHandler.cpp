@@ -437,7 +437,9 @@ void GH::initVulkanInstance() {
 	VkExtensionProperties allowedexts[nallowedexts];
 	vkEnumerateInstanceExtensionProperties(nullptr, &nallowedexts, &allowedexts[0]);
 	std::vector<const char*> extensions = {
+#ifdef __APPLE__
 		"VK_MVK_macos_surface", // only required on OSX, TODO: add os build maacro check
+#endif
 		"VK_KHR_get_physical_device_properties2", // unclear why this is needeed
 		"VK_EXT_debug_utils" // for val layers, not needed in final compilation
 	};
@@ -528,10 +530,29 @@ void GH::initDevicesAndQueues() {
 		1,
 		&priorities[0]
 	};
-	const char* deviceextensions[2] {
+	const char* desireddeviceexts[2] {
 		"VK_KHR_swapchain",
 		"VK_KHR_portability_subset"
 	};
+	uint32_t nprops;
+	vkEnumerateDeviceExtensionProperties(
+		physicaldevice, 
+		NULL,
+		&nprops, nullptr);
+	VkExtensionProperties props[nprops];
+	vkEnumerateDeviceExtensionProperties(
+		physicaldevice, 
+		NULL,
+		&nprops, &props[0]);
+	std::vector<const char*> deviceexts;
+	for (size_t i = 0; i < 2; i++) {
+		for (uint32_t j = 0; j < nprops; j++) {
+			if (strcmp(desireddeviceexts[i], props[j].extensionName) == 0) {
+				deviceexts.push_back(desireddeviceexts[i]);
+				break;
+			}
+		}
+	}
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -539,7 +560,7 @@ void GH::initDevicesAndQueues() {
 		0,
 		1, &queuecreateinfo,
 		0, nullptr,
-		2, &deviceextensions[0],
+		static_cast<uint32_t>(deviceexts.size()), deviceexts.data(),
 		&physicaldevicefeatures
 	};
 	vkCreateDevice(physicaldevice, &devicecreateinfo, nullptr, &logicaldevice);
