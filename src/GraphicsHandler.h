@@ -1,7 +1,7 @@
 #ifndef GRAPHICS_HANDLER_H
 #define GRAPHICS_HANDLER_H
 
-#include <vulkan.h>
+#include <vulkan/vulkan.h>
 #include <ext.hpp>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
