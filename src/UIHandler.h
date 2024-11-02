@@ -18,11 +18,9 @@ public:
 	 */
 	template <class T>
 	void addComponent(T c) {
-		/*
 		VkDescriptorSet dstemp;
 		GH::createDS(graphicspipeline, dstemp);
 		c.setDS(dstemp);
-		*/
 		c.setGraphicsPipeline(root.getGraphicsPipeline());
 		root.addChild(c);
 	}

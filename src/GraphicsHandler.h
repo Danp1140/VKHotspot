@@ -22,7 +22,6 @@
 #define GH_MAX_FRAMES_IN_FLIGHT 6
 // TODO: get these out of here asap
 #define WORKING_DIRECTORY "/Users/danp/Desktop/C Coding/WaveBox/"
-#define SHADER_DIRECTORY "/Users/danp/Desktop/C Coding/UsMInt/resources/shaders/SPIRV/"
 
 #define NUM_SHADER_STAGES_SUPPORTED 5
 const VkShaderStageFlagBits supportedshaderstages[NUM_SHADER_STAGES_SUPPORTED] = {
@@ -123,6 +122,15 @@ typedef struct PipelineInfo {
 
 typedef std::function<void (VkCommandBuffer&)> cbRecFunc;
 
+typedef struct cbRecData {
+	VkRenderPass rp;
+	const PipelineInfo* p; // NOT AN ARRAY just wanted to pass more efficiently
+	VkDescriptorSet sceneds, objds;
+	VkBuffer vbuf, ibuf;
+	size_t numverts;
+	VkFramebuffer fb;
+} cbRecData;
+
 typedef enum cbRecTaskType {
 		CB_REC_TASK_TYPE_UNINITIALIZED,
 		CB_REC_TASK_TYPE_COMMAND_BUFFER,
@@ -203,44 +211,98 @@ typedef struct cbCollectInfo {
 	} data;
 } cbCollectInfo;
 
+typedef std::function<void (cbRecData, VkCommandBuffer&)> cbRecFuncFuncTemplate;
+
+typedef struct cbRecFuncTemplate {
+	VkRenderPass rp;
+	const PipelineInfo* p; // NOT AN ARRAY just wanted to pass more efficiently
+	VkDescriptorSet sceneds, objds;
+	VkBuffer vbuf, ibuf;
+	size_t numverts;
+	cbRecFuncFuncTemplate f;
+	const VkFramebuffer* fbs;
+
+	cbRecFuncTemplate() = delete;
+	cbRecFuncTemplate(
+		const VkRenderPass r,
+		const PipelineInfo* const pi,
+		const VkDescriptorSet sds,
+		const VkDescriptorSet ods,
+		const VkBuffer vb,
+		const VkBuffer ib,
+		cbRecFuncFuncTemplate fft,
+		const VkFramebuffer* const f) :
+		rp(r),
+		p(pi),
+		sceneds(sds),
+		objds(ods),
+		vbuf(vb),
+		ibuf(ib),
+		f(fft),
+		fbs(f) {}
+	~cbRecFuncTemplate() {};
+} cbRecFuncTemplate;
+
 typedef struct cbRecTaskRenderPassTemplate {
 	VkRenderPass rp;
 	const VkFramebuffer* fbs;
-	const VkExtent2D* exts;
-	uint32_t nclears, numscis;
+	VkExtent2D ext;
+	uint32_t nclears;
 	const VkClearValue* clears;
 
 	cbRecTaskRenderPassTemplate() = delete;
 	cbRecTaskRenderPassTemplate(
 		const VkRenderPass r,
 		const VkFramebuffer* const f,
-		const VkExtent2D* const e,
+		const VkExtent2D e,
 		uint32_t nc,
-		const VkClearValue* const c, 
-		uint32_t ns) :
+		const VkClearValue* const c) :
 		rp(r),
 		fbs(f),
-		exts(e),
+		ext(e),
 		nclears(nc),
-		numscis(ns),
 		clears(c) {}
 	~cbRecTaskRenderPassTemplate() {}
+
+	/*
+	cbRecTaskRenderPassTemplate operator=(cbRecTaskRenderPassTemplate rhs) {
+		std::swap(rp, rhs.rp);
+		std::swap(fbs, rhs.fbs);
+		// VkExtent2D is being very rude so now we're here
+		// TODO: figure out what's going on here
+		VkExtent2D temp = rhs.ext;
+		rhs.ext = ext;
+		ext = temp;
+		std::swap(nclears, rhs.nclears);
+		std::swap(clears, rhs.clears);
+		return *this;
+	}
+	*/
 } cbRecTaskRenderPassTemplate;
 
 typedef struct cbRecTaskTemplate {
 	cbRecTaskTemplate() = default;
-	cbRecTaskTemplate(cbRecFunc&& f) {
+	cbRecTaskTemplate(cbRecFuncTemplate f) {
 		type = CB_REC_TASK_TYPE_COMMAND_BUFFER;
 		// still no clue what this line does
-		new(&data.func) cbRecFunc(f);
+		data.ft = f;
+		// new(&data.ft.f) cbRecFunc(f.f);
 	}
 	cbRecTaskTemplate(cbRecTaskRenderPassTemplate r) {
 		type = CB_REC_TASK_TYPE_RENDERPASS;
 		data.rpi = r;
 	}
+	cbRecTaskTemplate(const cbRecTaskTemplate& rhs) : type(rhs.type) {
+		if (rhs.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+			data.ft = rhs.data.ft;
+		}
+		else if (rhs.type == CB_REC_TASK_TYPE_RENDERPASS) {
+			data.rpi = rhs.data.rpi;
+		}
+	}
 	~cbRecTaskTemplate() {
 		if (type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
-			if (data.func) data.func.~function();
+			if (data.ft.f) data.ft.f.~function();
 		}
 	}
 
@@ -251,7 +313,7 @@ typedef struct cbRecTaskTemplate {
 		cbRecTaskTemplateData () {}
 		~cbRecTaskTemplateData () {}
 
-		cbRecFunc func;
+		cbRecFuncTemplate ft;
 		cbRecTaskRenderPassTemplate rpi;
 	} data;
 } cbRecTaskTemplate;
@@ -282,7 +344,8 @@ public:
 	~WindowInfo();
 
 	void frameCallback();
-	void addTask(cbRecTaskTemplate&& t);
+	void addTask(const cbRecTaskTemplate& t);
+	void addTasks(std::vector<cbRecTaskTemplate>&& t);
 
 	// rebuilds presentation fbs too
 	void setPresentationRP(const VkRenderPass& presrp);
@@ -290,6 +353,7 @@ public:
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
 	const ImageInfo* const getSCImages() const {return scimages;}
+	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
 	const VkFramebuffer* const getPresentationFBs() const {return presentationfbs;}
 	const VkFramebuffer& getCurrentPresentationFB() const {return presentationfbs[sciindex];}
@@ -396,6 +460,8 @@ public:
 	static const VkClearValue* const getPresentationClearsPtr() {return &primaryclears[0];}
 	static const VkSampler& getNearestSampler() {return nearestsampler;}
 
+	static void setShaderDirectory(const char* d) {shaderdir = d;}
+
 private:
 	static VkInstance instance;
 	VkDebugUtilsMessengerEXT debugmessenger;
@@ -412,6 +478,7 @@ private:
 	static const VkClearValue primaryclears[2];
 	static VkSampler nearestsampler;
 	static BufferInfo scratchbuffer;
+	static const char* shaderdir;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively

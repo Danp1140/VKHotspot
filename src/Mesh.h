@@ -6,15 +6,26 @@ typedef enum VertexBufferTraitBits {
 	VERTEX_BUFFER_TRAIT_POSITION = 0x01,
 	VERTEX_BUFFER_TRAIT_UV = 0x02,
 	VERTEX_BUFFER_TRAIT_NORMAL = 0x04,
-	VERTEX_BUFFER_TRAIT_WEIGHT = 0x08
+	VERTEX_BUFFER_TRAIT_WEIGHT = 0x08,
 } VertexBufferTraitBits;
 typedef uint8_t VertexBufferTraits;
+#define MAX_VERTEX_BUFFER_NUM_TRAITS 4
 
 class Mesh {
 public:
 	Mesh() : vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
 	Mesh(const char* f);
 	~Mesh();
+
+	static void recordDraw(cbRecData d, VkCommandBuffer& c);
+	static size_t getTraitsElementSize(VertexBufferTraits t);
+	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
+	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
+
+	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
+	const BufferInfo getIndexBuffer() const {return indexbuffer;}
+	const PipelineInfo& getGraphicsPipeline() const {return pipeline;}
+	const VkDescriptorSet getDS() const {return ds;}
 
 private:
 	glm::vec3 position, scale;
@@ -23,6 +34,7 @@ private:
 	BufferInfo vertexbuffer, indexbuffer;
 	VertexBufferTraits vbtraits;
 	PipelineInfo pipeline;
+	VkDescriptorSet ds;
 
 	size_t getVertexBufferElementSize() const;
 	

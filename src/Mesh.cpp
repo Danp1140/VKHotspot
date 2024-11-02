@@ -9,14 +9,78 @@ Mesh::~Mesh() {
 	if (indexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(indexbuffer);
 }
 
-// could maybe make this constexpr
-size_t Mesh::getVertexBufferElementSize() const {
+void Mesh::recordDraw(cbRecData d, VkCommandBuffer& c) {
+	VkCommandBufferInheritanceInfo cbinherinfo {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		nullptr,
+		d.rp, 0,
+		d.fb,
+		VK_FALSE, 0, 0
+	};
+	VkCommandBufferBeginInfo cbbi {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
+		&cbinherinfo
+	};
+	vkBeginCommandBuffer(c, &cbbi);
+	VkDeviceSize offsettemp = 0; // TODO: get rid of this repeated annoying alloc
+	vkCmdBindVertexBuffers(c, 0, 1, &d.vbuf, &offsettemp);
+	vkCmdBindIndexBuffer(c, d.ibuf, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(c, d.numverts, 1, 0, 0, 0, 0);
+	vkEndCommandBuffer(c);
+}
+
+size_t Mesh::getTraitsElementSize(VertexBufferTraits t) {
 	size_t result = 0;
-	if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) result += sizeof(glm::vec3);
-	if (vbtraits & VERTEX_BUFFER_TRAIT_UV) result += sizeof(glm::vec2);
-	if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) result += sizeof(glm::vec3);
+	if (t & VERTEX_BUFFER_TRAIT_POSITION) result += sizeof(glm::vec3);
+	if (t & VERTEX_BUFFER_TRAIT_UV) result += sizeof(glm::vec2);
+	if (t & VERTEX_BUFFER_TRAIT_NORMAL) result += sizeof(glm::vec3);
 	// WEIGHT is included in override from ArmaturedMesh
 	return result;
+}
+
+VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t) {
+	uint32_t numtraits = 0, offset = 0;
+	VkVertexInputBindingDescription* bindingdesc = new VkVertexInputBindingDescription[1] {
+		{0, static_cast<uint32_t>(getTraitsElementSize(t)), VK_VERTEX_INPUT_RATE_VERTEX}
+	};
+	VkVertexInputAttributeDescription* attribdesc = new VkVertexInputAttributeDescription[MAX_VERTEX_BUFFER_NUM_TRAITS];
+	if (t & VERTEX_BUFFER_TRAIT_POSITION) {
+		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+		numtraits++;
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_UV) {
+		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32_SFLOAT, offset};
+		numtraits++;
+		offset += sizeof(glm::vec2);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_NORMAL) {
+		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+		numtraits++;
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_WEIGHT) {
+		FatalError("Vertex weight not yet supported").raise();
+	}
+	return (VkPipelineVertexInputStateCreateInfo){
+		VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		nullptr,
+		0,
+		1, bindingdesc,
+		numtraits, attribdesc
+	};
+}
+
+void Mesh::ungetVISCI(VkPipelineVertexInputStateCreateInfo v) {
+	delete[] v.pVertexBindingDescriptions;
+	delete[] v.pVertexAttributeDescriptions;
+}
+
+// could maybe make this constexpr
+size_t Mesh::getVertexBufferElementSize() const {
+	return getTraitsElementSize(vbtraits);
 }
 
 void Mesh::loadOBJ(const char* fp) {

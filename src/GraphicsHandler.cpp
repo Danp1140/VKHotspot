@@ -160,10 +160,19 @@ void WindowInfo::frameCallback() {
 	submitAndPresent();
 }
 
-void WindowInfo::addTask(cbRecTaskTemplate&& t) {
+void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+		cbRecData d {
+			t.data.ft.rp,
+			t.data.ft.p,
+			t.data.ft.sceneds, t.data.ft.objds,
+			t.data.ft.vbuf, t.data.ft.ibuf,
+			t.data.ft.numverts,
+			VK_NULL_HANDLE
+		};
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			rectaskvec[scii].push_back(cbRecTask(t.data.func));
+			d.fb = t.data.ft.fbs[scii];
+			rectaskvec[scii].push_back(cbRecTask([d, f = t.data.ft.f] (VkCommandBuffer& c) {f(d, c);}));
 		}
 	}
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
@@ -173,11 +182,15 @@ void WindowInfo::addTask(cbRecTaskTemplate&& t) {
 				nullptr,
 				t.data.rpi.rp,
 				t.data.rpi.fbs[scii],
-				{{0, 0}, t.data.rpi.exts[scii]},
+				{{0, 0}, t.data.rpi.ext},
 				t.data.rpi.nclears, t.data.rpi.clears
 			}));
 		}
 	}
+}
+
+void WindowInfo::addTasks(std::vector<cbRecTaskTemplate>&& t) {
+	for (const cbRecTaskTemplate& ts : t) addTask(ts);
 }
 
 void WindowInfo::setPresentationRP(const VkRenderPass& presrp) {
@@ -228,6 +241,7 @@ void WindowInfo::createPresentationFBs() {
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
 	}
 	*/
+	// TODO: remove in favor of RenderPassInfo's FB management system
 	VkFramebufferCreateInfo framebufferci {
 		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 		nullptr,
@@ -240,7 +254,6 @@ void WindowInfo::createPresentationFBs() {
 		framebufferci.pAttachments = &scimages[scii].view;
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
 	}
-
 }
 
 void WindowInfo::destroyPresentationFBs() {
@@ -280,6 +293,7 @@ void WindowInfo::processRecordingTasks(
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.rpbi));
 			rectasks.pop();
+			std::cout <<"processed rp" <<std::endl;
 			continue;
 		}
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_DEPENDENCY) {
@@ -287,6 +301,7 @@ void WindowInfo::processRecordingTasks(
 			rectasks.pop();
 			continue;
 		}
+		std::cout <<"processed cb" <<std::endl;
 		recfunc = rectasks.front().data.func;
 		rectasks.pop();
 		if (bufferidx == secondarycbset.size()) {
@@ -308,6 +323,7 @@ void WindowInfo::collectPrimaryCB() {
 	bool inrp = false;
 	while (!collectinfos.empty()) {
 		if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_COMMAND_BUFFER) {
+			std::cout << "collected cb" <<std::endl;
 			vkCmdExecuteCommands(
 				primarycbs[fifindex],
 				1,
@@ -316,6 +332,7 @@ void WindowInfo::collectPrimaryCB() {
 		else if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_RENDERPASS) {
 			// ending an rp w/o starting another is done by passing a renderpassbi 
 			// as if to begin, but with a null handle as renderpass
+			std::cout << "collected rp " << collectinfos.front().data.rpbi.renderPass << std::endl;
 			if (inrp) vkCmdEndRenderPass(primarycbs[fifindex]);
 			else inrp = true;
 			if (collectinfos.front().data.rpbi.renderPass != VK_NULL_HANDLE) {
@@ -394,6 +411,7 @@ BufferInfo GH::scratchbuffer = {
 	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 	0
 };
+const char* GH::shaderdir = "./resources/shaders/SPIRV/";
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -559,6 +577,7 @@ void GH::terminateDevicesAndQueues() {
 	vkDestroyDevice(logicaldevice, nullptr);
 }
 
+// TODO: remove
 void GH::initRenderpasses() {
 	// If you ever have to make more than one renderpass, move all this nonsense to a createRenderpass function
 	// w/ a struct input info
@@ -753,7 +772,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 					&pi.layout);
 		VkShaderModule* shadermodule = new VkShaderModule;
 		VkPipelineShaderStageCreateInfo* shaderstagecreateinfo = new VkPipelineShaderStageCreateInfo;
-		std::string tempstr = std::string(SHADER_DIRECTORY)
+		std::string tempstr = std::string(shaderdir)
 			.append(pi.shaderfilepathprefix)
 			.append("comp.spv");
 		const char* filepath = tempstr.c_str();
@@ -793,7 +812,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 	std::string temp;
 	for (uint8_t i = 0; i < NUM_SHADER_STAGES_SUPPORTED; i++) {
 		if (supportedshaderstages[i] & pi.stages) {
-			temp = std::string(SHADER_DIRECTORY)
+			temp = std::string(shaderdir)
 				.append(pi.shaderfilepathprefix)
 				.append(shaderstagestrs[i])
 				.append(".spv");
