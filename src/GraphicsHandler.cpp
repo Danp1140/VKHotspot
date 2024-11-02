@@ -160,10 +160,19 @@ void WindowInfo::frameCallback() {
 	submitAndPresent();
 }
 
-void WindowInfo::addTask(cbRecTaskTemplate&& t) {
+void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+		cbRecData d {
+			t.data.ft.rp,
+			t.data.ft.p,
+			t.data.ft.sceneds, t.data.ft.objds,
+			t.data.ft.vbuf, t.data.ft.ibuf,
+			t.data.ft.numverts,
+			VK_NULL_HANDLE
+		};
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			rectaskvec[scii].push_back(cbRecTask(t.data.func));
+			d.fb = t.data.ft.fbs[scii];
+			rectaskvec[scii].push_back(cbRecTask([d, f = t.data.ft.f] (VkCommandBuffer& c) {f(d, c);}));
 		}
 	}
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
@@ -173,11 +182,15 @@ void WindowInfo::addTask(cbRecTaskTemplate&& t) {
 				nullptr,
 				t.data.rpi.rp,
 				t.data.rpi.fbs[scii],
-				{{0, 0}, t.data.rpi.exts[scii]},
+				{{0, 0}, t.data.rpi.ext},
 				t.data.rpi.nclears, t.data.rpi.clears
 			}));
 		}
 	}
+}
+
+void WindowInfo::addTasks(std::vector<cbRecTaskTemplate>&& t) {
+	for (const cbRecTaskTemplate& ts : t) addTask(ts);
 }
 
 void WindowInfo::setPresentationRP(const VkRenderPass& presrp) {
@@ -228,6 +241,7 @@ void WindowInfo::createPresentationFBs() {
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
 	}
 	*/
+	// TODO: remove in favor of RenderPassInfo's FB management system
 	VkFramebufferCreateInfo framebufferci {
 		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 		nullptr,
@@ -240,7 +254,6 @@ void WindowInfo::createPresentationFBs() {
 		framebufferci.pAttachments = &scimages[scii].view;
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
 	}
-
 }
 
 void WindowInfo::destroyPresentationFBs() {
@@ -280,6 +293,7 @@ void WindowInfo::processRecordingTasks(
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.rpbi));
 			rectasks.pop();
+			std::cout <<"processed rp" <<std::endl;
 			continue;
 		}
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_DEPENDENCY) {
@@ -287,6 +301,7 @@ void WindowInfo::processRecordingTasks(
 			rectasks.pop();
 			continue;
 		}
+		std::cout <<"processed cb" <<std::endl;
 		recfunc = rectasks.front().data.func;
 		rectasks.pop();
 		if (bufferidx == secondarycbset.size()) {
@@ -308,6 +323,7 @@ void WindowInfo::collectPrimaryCB() {
 	bool inrp = false;
 	while (!collectinfos.empty()) {
 		if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_COMMAND_BUFFER) {
+			std::cout << "collected cb" <<std::endl;
 			vkCmdExecuteCommands(
 				primarycbs[fifindex],
 				1,
@@ -316,6 +332,7 @@ void WindowInfo::collectPrimaryCB() {
 		else if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_RENDERPASS) {
 			// ending an rp w/o starting another is done by passing a renderpassbi 
 			// as if to begin, but with a null handle as renderpass
+			std::cout << "collected rp " << collectinfos.front().data.rpbi.renderPass << std::endl;
 			if (inrp) vkCmdEndRenderPass(primarycbs[fifindex]);
 			else inrp = true;
 			if (collectinfos.front().data.rpbi.renderPass != VK_NULL_HANDLE) {
@@ -383,9 +400,18 @@ uint8_t GH::queuefamilyindex = 0xff;
 VkRenderPass GH::primaryrenderpass = VK_NULL_HANDLE;
 VkCommandPool GH::commandpool = VK_NULL_HANDLE;
 VkCommandBuffer GH::interimcb = VK_NULL_HANDLE;
+VkFence GH::interimfence = VK_NULL_HANDLE;
 const VkClearValue GH::primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 0.};
 VkDescriptorPool GH::descriptorpool = VK_NULL_HANDLE;
 VkSampler GH::nearestsampler = VK_NULL_HANDLE;
+BufferInfo GH::scratchbuffer = {
+	VK_NULL_HANDLE,
+	VK_NULL_HANDLE,
+	VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	0
+};
+const char* GH::shaderdir = "./resources/shaders/SPIRV/";
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -572,6 +598,7 @@ void GH::terminateDevicesAndQueues() {
 	vkDestroyDevice(logicaldevice, nullptr);
 }
 
+// TODO: remove
 void GH::initRenderpasses() {
 	// If you ever have to make more than one renderpass, move all this nonsense to a createRenderpass function
 	// w/ a struct input info
@@ -650,9 +677,16 @@ void GH::initCommandPools() {
 		logicaldevice,
 		&cballocinfo,
 		&interimcb);
+	VkFenceCreateInfo fenceci {
+		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+		nullptr,
+		0
+	};
+	vkCreateFence(logicaldevice, &fenceci, nullptr, &interimfence);
 }
 
 void GH::terminateCommandPools() {
+	vkDestroyFence(logicaldevice, interimfence, nullptr);
 	vkFreeCommandBuffers(
 			logicaldevice, 
 			commandpool,
@@ -759,7 +793,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 					&pi.layout);
 		VkShaderModule* shadermodule = new VkShaderModule;
 		VkPipelineShaderStageCreateInfo* shaderstagecreateinfo = new VkPipelineShaderStageCreateInfo;
-		std::string tempstr = std::string(SHADER_DIRECTORY)
+		std::string tempstr = std::string(shaderdir)
 			.append(pi.shaderfilepathprefix)
 			.append("comp.spv");
 		const char* filepath = tempstr.c_str();
@@ -799,7 +833,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 	std::string temp;
 	for (uint8_t i = 0; i < NUM_SHADER_STAGES_SUPPORTED; i++) {
 		if (supportedshaderstages[i] & pi.stages) {
-			temp = std::string(SHADER_DIRECTORY)
+			temp = std::string(shaderdir)
 				.append(pi.shaderfilepathprefix)
 				.append(shaderstagestrs[i])
 				.append(".spv");
@@ -1039,21 +1073,28 @@ void GH::destroyShader(VkShaderModule shader) {
 	vkDestroyShaderModule(logicaldevice, shader, nullptr);
 }
 
-void GH::allocateDeviceMemory(
-	const VkBuffer& buffer,
-	const ImageInfo& i,
-	VkDeviceMemory& memory) {
+void GH::allocateBufferMemory(BufferInfo& b) {
 	VkMemoryRequirements memreqs;
-	if (buffer != VK_NULL_HANDLE) vkGetBufferMemoryRequirements(logicaldevice, buffer, &memreqs);
-	else vkGetImageMemoryRequirements(logicaldevice, i.image, &memreqs);
+	vkGetBufferMemoryRequirements(logicaldevice, b.buffer, &memreqs);
+	allocateDeviceMemory(b.memprops, memreqs, b.memory);
+}
+
+void GH::allocateImageMemory(ImageInfo& i) {
+	VkMemoryRequirements memreqs;
+	vkGetImageMemoryRequirements(logicaldevice, i.image, &memreqs);
+	allocateDeviceMemory(i.memprops, memreqs, i.memory);
+}
+
+void GH::allocateDeviceMemory(
+		const VkMemoryPropertyFlags mp, 
+		const VkMemoryRequirements mr, 
+		VkDeviceMemory& m) {
 	VkPhysicalDeviceMemoryProperties physicaldevicememprops;
 	vkGetPhysicalDeviceMemoryProperties(physicaldevice, &physicaldevicememprops);
-	// TODO: BufferInfo struct so we don't hard-code this
-	const VkMemoryPropertyFlags memprops = buffer ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT : i.memprops;
 	uint32_t finalmemindex = -1u;
 	for (uint32_t memindex = 0; memindex < physicaldevicememprops.memoryTypeCount; memindex++) {
-		if (memreqs.memoryTypeBits & (1 << memindex)
-		    && (physicaldevicememprops.memoryTypes[memindex].propertyFlags & memprops) == memprops) {
+		if (mr.memoryTypeBits & (1 << memindex)
+		    && (physicaldevicememprops.memoryTypes[memindex].propertyFlags & mp) == mp) {
 			finalmemindex = memindex;
 			break;
 		}
@@ -1063,16 +1104,16 @@ void GH::allocateDeviceMemory(
 				"Likely to be a tiling compatability issue").raise();
 	}
 	VkMemoryAllocateInfo memoryai {
-			VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			nullptr,
-			memreqs.size,
-			finalmemindex
+		VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		nullptr,
+		mr.size,
+		finalmemindex
 	};
-	vkAllocateMemory(logicaldevice, &memoryai, nullptr, &memory);
+	vkAllocateMemory(logicaldevice, &memoryai, nullptr, &m);
 }
 
-void GH::freeDeviceMemory(VkDeviceMemory& memory) {
-	vkFreeMemory(logicaldevice, memory, nullptr);
+void GH::freeDeviceMemory(VkDeviceMemory& m) {
+	vkFreeMemory(logicaldevice, m, nullptr);
 }
 
 void GH::createDS(const PipelineInfo& p, VkDescriptorSet& ds) {
@@ -1125,6 +1166,66 @@ void GH::updateWholeDS(
 	vkUpdateDescriptorSets(logicaldevice, t.size(), &writes[0], 0, nullptr);
 }
 
+void GH::createBuffer(BufferInfo& b) {
+	VkBufferCreateInfo bufferci {
+		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		b.size,
+		b.usage,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0,
+		nullptr
+	};
+	vkCreateBuffer(logicaldevice, &bufferci, nullptr, &b.buffer);
+
+	allocateBufferMemory(b);
+	vkBindBufferMemory(logicaldevice, b.buffer, b.memory, 0);
+}
+
+void GH::destroyBuffer(BufferInfo& b) {
+	freeDeviceMemory(b.memory);
+	vkDestroyBuffer(logicaldevice, b.buffer, nullptr);
+}
+
+void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
+	void* dst;
+	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
+		&& b.memprops & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
+		vkMapMemory(logicaldevice, b.memory, 0, b.size, 0, &dst);
+		memcpy(dst, src, b.size);
+		vkUnmapMemory(logicaldevice, b.memory);
+	}
+	else {
+		scratchbuffer.size = b.size;
+		createBuffer(scratchbuffer);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, scratchbuffer.size, 0, &dst);
+		memcpy(dst, src, scratchbuffer.size);
+		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
+		VkBufferCopy cpyregion {0, 0, b.size};
+		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
+		vkCmdCopyBuffer(
+			interimcb,
+			scratchbuffer.buffer,
+			b.buffer,
+			1, &cpyregion);
+		vkEndCommandBuffer(interimcb);
+		vkResetFences(logicaldevice, 1, &interimfence);
+		const VkSubmitInfo si {
+			VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			nullptr,
+			0, nullptr, nullptr,
+			1, &interimcb,
+			0, nullptr
+		};
+		vkQueueSubmit(genericqueue, 1, &si, interimfence);
+		FatalError("Buffer copy took too long\n").vkCatch(
+			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
+		);
+		destroyBuffer(scratchbuffer);
+	}
+}
+
 void GH::createImage(ImageInfo& i) {
 	// stolen from other code i wrote, unsure why tiling should be determined this way
 	// in reality this is likely to be system-dependent requiring some device capability querying
@@ -1149,10 +1250,7 @@ void GH::createImage(ImageInfo& i) {
 	};
 	vkCreateImage(logicaldevice, &imageci, nullptr, &i.image);
 
-	allocateDeviceMemory(
-		VK_NULL_HANDLE, 
-		i,
-		i.memory);
+	allocateImageMemory(i);
 	vkBindImageMemory(logicaldevice, i.image, i.memory, 0);
 
 	VkImageViewCreateInfo imageviewci {

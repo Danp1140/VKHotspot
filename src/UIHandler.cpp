@@ -99,43 +99,6 @@ UIHandler::UIHandler(VkExtent2D extent) :
 	});
 
 	root = UIContainer();
-	GH::createDS(graphicspipeline, ds);
-	UIText temp = UIText(L"please work", UICoord(extent.width / 2, extent.height / 2));
-	temp.setDS(ds);
-	root.addChild(temp);
-
-	GH::createDS(graphicspipeline, ds);
-	temp = UIText(L"please work too ;-;", UICoord(extent.width / 4, extent.height / 4));
-	temp.setDS(ds);
-	root.addChild(temp);
-
-	GH::createDS(graphicspipeline, ds);
-	UIImage itemp = UIImage(UICoord(extent.width * 3 / 4, extent.height * 3 / 4));
-	itemp.setDS(ds);
-	UIImageInfo infotemp;
-	infotemp.format = VK_FORMAT_R8G8B8A8_SRGB;
-	infotemp.extent = {1024, 1024};
-	/*
-	ImageInfo ghinfotemp = uiToGHImageInfo(infotemp);
-	GH::createImage(ghinfotemp);
-	*/
-	itemp.setTex(infotemp);
-	
-	uint8_t* colors = new uint8_t[1024 * 1024 * 4];
-	for (uint32_t i = 0; i < 1024; i++) {
-		for (uint32_t j = 0; j < 1024; j++) {
-			colors[(i * 1024 + j) * 4] = (uint8_t)((float)i / 1024. * 255.);
-			colors[(i * 1024 + j) * 4 + 1] = (uint8_t)((float)j / 1024. * 255.);
-			colors[(i * 1024 + j) * 4 + 2] = (uint8_t)255;
-			colors[(i * 1024 + j) * 4 + 3] = (uint8_t)255;
-		}
-	}
-	// GH::updateImage(ghinfotemp, colors);
-	UIImage::texLoadFunc(&itemp, colors);
-	delete[] colors;
-	itemp.setExt(UICoord(1024, 1024));
-	root.addChild(itemp);
-
 	root.setGraphicsPipeline(ghToUIPipelineInfo(graphicspipeline));
 
 	cbbegininfo = {
@@ -160,6 +123,24 @@ UIHandler::~UIHandler() {
 	GH::destroyImage(temp);
 	GH::destroyPipeline(graphicspipeline);
 	GH::destroyRenderPass(renderpass);
+}
+
+/*
+void UIHandler::addComponent(UIComponent c) {
+	VkDescriptorSet dstemp;
+	GH::createDS(graphicspipeline, dstemp);
+	c.setDS(dstemp);
+	c.setGraphicsPipeline(root.getGraphicsPipeline());
+	root.addChild(c);
+}
+*/
+
+void UIHandler::setTex(UIImage& i, const ImageInfo& ii) {
+	VkDescriptorSet dstemp;
+	GH::createDS(graphicspipeline, dstemp);
+	GH::updateDS(dstemp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ii.getDII(), {});
+	i.setTex(ghToUIImageInfo(ii));
+	i.setDS(dstemp);
 }
 
 void UIHandler::draw(VkCommandBuffer& cb, const VkFramebuffer& f) {
