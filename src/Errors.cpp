@@ -29,7 +29,7 @@ void FatalError::vkCatch(VkResult r) {
 	}
 }
 
-void FatalError::sdlCatch(SDL_bool r) {
+void FatalError::sdlCatch(bool r) {
 	if (!r) {
 		message += "SDL_GetError(): ";
 		message += SDL_GetError();
