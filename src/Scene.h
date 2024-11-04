@@ -16,7 +16,7 @@ typedef struct RenderSet {
 } RenderSet;
 
 class RenderPassInfo {
-	// TODO: add compute rpi
+	// TODO: add compute rpi [l]
 public: 
 	RenderPassInfo() : renderpass(VK_NULL_HANDLE), framebuffers(nullptr), extent({0, 0}) {}
 	RenderPassInfo(

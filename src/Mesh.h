@@ -28,7 +28,6 @@ public:
 	Mesh(const char* f);
 	~Mesh();
 
-	// TODO: assess recordDraw params for efficiency
 	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
 	static size_t getTraitsElementSize(VertexBufferTraits t);
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
@@ -49,6 +48,7 @@ private:
 	VertexBufferTraits vbtraits;
 	PipelineInfo pipeline;
 	VkDescriptorSet ds;
+	static VkDeviceSize vboffsettemp;
 
 	size_t getVertexBufferElementSize() const;
 	

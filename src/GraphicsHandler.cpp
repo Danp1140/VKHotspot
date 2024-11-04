@@ -26,10 +26,9 @@ WindowInfo::WindowInfo() {
 		FatalError(std::string("SDL found no displays. From SDL_GetError:\n") + SDL_GetError()).raise();
 	}
 	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(displays[0]);
-	// TODO: use SDL_GetWindowWMInfo for system-dependent window info
+	// TODO: use SDL_GetWindowWMInfo for system-dependent window info [l]
 	SDL_free(displays);
 
-	// TODO: ensure swapchain is properly scaled to this width/height
 	sdlwindow = SDL_CreateWindow(
 		"Vulkan Project", 
 		displaymode->w, displaymode->h, 
@@ -142,12 +141,13 @@ void WindowInfo::frameCallback() {
 		VK_NULL_HANDLE,
 		&sciindex);
 
-	for (const cbRecTask& t : rectaskvec[sciindex]) rectasks.push(t);
+	// TODO: changeflag to determine if re-enqueuing & re-recording is needed [l]
+	for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
 
-	// TODO: better timeout logic
+	// TODO: better timeout logic [l]
 	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
 	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
-	processRecordingTasks(fifindex, 0, rectasks, collectinfos, secondarycbset[fifindex]);
+	processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
 
 	collectPrimaryCB();
 
@@ -227,7 +227,7 @@ void WindowInfo::processRecordingTasks(
 	std::vector<VkCommandBuffer>& secondarycbset) {
 	size_t bufferidx = 0;
 	cbRecFunc recfunc;
-	// TODO: where did all my mutexes go????
+	// TODO: reinstall mutexes/locks to make this thread-safe [l]
 	while (!rectasks.empty()) {
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.rpbi));
@@ -336,7 +336,6 @@ uint8_t GH::queuefamilyindex = 0xff;
 VkCommandPool GH::commandpool = VK_NULL_HANDLE;
 VkCommandBuffer GH::interimcb = VK_NULL_HANDLE;
 VkFence GH::interimfence = VK_NULL_HANDLE;
-const VkClearValue GH::primaryclears[2] = {{0.1, 0.1, 0.1, 1.}, 0.};
 VkDescriptorPool GH::descriptorpool = VK_NULL_HANDLE;
 VkSampler GH::nearestsampler = VK_NULL_HANDLE;
 BufferInfo GH::scratchbuffer = {
@@ -1156,8 +1155,7 @@ void GH::destroyImage(ImageInfo& i) {
 }
 
 void GH::updateImage(ImageInfo& i, void* src) {
-	// TODO: handle image transitions when required
-	// TODO: handle device local images using a staging buffer
+	// TODO: handle device local images using a staging buffer [l]
 	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
 	VkSubresourceLayout subresourcelayout;
 	VkImageSubresource imgsubresource = i.getDefaultSubresource();

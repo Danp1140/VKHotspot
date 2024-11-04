@@ -1,5 +1,7 @@
 #include "Mesh.h"
 
+VkDeviceSize Mesh::vboffsettemp = 0;
+
 Mesh::Mesh(const char* f) : Mesh() {
 	loadOBJ(f);
 }
@@ -26,8 +28,7 @@ void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
 	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
-	VkDeviceSize offsettemp = 0; // TODO: get rid of this repeated annoying alloc
-	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &offsettemp);
+	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
 	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
 	vkCmdDrawIndexed(c, d.nv, 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
@@ -99,8 +100,6 @@ size_t Mesh::getVertexBufferElementSize() const {
 }
 
 void Mesh::loadOBJ(const char* fp) {
-	// TODO: further optimizations like not reallocing inside each loop
-	// can be done once we actually render to screen
 	std::vector<unsigned int> vertexindices, uvindices, normalindices;
 	std::vector<glm::vec3> vertextemps, normaltemps;
 	std::vector<glm::vec2> uvtemps;
@@ -110,27 +109,29 @@ void Mesh::loadOBJ(const char* fp) {
 	if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) expectedmatches += 3;
 	if (vbtraits & VERTEX_BUFFER_TRAIT_UV) expectedmatches += 3;
 	if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) expectedmatches += 3;
+	char lineheader[128];
+	int res, matches;
+	glm::vec3 vertex;
+	glm::vec2 uv;
+	glm::vec3 normal;
+	unsigned int vertidx[3], uvidx[3], normidx[3];
 	while (true) {
-		char lineheader[128];
-		int res = fscanf(obj, "%s", lineheader);
+		res = fscanf(obj, "%s", lineheader);
 		if (res == EOF) break;
 		if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION && strcmp(lineheader, "v") == 0) {
-			glm::vec3 vertex;
 			fscanf(obj, "%f %f %f\n", &vertex.x, &vertex.y, &vertex.z);
 			vertextemps.push_back(vertex);
 		} else if (vbtraits & VERTEX_BUFFER_TRAIT_UV && strcmp(lineheader, "vt") == 0) {
-			glm::vec2 uv;
 			fscanf(obj, "%f %f\n", &uv.x, &uv.y);
 			uvtemps.push_back(uv);
 		} else if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL && strcmp(lineheader, "vn") == 0) {
-			glm::vec3 normal;
 			fscanf(obj, "%f %f %f\n", &normal.x, &normal.y, &normal.z);
 			normaltemps.push_back(normal);
 		} else if (strcmp(lineheader, "f") == 0) {
-			unsigned int vertidx[3], uvidx[3], normidx[3];
-			int matches = fscanf(obj, "%d/%d/%d %d/%d/%d %d/%d/%d", &vertidx[0], &uvidx[0], &normidx[0],
-								 &vertidx[1], &uvidx[1], &normidx[1],
-								 &vertidx[2], &uvidx[2], &normidx[2]);
+			matches = fscanf(obj, "%d/%d/%d %d/%d/%d %d/%d/%d", 
+					&vertidx[0], &uvidx[0], &normidx[0],
+					&vertidx[1], &uvidx[1], &normidx[1],
+					&vertidx[2], &uvidx[2], &normidx[2]);
 			if (matches != expectedmatches) {
 				FatalError("Malformed OBJ file").raise();
 				return;

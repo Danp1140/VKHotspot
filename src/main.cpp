@@ -43,6 +43,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	p.cullmode = VK_CULL_MODE_NONE; // temp to troubleshoot
 	GH::createPipeline(p);
 	rpi.addPipeline(p, &s.getCamera()->getVP());
+	Mesh::ungetVISCI(p.vertexinputstateci);
 	
 	rpi.addMesh(&m, 0);
 
@@ -60,7 +61,7 @@ int main() {
 		w.getPresentationFBs(),
 		w.getSCImages()[0].extent,
 		1, &ui.getColorClear())));
-	// TODO: there's gotta be a better way to do this, ui draws shouldn't be this special
+	// TODO: fix UIHandler, this is disgusting lol [l] 
 	w.addTask(cbRecTaskTemplate(cbRecFuncTemplate(
 		VK_NULL_HANDLE,
 		nullptr,

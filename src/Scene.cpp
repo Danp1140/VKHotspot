@@ -105,7 +105,6 @@ Scene::~Scene() {
 
 std::vector<cbRecTaskTemplate> Scene::getDrawTasks() {
 	std::vector<cbRecTaskTemplate> result;
-	// TODO: bind scene ds here!
 	std::vector<cbRecTaskTemplate> temp;
 	for (const RenderPassInfo& r : renderpasses) {
 		temp = r.getTasks();
