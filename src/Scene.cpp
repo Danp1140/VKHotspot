@@ -38,10 +38,14 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 		// this would be more efficient for meshes that aren't swapped in and out frequently
 		for (const Mesh* m : r.meshes) {
 			tasks.emplace_back(
-					[d = m->getDrawData(renderpass, r.pipeline, {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)}, r.pcdata), f = framebuffers] 
+					[d = m->getDrawData(
+						renderpass, 
+						r.pipeline, 
+						{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)}, 
+						r.pcdata), 
+					f = framebuffers] 
 					(uint8_t scii, VkCommandBuffer& c) {
 				Mesh::recordDraw(f[scii], d, c);
-				std::cout << "drew mesh" << std::endl;
 			});
 		}
 	}

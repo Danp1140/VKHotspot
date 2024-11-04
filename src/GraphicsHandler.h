@@ -291,10 +291,7 @@ public:
 	 * - Resolution (can this vary relative to window size?)
 	 * - Monitor
 	 */
-	// perhaps make private if we don't ever want to alow no presentation rp
-	// may need a default constructor tho...
 	WindowInfo();
-	WindowInfo(const VkRenderPass& presrp);
 	// explicitly delete these until we can safely implement them
 	WindowInfo(const WindowInfo& lvalue) = delete;
 	WindowInfo(WindowInfo&& rvalue) = delete;
@@ -304,16 +301,11 @@ public:
 	void addTask(const cbRecTaskTemplate& t);
 	void addTasks(std::vector<cbRecTaskTemplate>&& t);
 
-	// rebuilds presentation fbs too
-	void setPresentationRP(const VkRenderPass& presrp);
-
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
 	const ImageInfo* const getSCImages() const {return scimages;}
 	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
-	const VkFramebuffer* const getPresentationFBs() const {return presentationfbs;}
-	const VkFramebuffer& getCurrentPresentationFB() const {return presentationfbs[sciindex];}
 	uint32_t getNumSCIs() const {return numscis;}
 
 private:
@@ -325,8 +317,6 @@ private:
 	uint32_t numscis, sciindex, fifindex;
 	VkSemaphore imgacquiresema, subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
 	VkFence subfinishfences[GH_MAX_FRAMES_IN_FLIGHT];
-	VkRenderPass presentationrp;
-	VkFramebuffer* presentationfbs;
 	VkCommandBuffer primarycbs[GH_MAX_FRAMES_IN_FLIGHT];
 	std::vector<cbRecTask>* rectaskvec;
 	std::queue<cbRecTask> rectasks; // TODO: rename to rectaskqueue
@@ -343,9 +333,6 @@ private:
 
 	void createSyncObjects();
 	void destroySyncObjects();
-
-	void createPresentationFBs();
-	void destroyPresentationFBs();
 
 	void createPrimaryCBs();
 	void destroyPrimaryCBs();
@@ -421,9 +408,6 @@ public:
 	static const VkPhysicalDevice& getPD() {return physicaldevice;}
 	static const VkQueue& getGenericQueue() {return genericqueue;}
 	static const uint8_t getQueueFamilyIndex() {return queuefamilyindex;}
-	// TODO: renderpass should not be a static member
-	// should have a system for managing an arbitrary number (or none)
-	static const VkRenderPass& getPresentationRenderPass() {return primaryrenderpass;}
 	static const VkCommandPool& getCommandPool() {return commandpool;}
 	static const VkClearValue* const getPresentationClearsPtr() {return &primaryclears[0];}
 	static const VkSampler& getNearestSampler() {return nearestsampler;}
@@ -437,7 +421,6 @@ private:
 	static VkPhysicalDevice physicaldevice;
 	static VkQueue genericqueue;
 	static uint8_t queuefamilyindex;
-	static VkRenderPass primaryrenderpass;
 	static VkCommandPool commandpool;
 	static VkCommandBuffer interimcb; // unsure if this is an efficient model, but will use until proven not to be
 	static VkFence interimfence; // created initCommandPools w/ interimcb 
@@ -478,9 +461,6 @@ private:
 	void initDevicesAndQueues();
 	void terminateDevicesAndQueues();
 
-	void initRenderpasses();
-	void terminateRenderpasses();
-
 	void initCommandPools();
 	void terminateCommandPools();
 
@@ -495,7 +475,7 @@ private:
 	static void createShader(
 		VkShaderStageFlags stages,
 		const char** filepaths,
-		VkShaderModule** modules,
+		VkShaderModule*& modules,
 		VkPipelineShaderStageCreateInfo** createinfos,
 		VkSpecializationInfo* specializationinfos);
 	static void destroyShader(VkShaderModule shader);

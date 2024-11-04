@@ -1,6 +1,4 @@
-#include <glm.hpp>
 #include <ext.hpp>
-#include <glm/gtc/constants.hpp>
 
 #define CAMERA_DEFAULT_NEAR_CLIP 0.001
 #define CAMERA_DEFAULT_FAR_CLIP 10000

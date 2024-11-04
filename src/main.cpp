@@ -30,7 +30,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	};
 	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], &attachrefs[1]);
 
-	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0, 0.4, 0.1, 1}, {1, 0}});
+	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -53,7 +53,6 @@ int main() {
 	GH graphicshandler = GH();
 	WindowInfo w;
 	UIHandler ui(w.getSCExtent());
-	w.setPresentationRP(ui.getRenderPass());
 
 	/*
 	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(

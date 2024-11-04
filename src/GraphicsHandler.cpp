@@ -19,7 +19,7 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo() : presentationrp(VK_NULL_HANDLE), presentationfbs(nullptr) {
+WindowInfo::WindowInfo() {
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
@@ -118,16 +118,10 @@ WindowInfo::WindowInfo() : presentationrp(VK_NULL_HANDLE), presentationfbs(nullp
 	cballocinfo.commandPool = GH::getCommandPool();
 }
 
-WindowInfo::WindowInfo(const VkRenderPass& presrp) : WindowInfo() {
-	presentationrp = presrp;
-	createPresentationFBs();
-}
-
 WindowInfo::~WindowInfo() {
 	vkQueueWaitIdle(GH::getGenericQueue());
 	delete[] rectaskvec;
 	destroyPrimaryCBs();
-	destroyPresentationFBs();
 	destroySyncObjects();
 	GH::destroyImage(depthbuffer);
 	for (sciindex = 0; sciindex < numscis; sciindex++) {
@@ -186,13 +180,6 @@ void WindowInfo::addTasks(std::vector<cbRecTaskTemplate>&& t) {
 	for (const cbRecTaskTemplate& ts : t) addTask(ts);
 }
 
-void WindowInfo::setPresentationRP(const VkRenderPass& presrp) {
-	vkQueueWaitIdle(GH::getGenericQueue());
-	presentationrp = presrp;
-	destroyPresentationFBs();
-	createPresentationFBs();
-}
-
 void WindowInfo::createSyncObjects() {
 	VkSemaphoreCreateInfo imgacquiresemacreateinfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0};
 	vkCreateSemaphore(GH::getLD(), &imgacquiresemacreateinfo, nullptr, &imgacquiresema);
@@ -214,48 +201,6 @@ void WindowInfo::destroySyncObjects() {
 		vkDestroySemaphore(GH::getLD(), subfinishsemas[fifi], nullptr);
 	}
 	vkDestroySemaphore(GH::getLD(), imgacquiresema, nullptr);
-}
-
-void WindowInfo::createPresentationFBs() {
-	presentationfbs = new VkFramebuffer[numscis];
-	/*
-	VkImageView attachments[2];
-	attachments[1] = depthbuffer.view;
-	VkFramebufferCreateInfo framebufferci {
-		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-		nullptr,
-		0,
-		presentationrp,
-		2, &attachments[0],
-		scimages[0].extent.width, scimages[0].extent.height, 1
-	};
-	for (uint8_t scii = 0; scii < numscis; scii++) {
-		attachments[0] = scimages[scii].view;
-		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
-	}
-	*/
-	// TODO: remove in favor of RenderPassInfo's FB management system
-	VkFramebufferCreateInfo framebufferci {
-		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-		nullptr,
-		0,
-		presentationrp,
-		1, nullptr,
-		scimages[0].extent.width, scimages[0].extent.height, 1
-	};
-	for (uint8_t scii = 0; scii < numscis; scii++) {
-		framebufferci.pAttachments = &scimages[scii].view;
-		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &presentationfbs[scii]);
-	}
-}
-
-void WindowInfo::destroyPresentationFBs() {
-	if (presentationfbs) {
-		for (uint8_t scii = 0; scii < numscis; scii++) {
-			vkDestroyFramebuffer(GH::getLD(), presentationfbs[scii], nullptr);
-		}
-		delete[] presentationfbs;
-	}
 }
 
 void WindowInfo::createPrimaryCBs() {
@@ -287,7 +232,6 @@ void WindowInfo::processRecordingTasks(
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.rpbi));
 			rectasks.pop();
-			std::cout <<"processed rp" <<std::endl;
 			continue;
 		}
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_DEPENDENCY) {
@@ -306,7 +250,6 @@ void WindowInfo::processRecordingTasks(
 					&secondarycbset.back());
 			}
 		}
-		std::cout <<"processed cb " << secondarycbset[bufferidx]  <<std::endl;
 		collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
 		recfunc(secondarycbset[bufferidx]);
 		bufferidx++;
@@ -318,7 +261,6 @@ void WindowInfo::collectPrimaryCB() {
 	bool inrp = false;
 	while (!collectinfos.empty()) {
 		if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_COMMAND_BUFFER) {
-			std::cout << "collected cb" <<std::endl;
 			vkCmdExecuteCommands(
 				primarycbs[fifindex],
 				1,
@@ -327,7 +269,6 @@ void WindowInfo::collectPrimaryCB() {
 		else if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_RENDERPASS) {
 			// ending an rp w/o starting another is done by passing a renderpassbi 
 			// as if to begin, but with a null handle as renderpass
-			std::cout << "collected rp " << collectinfos.front().data.rpbi.renderPass << std::endl;
 			if (inrp) vkCmdEndRenderPass(primarycbs[fifindex]);
 			else inrp = true;
 			if (collectinfos.front().data.rpbi.renderPass != VK_NULL_HANDLE) {
@@ -392,7 +333,6 @@ VkDevice GH::logicaldevice = VK_NULL_HANDLE;
 VkPhysicalDevice GH::physicaldevice = VK_NULL_HANDLE;
 VkQueue GH::genericqueue = VK_NULL_HANDLE;
 uint8_t GH::queuefamilyindex = 0xff;
-VkRenderPass GH::primaryrenderpass = VK_NULL_HANDLE;
 VkCommandPool GH::commandpool = VK_NULL_HANDLE;
 VkCommandBuffer GH::interimcb = VK_NULL_HANDLE;
 VkFence GH::interimfence = VK_NULL_HANDLE;
@@ -417,7 +357,6 @@ GH::GH() {
 	initVulkanInstance();
 	initDebug();
 	initDevicesAndQueues();
-	initRenderpasses();
 	initCommandPools();
 	initSamplers();
 	initDescriptorPoolsAndSetLayouts();
@@ -428,7 +367,6 @@ GH::~GH() {
 	terminateDescriptorPoolsAndSetLayouts();
 	terminateSamplers();
 	terminateCommandPools();
-	terminateRenderpasses();
 	terminateDevicesAndQueues();
 	terminateDebug();
 	terminateVulkanInstance();
@@ -459,7 +397,7 @@ void GH::initVulkanInstance() {
 	vkEnumerateInstanceExtensionProperties(nullptr, &nallowedexts, &allowedexts[0]);
 	std::vector<const char*> extensions = {
 #ifdef __APPLE__
-		"VK_MVK_macos_surface", // only required on OSX, TODO: add os build maacro check
+		"VK_MVK_macos_surface", 
 #endif
 		"VK_KHR_get_physical_device_properties2", // unclear why this is needeed
 		"VK_EXT_debug_utils" // for val layers, not needed in final compilation
@@ -591,65 +529,6 @@ void GH::initDevicesAndQueues() {
 
 void GH::terminateDevicesAndQueues() {
 	vkDestroyDevice(logicaldevice, nullptr);
-}
-
-// TODO: remove
-void GH::initRenderpasses() {
-	// If you ever have to make more than one renderpass, move all this nonsense to a createRenderpass function
-	// w/ a struct input info
-	VkAttachmentDescription primaryattachmentdescriptions[2] {{
-		0,                                      // color attachment
-		GH_SWAPCHAIN_IMAGE_FORMAT,
-		VK_SAMPLE_COUNT_1_BIT,
-		VK_ATTACHMENT_LOAD_OP_CLEAR,
-		VK_ATTACHMENT_STORE_OP_STORE,
-		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	}, {
-		0,                                      // depth attachment
-		VK_FORMAT_D32_SFLOAT,
-		VK_SAMPLE_COUNT_1_BIT,
-		VK_ATTACHMENT_LOAD_OP_CLEAR,
-		VK_ATTACHMENT_STORE_OP_STORE,
-		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-	}};
-	VkAttachmentReference primaryattachmentreferences[2] {
-		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
-		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
-	};
-	VkSubpassDescription primarysubpassdescription {
-		0,
-		VK_PIPELINE_BIND_POINT_GRAPHICS,
-		0, nullptr,
-		1, &primaryattachmentreferences[0], nullptr, &primaryattachmentreferences[1],
-		0, nullptr
-	};
-	VkSubpassDependency subpassdependency {
-		VK_SUBPASS_EXTERNAL, 0,
-		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-		VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-		VK_ACCESS_SHADER_READ_BIT,
-		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		0
-	};
-	VkRenderPassCreateInfo primaryrenderpasscreateinfo {
-		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-		nullptr,
-		0,
-		2, &primaryattachmentdescriptions[0],
-		1, &primarysubpassdescription,
-		1, &subpassdependency
-	};
-	vkCreateRenderPass(logicaldevice, &primaryrenderpasscreateinfo, nullptr, &primaryrenderpass);
-}
-
-void GH::terminateRenderpasses() {
-	vkDestroyRenderPass(logicaldevice, primaryrenderpass, nullptr);
 }
 
 void GH::initCommandPools() {
@@ -793,10 +672,10 @@ void GH::createPipeline (PipelineInfo& pi) {
 			.append("comp.spv");
 		const char* filepath = tempstr.c_str();
 		createShader(VK_SHADER_STAGE_COMPUTE_BIT,
-						 &filepath,
-						 &shadermodule,
-						 &shaderstagecreateinfo,
-						 nullptr);
+						&filepath,
+						shadermodule,
+						&shaderstagecreateinfo,
+						nullptr);
 		VkComputePipelineCreateInfo pipelinecreateinfo {
 			VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 			nullptr,
@@ -839,13 +718,14 @@ void GH::createPipeline (PipelineInfo& pi) {
 		}
 	}
 	// TODO: why are these allocated with new???
-	VkShaderModule* shadermodules = new VkShaderModule[numshaderstages];
+	VkShaderModule shadermodules[numshaderstages];
+	VkShaderModule* tempaddr = &shadermodules[0];
 	VkPipelineShaderStageCreateInfo* shaderstagecreateinfos = new VkPipelineShaderStageCreateInfo[numshaderstages];
 	createShader(pi.stages,
-			 const_cast<const char**>(&shaderfilepaths[0]),
-			 &shadermodules,
-			 &shaderstagecreateinfos,
-			 nullptr);
+			const_cast<const char**>(&shaderfilepaths[0]),
+			tempaddr,
+			&shaderstagecreateinfos,
+			nullptr);
 	
 	vkCreateDescriptorSetLayout(logicaldevice,
 					&pi.descsetlayoutci,
@@ -1012,7 +892,6 @@ void GH::createPipeline (PipelineInfo& pi) {
 		delete shaderfilepaths[x];
 		destroyShader(shadermodules[x]);
 	}
-	delete[] shadermodules;
 }
 
 void GH::destroyPipeline(PipelineInfo& pi) {
@@ -1024,7 +903,7 @@ void GH::destroyPipeline(PipelineInfo& pi) {
 void GH::createShader(
 		VkShaderStageFlags stages,
 		const char** filepaths,
-		VkShaderModule** modules,
+		VkShaderModule*& modules,
 		VkPipelineShaderStageCreateInfo** createinfos,
 		VkSpecializationInfo* specializationinfos) {
 	std::ifstream filestream;
@@ -1045,15 +924,16 @@ void GH::createShader(
 			modcreateinfo.flags = 0;
 			modcreateinfo.codeSize = shadersrcsize;
 			modcreateinfo.pCode = reinterpret_cast<const uint32_t*>(&shadersrc[0]);
-			vkCreateShaderModule(logicaldevice,
-								 &modcreateinfo,
-								 nullptr,
-								 &(*modules)[stagecounter]);
+			vkCreateShaderModule(
+				logicaldevice,
+				&modcreateinfo,
+				nullptr,
+				&modules[stagecounter]);
 			(*createinfos)[stagecounter].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 			(*createinfos)[stagecounter].pNext = nullptr;
 			(*createinfos)[stagecounter].flags = 0;
 			(*createinfos)[stagecounter].stage = supportedshaderstages[x];
-			(*createinfos)[stagecounter].module = (*modules)[stagecounter];
+			(*createinfos)[stagecounter].module = modules[stagecounter];
 			(*createinfos)[stagecounter].pName = "main";
 			(*createinfos)[stagecounter].pSpecializationInfo = specializationinfos
 															   ? &specializationinfos[stagecounter]
