@@ -649,11 +649,14 @@ void GH::destroyRenderPass(VkRenderPass& rp) {
 }
 
 void GH::createPipeline (PipelineInfo& pi) {
+	// still some heap allocs left in here and createShader. likely avoidable, but for now if they're not
+	// causing issues we'll just leave them be
 	if (pi.stages & VK_SHADER_STAGE_COMPUTE_BIT) {
-		vkCreateDescriptorSetLayout(logicaldevice,
-						&pi.descsetlayoutci,
-						nullptr,
-						&pi.dsl);
+		vkCreateDescriptorSetLayout(
+			logicaldevice,
+			&pi.descsetlayoutci,
+			nullptr,
+			&pi.dsl);
 		VkPipelineLayoutCreateInfo pipelinelayoutci {
 			VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 			nullptr,
@@ -661,39 +664,39 @@ void GH::createPipeline (PipelineInfo& pi) {
 			1, &pi.dsl,
 			pi.pushconstantrange.size == 0 ? 0u : 1u, &pi.pushconstantrange
 		};
-		vkCreatePipelineLayout(logicaldevice,
-					&pipelinelayoutci,
-					nullptr,
-					&pi.layout);
-		VkShaderModule* shadermodule = new VkShaderModule;
-		VkPipelineShaderStageCreateInfo* shaderstagecreateinfo = new VkPipelineShaderStageCreateInfo;
+		vkCreatePipelineLayout(
+			logicaldevice,
+			&pipelinelayoutci,
+			nullptr,
+			&pi.layout);
+		VkShaderModule shadermodule;
+		VkPipelineShaderStageCreateInfo shaderstagecreateinfo;
 		std::string tempstr = std::string(shaderdir)
 			.append(pi.shaderfilepathprefix)
 			.append("comp.spv");
 		const char* filepath = tempstr.c_str();
-		createShader(VK_SHADER_STAGE_COMPUTE_BIT,
-						&filepath,
-						shadermodule,
-						&shaderstagecreateinfo,
-						nullptr);
+		createShader(
+			VK_SHADER_STAGE_COMPUTE_BIT,
+			&filepath,
+			&shadermodule,
+			&shaderstagecreateinfo,
+			nullptr);
 		VkComputePipelineCreateInfo pipelinecreateinfo {
 			VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 			nullptr,
 			0,
-			*shaderstagecreateinfo,
+			shaderstagecreateinfo,
 			pi.layout,
 			VK_NULL_HANDLE,
 			1
 		};
-		vkCreateComputePipelines(logicaldevice,
-						 VK_NULL_HANDLE,
-						 1,
-						 &pipelinecreateinfo,
-						 nullptr,
-						 &pi.pipeline);
-		delete shaderstagecreateinfo;
-		destroyShader(*shadermodule);
-		delete shadermodule;
+		vkCreateComputePipelines(
+			logicaldevice,
+			VK_NULL_HANDLE,
+			1, &pipelinecreateinfo,
+			nullptr,
+			&pi.pipeline);
+		destroyShader(shadermodule);
 		return;
 	}
 
@@ -717,20 +720,19 @@ void GH::createPipeline (PipelineInfo& pi) {
 			numshaderstages++;
 		}
 	}
-	// TODO: why are these allocated with new???
 	VkShaderModule shadermodules[numshaderstages];
-	VkShaderModule* tempaddr = &shadermodules[0];
-	VkPipelineShaderStageCreateInfo* shaderstagecreateinfos = new VkPipelineShaderStageCreateInfo[numshaderstages];
-	createShader(pi.stages,
-			const_cast<const char**>(&shaderfilepaths[0]),
-			tempaddr,
-			&shaderstagecreateinfos,
-			nullptr);
-	
-	vkCreateDescriptorSetLayout(logicaldevice,
-					&pi.descsetlayoutci,
-					nullptr,
-					&pi.dsl);
+	VkPipelineShaderStageCreateInfo shaderstagecreateinfos[numshaderstages];
+	createShader(
+		pi.stages,
+		const_cast<const char**>(&shaderfilepaths[0]),
+		&shadermodules[0],
+		&shaderstagecreateinfos[0],
+		nullptr);
+	vkCreateDescriptorSetLayout(
+		logicaldevice,
+		&pi.descsetlayoutci,
+		nullptr,
+		&pi.dsl);
 	VkPipelineLayoutCreateInfo pipelinelayoutcreateinfo {
 		VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		nullptr,
@@ -738,15 +740,16 @@ void GH::createPipeline (PipelineInfo& pi) {
 		1, &pi.dsl,
 		pi.pushconstantrange.size == 0 ? 0u : 1u, &pi.pushconstantrange
 	};
-	vkCreatePipelineLayout(logicaldevice,
-				&pipelinelayoutcreateinfo,
-				nullptr,
-				&pi.layout);
+	vkCreatePipelineLayout(
+		logicaldevice,
+		&pipelinelayoutcreateinfo,
+		nullptr,
+		&pi.layout);
 
-	if ((pi.stages & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) && (pi.topo != VK_PRIMITIVE_TOPOLOGY_PATCH_LIST)) {
-		std::cout << "createPipeline warning!!! Are you sure you want your tessellated pipeline (" 
-			<< pi.shaderfilepathprefix 
-			<< ") to use a primitive topology other than patch list?" << std::endl;
+	if ((pi.stages & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
+		 && (pi.topo != VK_PRIMITIVE_TOPOLOGY_PATCH_LIST)) {
+		WarningError("GH::createPipeline given a tessellated pipeline with non-patch list primitive topology")
+			.raise();
 	}
 	VkPipelineInputAssemblyStateCreateInfo inputassemblystatecreateinfo {
 		VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -880,14 +883,14 @@ void GH::createPipeline (PipelineInfo& pi) {
 		VK_NULL_HANDLE,
 		-1
 	};
-	vkCreateGraphicsPipelines(logicaldevice,
-				  VK_NULL_HANDLE,
-				  1,
-				  &pipelinecreateinfo,
-				  nullptr,
-				  &pi.pipeline);
+	vkCreateGraphicsPipelines(
+		logicaldevice,
+		VK_NULL_HANDLE,
+		1,
+		&pipelinecreateinfo,
+		nullptr,
+		&pi.pipeline);
 
-	delete[] shaderstagecreateinfos;
 	for (unsigned char x = 0; x < numshaderstages; x++) {
 		delete shaderfilepaths[x];
 		destroyShader(shadermodules[x]);
@@ -903,8 +906,8 @@ void GH::destroyPipeline(PipelineInfo& pi) {
 void GH::createShader(
 		VkShaderStageFlags stages,
 		const char** filepaths,
-		VkShaderModule*& modules,
-		VkPipelineShaderStageCreateInfo** createinfos,
+		VkShaderModule* modules,
+		VkPipelineShaderStageCreateInfo* createinfos,
 		VkSpecializationInfo* specializationinfos) {
 	std::ifstream filestream;
 	size_t shadersrcsize;
@@ -929,15 +932,15 @@ void GH::createShader(
 				&modcreateinfo,
 				nullptr,
 				&modules[stagecounter]);
-			(*createinfos)[stagecounter].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-			(*createinfos)[stagecounter].pNext = nullptr;
-			(*createinfos)[stagecounter].flags = 0;
-			(*createinfos)[stagecounter].stage = supportedshaderstages[x];
-			(*createinfos)[stagecounter].module = modules[stagecounter];
-			(*createinfos)[stagecounter].pName = "main";
-			(*createinfos)[stagecounter].pSpecializationInfo = specializationinfos
-															   ? &specializationinfos[stagecounter]
-															   : nullptr;
+			createinfos[stagecounter].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+			createinfos[stagecounter].pNext = nullptr;
+			createinfos[stagecounter].flags = 0;
+			createinfos[stagecounter].stage = supportedshaderstages[x];
+			createinfos[stagecounter].module = modules[stagecounter];
+			createinfos[stagecounter].pName = "main";
+			createinfos[stagecounter].pSpecializationInfo = specializationinfos ? 
+										&specializationinfos[stagecounter] :
+										nullptr;
 			delete[] shadersrc;
 			stagecounter++;
 		}

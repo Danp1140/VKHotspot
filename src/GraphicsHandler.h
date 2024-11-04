@@ -475,8 +475,8 @@ private:
 	static void createShader(
 		VkShaderStageFlags stages,
 		const char** filepaths,
-		VkShaderModule*& modules,
-		VkPipelineShaderStageCreateInfo** createinfos,
+		VkShaderModule* modules,
+		VkPipelineShaderStageCreateInfo* createinfos,
 		VkSpecializationInfo* specializationinfos);
 	static void destroyShader(VkShaderModule shader);
 
