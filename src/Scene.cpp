@@ -13,7 +13,7 @@ RenderPassInfo::RenderPassInfo(
 }
 
 void RenderPassInfo::destroy() {
-	for (PipelineInfo& p : pipelines) GH::destroyPipeline(p);
+	for (RenderSet r : rendersets) GH::destroyPipeline(r.pipeline);
 	if (framebuffers) {
 		for (uint8_t scii = 0; scii < numscis; scii++) vkDestroyFramebuffer(GH::getLD(), framebuffers[scii], nullptr);
 		delete[] framebuffers;
@@ -21,12 +21,31 @@ void RenderPassInfo::destroy() {
 	if (renderpass != VK_NULL_HANDLE) GH::destroyRenderPass(renderpass);
 }
 
-void RenderPassInfo::addPipeline(const PipelineInfo& p) {
-	pipelines.push_back(p);
+void RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
+	rendersets.push_back({p, {}, pcd});
 }
 
-void RenderPassInfo::addMesh(const Mesh* m) {
-	meshes.push_back(m);
+void RenderPassInfo::addMesh(const Mesh* m, size_t pidx) {
+	rendersets[pidx].meshes.push_back(m);
+}
+
+std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
+	std::vector<cbRecTaskTemplate> tasks;
+	tasks.emplace_back(getRPT());
+	for (const RenderSet& r : rendersets) {
+		// can't do pipeline binds out here ;-;	
+		// could add a setting that puts entire pipeline & all mesh records in one 2ary cb
+		// this would be more efficient for meshes that aren't swapped in and out frequently
+		for (const Mesh* m : r.meshes) {
+			tasks.emplace_back(
+					[d = m->getDrawData(renderpass, r.pipeline, {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)}, r.pcdata), f = framebuffers] 
+					(uint8_t scii, VkCommandBuffer& c) {
+				Mesh::recordDraw(f[scii], d, c);
+				std::cout << "drew mesh" << std::endl;
+			});
+		}
+	}
+	return tasks;
 }
 
 void RenderPassInfo::createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* d) {
@@ -50,8 +69,13 @@ void RenderPassInfo::createFBs(const uint32_t nsci, const ImageInfo* scis, const
 	}
 }
 
-Scene::Scene() {
-	camera = new Camera;
+// could p be inline/constexpr
+cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
+	return cbRecTaskRenderPassTemplate(renderpass, framebuffers, extent, clears.size(), clears.data());
+}
+
+Scene::Scene(float a) {
+	camera = new Camera(glm::vec3(3), glm::vec3(-3), glm::quarter_pi<float>(), a);
 	// GH::createDS(ds);
 	lightub = {};
 	/*
@@ -76,26 +100,12 @@ Scene::~Scene() {
 }
 
 std::vector<cbRecTaskTemplate> Scene::getDrawTasks() {
-	// would like a system of defaults, but also one that allows custom rps & ops
 	std::vector<cbRecTaskTemplate> result;
+	// TODO: bind scene ds here!
+	std::vector<cbRecTaskTemplate> temp;
 	for (const RenderPassInfo& r : renderpasses) {
-		// TODO: move contents of this for loop to function in RenderPassInfo
-		result.emplace_back(cbRecTaskRenderPassTemplate(
-			r.getRenderPass(),
-			r.getFramebuffers(),
-			r.getExtent(),
-			r.getClears().size(),
-			r.getClears().data()));
-		for (const Mesh* m : r.getMeshes()) {
-			result.emplace_back(cbRecFuncTemplate(
-				r.getRenderPass(),
-				&m->getGraphicsPipeline(),
-				ds, m->getDS(),
-				m->getVertexBuffer().buffer, m->getIndexBuffer().buffer,
-				m->getIndexBuffer().size / sizeof(MeshIndex),
-				Mesh::recordDraw,
-				r.getFramebuffers()));
-		}
+		temp = r.getTasks();
+		result.insert(result.end(), temp.begin(), temp.end());
 	}
 	return result;
 }

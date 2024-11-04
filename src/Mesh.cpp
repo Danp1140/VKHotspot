@@ -9,12 +9,12 @@ Mesh::~Mesh() {
 	if (indexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(indexbuffer);
 }
 
-void Mesh::recordDraw(cbRecData d, VkCommandBuffer& c) {
+void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
-		d.rp, 0,
-		d.fb,
+		d.r, 0,
+		f,
 		VK_FALSE, 0, 0
 	};
 	VkCommandBufferBeginInfo cbbi {
@@ -24,10 +24,12 @@ void Mesh::recordDraw(cbRecData d, VkCommandBuffer& c) {
 		&cbinherinfo
 	};
 	vkBeginCommandBuffer(c, &cbbi);
+	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
+	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
 	VkDeviceSize offsettemp = 0; // TODO: get rid of this repeated annoying alloc
-	vkCmdBindVertexBuffers(c, 0, 1, &d.vbuf, &offsettemp);
-	vkCmdBindIndexBuffer(c, d.ibuf, 0, VK_INDEX_TYPE_UINT16);
-	vkCmdDrawIndexed(c, d.numverts, 1, 0, 0, 0, 0);
+	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &offsettemp);
+	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(c, d.nv, 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
@@ -76,6 +78,19 @@ VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t) {
 void Mesh::ungetVISCI(VkPipelineVertexInputStateCreateInfo v) {
 	delete[] v.pVertexBindingDescriptions;
 	delete[] v.pVertexAttributeDescriptions;
+}
+
+const MeshDrawData Mesh::getDrawData(VkRenderPass r,  const PipelineInfo& p, VkPushConstantRange pcr, const void* pcd) const {
+	return (MeshDrawData){
+		r,
+		p.pipeline,
+		p.layout,
+		pcr,
+		pcd,
+		ds,
+		vertexbuffer.buffer, indexbuffer.buffer,
+		indexbuffer.size / sizeof(MeshIndex)
+	};
 }
 
 // could maybe make this constexpr

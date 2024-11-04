@@ -162,17 +162,10 @@ void WindowInfo::frameCallback() {
 
 void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
-		cbRecData d {
-			t.data.ft.rp,
-			t.data.ft.p,
-			t.data.ft.sceneds, t.data.ft.objds,
-			t.data.ft.vbuf, t.data.ft.ibuf,
-			t.data.ft.numverts,
-			VK_NULL_HANDLE
-		};
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			d.fb = t.data.ft.fbs[scii];
-			rectaskvec[scii].push_back(cbRecTask([d, f = t.data.ft.f] (VkCommandBuffer& c) {f(d, c);}));
+			rectaskvec[scii].push_back(cbRecTask(
+				[scii, f = t.data.ft] (VkCommandBuffer& c) {f(scii, c);})
+			);
 		}
 	}
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
@@ -289,6 +282,7 @@ void WindowInfo::processRecordingTasks(
 	std::vector<VkCommandBuffer>& secondarycbset) {
 	size_t bufferidx = 0;
 	cbRecFunc recfunc;
+	// TODO: where did all my mutexes go????
 	while (!rectasks.empty()) {
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_RENDERPASS) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.rpbi));
@@ -301,7 +295,6 @@ void WindowInfo::processRecordingTasks(
 			rectasks.pop();
 			continue;
 		}
-		std::cout <<"processed cb" <<std::endl;
 		recfunc = rectasks.front().data.func;
 		rectasks.pop();
 		if (bufferidx == secondarycbset.size()) {
@@ -313,8 +306,10 @@ void WindowInfo::processRecordingTasks(
 					&secondarycbset.back());
 			}
 		}
+		std::cout <<"processed cb " << secondarycbset[bufferidx]  <<std::endl;
 		collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
 		recfunc(secondarycbset[bufferidx]);
+		bufferidx++;
 	}
 }
 
@@ -1400,6 +1395,33 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 	i.layout = newlayout;
 	vkQueueWaitIdle(genericqueue);
 }
+
+/*
+void GH::recordPushConsts(
+		VkShaderStageFlags stages,
+		uint32_t offset,
+		uint32_t size,
+		const void* pc,
+		cbRecData d, 
+		VkCommandBuffer& c) {
+	VkCommandBufferInheritanceInfo cbinherinfo {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		nullptr,
+		d.rp, 0,
+		d.fb,
+		VK_FALSE, 0, 0
+	};
+	VkCommandBufferBeginInfo cbbi {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
+		&cbinherinfo
+	};
+	vkBeginCommandBuffer(c, &cbbi);
+	vkCmdPushConstants(c, d.p->layout, stages, offset, size, pc);
+	vkEndCommandBuffer(c);
+}
+*/
 
 VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
 		VkDebugUtilsMessageSeverityFlagBitsEXT severity,

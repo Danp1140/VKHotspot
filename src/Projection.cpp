@@ -31,11 +31,20 @@ Camera::Camera(glm::vec3 p, glm::vec3 f, float fov, float ar) :
 // -- Private --
 
 void Camera::updateView() {
-	
+	view = glm::lookAt<float>(
+		glm::vec3(3),
+		glm::vec3(0),
+		glm::vec3(0, 1, 0));
+	vp = projection * view;
 }
 
 // starting with just a typical perspective cam
 void Camera::updateProj() {
 	projection = glm::perspective<float>(fovy, aspectratio, nearclip, farclip); 
+	// below adjusts for vulkan's lower-left viewport origin
+	// we could also flip the viewport in GH's pipeline create function, something to
+	// consider later
+	projection[1][1] *= -1;
+	vp = projection * view;
 }
 

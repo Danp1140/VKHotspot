@@ -17,7 +17,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 			0, 
 			GH_DEPTH_BUFFER_IMAGE_FORMAT,
 			VK_SAMPLE_COUNT_1_BIT,
-			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_LOAD_OP_CLEAR,
 			VK_ATTACHMENT_STORE_OP_STORE,
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -35,15 +35,16 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "default";
-	p.pushconstantrange = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ScenePCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = r;
+	p.cullmode = VK_CULL_MODE_NONE; // temp to troubleshoot
 	GH::createPipeline(p);
-	rpi.addPipeline(p);
+	rpi.addPipeline(p, &s.getCamera()->getVP());
 	
-	rpi.addMesh(&m);
+	rpi.addMesh(&m, 0);
 
 	s.addRenderPass(rpi);
 }
@@ -71,7 +72,7 @@ int main() {
 	ui.addComponent(UIText(L"text from main", UICoord(1000, 1000)));
 	*/
 	
-	Scene s;
+	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
 	Mesh m("resources/models/objs/cube.obj");
 	createScene(s, w, m);
 	w.addTasks(s.getDrawTasks());

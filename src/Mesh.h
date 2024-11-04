@@ -11,16 +11,30 @@ typedef enum VertexBufferTraitBits {
 typedef uint8_t VertexBufferTraits;
 #define MAX_VERTEX_BUFFER_NUM_TRAITS 4
 
+typedef struct MeshDrawData {
+	VkRenderPass r;
+	VkPipeline p;
+	VkPipelineLayout pl;
+	VkPushConstantRange pcr;
+	const void* pcd;
+	VkDescriptorSet d;
+	VkBuffer vb, ib;
+	size_t nv;
+} MeshDrawData;
+
 class Mesh {
 public:
 	Mesh() : vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
 	Mesh(const char* f);
 	~Mesh();
 
-	static void recordDraw(cbRecData d, VkCommandBuffer& c);
+	// TODO: assess recordDraw params for efficiency
+	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
 	static size_t getTraitsElementSize(VertexBufferTraits t);
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
+
+	const MeshDrawData getDrawData(VkRenderPass r, const PipelineInfo& p, VkPushConstantRange pcr, const void* pcd) const;
 
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}

@@ -11,9 +11,11 @@ public:
 	Camera(glm::vec3 p, glm::vec3 f, float fov, float ar);
 	~Camera() = default;
 
+	const glm::mat4& getVP() const {return vp;}
+
 private:
 	glm::vec3 position, forward;
-	glm::mat4 view, projection;
+	glm::mat4 view, projection, vp;
 	float fovy, aspectratio, nearclip, farclip;
 
 	void updateView();

@@ -122,15 +122,6 @@ typedef struct PipelineInfo {
 
 typedef std::function<void (VkCommandBuffer&)> cbRecFunc;
 
-typedef struct cbRecData {
-	VkRenderPass rp;
-	const PipelineInfo* p; // NOT AN ARRAY just wanted to pass more efficiently
-	VkDescriptorSet sceneds, objds;
-	VkBuffer vbuf, ibuf;
-	size_t numverts;
-	VkFramebuffer fb;
-} cbRecData;
-
 typedef enum cbRecTaskType {
 		CB_REC_TASK_TYPE_UNINITIALIZED,
 		CB_REC_TASK_TYPE_COMMAND_BUFFER,
@@ -211,37 +202,7 @@ typedef struct cbCollectInfo {
 	} data;
 } cbCollectInfo;
 
-typedef std::function<void (cbRecData, VkCommandBuffer&)> cbRecFuncFuncTemplate;
-
-typedef struct cbRecFuncTemplate {
-	VkRenderPass rp;
-	const PipelineInfo* p; // NOT AN ARRAY just wanted to pass more efficiently
-	VkDescriptorSet sceneds, objds;
-	VkBuffer vbuf, ibuf;
-	size_t numverts;
-	cbRecFuncFuncTemplate f;
-	const VkFramebuffer* fbs;
-
-	cbRecFuncTemplate() = delete;
-	cbRecFuncTemplate(
-		const VkRenderPass r,
-		const PipelineInfo* const pi,
-		const VkDescriptorSet sds,
-		const VkDescriptorSet ods,
-		const VkBuffer vb,
-		const VkBuffer ib,
-		cbRecFuncFuncTemplate fft,
-		const VkFramebuffer* const f) :
-		rp(r),
-		p(pi),
-		sceneds(sds),
-		objds(ods),
-		vbuf(vb),
-		ibuf(ib),
-		f(fft),
-		fbs(f) {}
-	~cbRecFuncTemplate() {};
-} cbRecFuncTemplate;
+typedef std::function<void (uint8_t, VkCommandBuffer&)> cbRecFuncTemplate;
 
 typedef struct cbRecTaskRenderPassTemplate {
 	VkRenderPass rp;
@@ -263,30 +224,15 @@ typedef struct cbRecTaskRenderPassTemplate {
 		nclears(nc),
 		clears(c) {}
 	~cbRecTaskRenderPassTemplate() {}
-
-	/*
-	cbRecTaskRenderPassTemplate operator=(cbRecTaskRenderPassTemplate rhs) {
-		std::swap(rp, rhs.rp);
-		std::swap(fbs, rhs.fbs);
-		// VkExtent2D is being very rude so now we're here
-		// TODO: figure out what's going on here
-		VkExtent2D temp = rhs.ext;
-		rhs.ext = ext;
-		ext = temp;
-		std::swap(nclears, rhs.nclears);
-		std::swap(clears, rhs.clears);
-		return *this;
-	}
-	*/
 } cbRecTaskRenderPassTemplate;
 
 typedef struct cbRecTaskTemplate {
 	cbRecTaskTemplate() = default;
 	cbRecTaskTemplate(cbRecFuncTemplate f) {
 		type = CB_REC_TASK_TYPE_COMMAND_BUFFER;
+		// data.ft = f;
 		// still no clue what this line does
-		data.ft = f;
-		// new(&data.ft.f) cbRecFunc(f.f);
+		new(&data.ft) cbRecFuncTemplate(f);
 	}
 	cbRecTaskTemplate(cbRecTaskRenderPassTemplate r) {
 		type = CB_REC_TASK_TYPE_RENDERPASS;
@@ -294,7 +240,8 @@ typedef struct cbRecTaskTemplate {
 	}
 	cbRecTaskTemplate(const cbRecTaskTemplate& rhs) : type(rhs.type) {
 		if (rhs.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
-			data.ft = rhs.data.ft;
+			// data.ft = rhs.data.ft;
+			new(&data.ft) cbRecFuncTemplate(rhs.data.ft);
 		}
 		else if (rhs.type == CB_REC_TASK_TYPE_RENDERPASS) {
 			data.rpi = rhs.data.rpi;
@@ -302,7 +249,17 @@ typedef struct cbRecTaskTemplate {
 	}
 	~cbRecTaskTemplate() {
 		if (type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
-			if (data.ft.f) data.ft.f.~function();
+			if (data.ft) data.ft.~function();
+		}
+	}
+
+	void operator= (const cbRecTaskTemplate& rhs)  {
+		type = rhs.type;
+		if (rhs.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+			new(&data.ft) cbRecFuncTemplate(rhs.data.ft);
+		}
+		else if (rhs.type == CB_REC_TASK_TYPE_RENDERPASS) {
+			data.rpi = rhs.data.rpi;
 		}
 	}
 
@@ -447,6 +404,17 @@ public:
 	static void destroyImage(ImageInfo& i);
 	// TODO: make work with DEVICE_LOCAL memory/images
 	static void updateImage(ImageInfo& i, void* src);
+
+	// unsure if an entire other secondary cb is inefficient here
+	/*
+	static void recordPushConsts(
+		VkShaderStageFlags stages,
+		uint32_t offset,
+		uint32_t size,
+		const void* pc,
+		cbRecData d, 
+		VkCommandBuffer& c);
+		*/
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
