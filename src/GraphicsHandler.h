@@ -1,7 +1,7 @@
 #ifndef GRAPHICS_HANDLER_H
 #define GRAPHICS_HANDLER_H
 
-#include <vulkan.h>
+#include <vulkan/vulkan.h>
 #include <ext.hpp>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -15,13 +15,11 @@
 #include "Errors.h"
 
 #define GH_SWAPCHAIN_IMAGE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
-// TODO: constider making this a D16_UNORM
+// TODO: constider making this a D16_UNORM [l]
 // this intersects with system-dependent format selection with preferential formats, as not all systems
 // may be capable of a D16_UNORM, while most if not all will be able to use a D32_SFLOAT
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
 #define GH_MAX_FRAMES_IN_FLIGHT 6
-#define WORKING_DIRECTORY "/Users/danp/Desktop/C Coding/WaveBox/"
-#define SHADER_DIRECTORY "/Users/danp/Desktop/C Coding/UsMInt/resources/shaders/SPIRV/"
 
 #define NUM_SHADER_STAGES_SUPPORTED 5
 const VkShaderStageFlagBits supportedshaderstages[NUM_SHADER_STAGES_SUPPORTED] = {
@@ -49,6 +47,14 @@ const VkCommandBufferBeginInfo interimcbbegininfo {
 /*
  * Vulkan Type Wrapper Structs
  */
+
+typedef struct BufferInfo {
+	VkBuffer buffer = VK_NULL_HANDLE;
+	VkDeviceMemory memory = VK_NULL_HANDLE;
+	VkBufferUsageFlags usage = 0x0;
+	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	VkDeviceSize size;
+} BufferInfo;
 
 typedef struct ImageInfo {
 	VkImage image = VK_NULL_HANDLE;
@@ -194,44 +200,64 @@ typedef struct cbCollectInfo {
 	} data;
 } cbCollectInfo;
 
+typedef std::function<void (uint8_t, VkCommandBuffer&)> cbRecFuncTemplate;
+
 typedef struct cbRecTaskRenderPassTemplate {
 	VkRenderPass rp;
 	const VkFramebuffer* fbs;
-	const VkExtent2D* exts;
-	uint32_t nclears, numscis;
+	VkExtent2D ext;
+	uint32_t nclears;
 	const VkClearValue* clears;
 
 	cbRecTaskRenderPassTemplate() = delete;
 	cbRecTaskRenderPassTemplate(
 		const VkRenderPass r,
 		const VkFramebuffer* const f,
-		const VkExtent2D* const e,
+		const VkExtent2D e,
 		uint32_t nc,
-		const VkClearValue* const c, 
-		uint32_t ns) :
+		const VkClearValue* const c) :
 		rp(r),
 		fbs(f),
-		exts(e),
+		ext(e),
 		nclears(nc),
-		numscis(ns),
 		clears(c) {}
 	~cbRecTaskRenderPassTemplate() {}
 } cbRecTaskRenderPassTemplate;
 
 typedef struct cbRecTaskTemplate {
 	cbRecTaskTemplate() = default;
-	cbRecTaskTemplate(cbRecFunc&& f) {
+	cbRecTaskTemplate(cbRecFuncTemplate f) {
 		type = CB_REC_TASK_TYPE_COMMAND_BUFFER;
+		// data.ft = f;
 		// still no clue what this line does
-		new(&data.func) cbRecFunc(f);
+		new(&data.ft) cbRecFuncTemplate(f);
 	}
 	cbRecTaskTemplate(cbRecTaskRenderPassTemplate r) {
 		type = CB_REC_TASK_TYPE_RENDERPASS;
 		data.rpi = r;
 	}
+	cbRecTaskTemplate(const cbRecTaskTemplate& rhs) : type(rhs.type) {
+		if (rhs.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+			// data.ft = rhs.data.ft;
+			new(&data.ft) cbRecFuncTemplate(rhs.data.ft);
+		}
+		else if (rhs.type == CB_REC_TASK_TYPE_RENDERPASS) {
+			data.rpi = rhs.data.rpi;
+		}
+	}
 	~cbRecTaskTemplate() {
 		if (type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
-			if (data.func) data.func.~function();
+			if (data.ft) data.ft.~function();
+		}
+	}
+
+	void operator= (const cbRecTaskTemplate& rhs)  {
+		type = rhs.type;
+		if (rhs.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
+			new(&data.ft) cbRecFuncTemplate(rhs.data.ft);
+		}
+		else if (rhs.type == CB_REC_TASK_TYPE_RENDERPASS) {
+			data.rpi = rhs.data.rpi;
 		}
 	}
 
@@ -242,7 +268,7 @@ typedef struct cbRecTaskTemplate {
 		cbRecTaskTemplateData () {}
 		~cbRecTaskTemplateData () {}
 
-		cbRecFunc func;
+		cbRecFuncTemplate ft;
 		cbRecTaskRenderPassTemplate rpi;
 	} data;
 } cbRecTaskTemplate;
@@ -263,27 +289,21 @@ public:
 	 * - Resolution (can this vary relative to window size?)
 	 * - Monitor
 	 */
-	// perhaps make private if we don't ever want to alow no presentation rp
-	// may need a default constructor tho...
 	WindowInfo();
-	WindowInfo(const VkRenderPass& presrp);
 	// explicitly delete these until we can safely implement them
 	WindowInfo(const WindowInfo& lvalue) = delete;
 	WindowInfo(WindowInfo&& rvalue) = delete;
 	~WindowInfo();
 
 	void frameCallback();
-	void addTask(cbRecTaskTemplate&& t);
-
-	// rebuilds presentation fbs too
-	void setPresentationRP(const VkRenderPass& presrp);
+	void addTask(const cbRecTaskTemplate& t);
+	void addTasks(std::vector<cbRecTaskTemplate>&& t);
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
 	const ImageInfo* const getSCImages() const {return scimages;}
+	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
-	const VkFramebuffer* const getPresentationFBs() const {return presentationfbs;}
-	const VkFramebuffer& getCurrentPresentationFB() const {return presentationfbs[sciindex];}
 	uint32_t getNumSCIs() const {return numscis;}
 
 private:
@@ -295,11 +315,9 @@ private:
 	uint32_t numscis, sciindex, fifindex;
 	VkSemaphore imgacquiresema, subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
 	VkFence subfinishfences[GH_MAX_FRAMES_IN_FLIGHT];
-	VkRenderPass presentationrp;
-	VkFramebuffer* presentationfbs;
 	VkCommandBuffer primarycbs[GH_MAX_FRAMES_IN_FLIGHT];
 	std::vector<cbRecTask>* rectaskvec;
-	std::queue<cbRecTask> rectasks; // TODO: rename to rectaskqueue
+	std::queue<cbRecTask> rectaskqueue;
 	std::queue<cbCollectInfo> collectinfos;
 	std::vector<VkCommandBuffer> secondarycbset[GH_MAX_FRAMES_IN_FLIGHT];
 
@@ -313,9 +331,6 @@ private:
 
 	void createSyncObjects();
 	void destroySyncObjects();
-
-	void createPresentationFBs();
-	void destroyPresentationFBs();
 
 	void createPrimaryCBs();
 	void destroyPrimaryCBs();
@@ -362,6 +377,10 @@ public:
 		std::vector<VkDescriptorImageInfo>&& ii,
 		std::vector<VkDescriptorBufferInfo>&& bi);
 
+	static void createBuffer(BufferInfo& b);
+	static void destroyBuffer(BufferInfo& b);
+	static void updateWholeBuffer(const BufferInfo& b, void* src);
+
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set
 	 * in i before calling createImage.
@@ -370,17 +389,26 @@ public:
 	static void destroyImage(ImageInfo& i);
 	static void updateImage(ImageInfo& i, void* src);
 
+	// unsure if an entire other secondary cb is inefficient here
+	/*
+	static void recordPushConsts(
+		VkShaderStageFlags stages,
+		uint32_t offset,
+		uint32_t size,
+		const void* pc,
+		cbRecData d, 
+		VkCommandBuffer& c);
+		*/
+
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
 	static const VkPhysicalDevice& getPD() {return physicaldevice;}
 	static const VkQueue& getGenericQueue() {return genericqueue;}
 	static const uint8_t getQueueFamilyIndex() {return queuefamilyindex;}
-	// TODO: renderpass should not be a static member
-	// should have a system for managing an arbitrary number (or none)
-	static const VkRenderPass& getPresentationRenderPass() {return primaryrenderpass;}
 	static const VkCommandPool& getCommandPool() {return commandpool;}
-	static const VkClearValue* const getPresentationClearsPtr() {return &primaryclears[0];}
 	static const VkSampler& getNearestSampler() {return nearestsampler;}
+
+	static void setShaderDirectory(const char* d) {shaderdir = d;}
 
 private:
 	static VkInstance instance;
@@ -389,13 +417,13 @@ private:
 	static VkPhysicalDevice physicaldevice;
 	static VkQueue genericqueue;
 	static uint8_t queuefamilyindex;
-	static VkRenderPass primaryrenderpass;
 	static VkCommandPool commandpool;
 	static VkCommandBuffer interimcb; // unsure if this is an efficient model, but will use until proven not to be
+	static VkFence interimfence; // created initCommandPools w/ interimcb 
 	static VkDescriptorPool descriptorpool;
-	// TODO: re-check which of these are necessary after getting a bare-bones draw loop finished
-	static const VkClearValue primaryclears[2];
-	static VkSampler nearestsampler;
+	static VkSampler nearestsampler; // TODO: consider where samplers should live as we continue to utilize sampling [l]
+	static BufferInfo scratchbuffer;
+	static const char* shaderdir;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively
@@ -406,7 +434,7 @@ private:
 	 */
 
 	// init/terminateVulkanInstance also handle the primary surface & window, as they will always exist for a GH
-	// TODO: Remove hard-coding and enhance initVulkanInstance's ability to dynamically enable needed extensions.
+	// TODO: Remove hard-coding and enhance initVulkanInstance's ability to dynamically enable needed extensions [l]
 	void initVulkanInstance();
 	void terminateVulkanInstance();
 
@@ -422,13 +450,10 @@ private:
 	void initDebug();
 	void terminateDebug();
 
-	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, 
-	// and hardware to use
+	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, [l] 
+	// and hardware to use 
 	void initDevicesAndQueues();
 	void terminateDevicesAndQueues();
-
-	void initRenderpasses();
-	void terminateRenderpasses();
 
 	void initCommandPools();
 	void terminateCommandPools();
@@ -444,17 +469,18 @@ private:
 	static void createShader(
 		VkShaderStageFlags stages,
 		const char** filepaths,
-		VkShaderModule** modules,
-		VkPipelineShaderStageCreateInfo** createinfos,
+		VkShaderModule* modules,
+		VkPipelineShaderStageCreateInfo* createinfos,
 		VkSpecializationInfo* specializationinfos);
 	static void destroyShader(VkShaderModule shader);
 
-	// TODO: BufferInfo class
+	static void allocateBufferMemory(BufferInfo& b);
+	static void allocateImageMemory(ImageInfo& i);
 	static void allocateDeviceMemory(
-		const VkBuffer& buffer,
-		const ImageInfo& image,
-		VkDeviceMemory& memory);
-	static void freeDeviceMemory(VkDeviceMemory& memory);
+		const VkMemoryPropertyFlags mp, 
+		const VkMemoryRequirements mr, 
+		VkDeviceMemory& m);
+	static void freeDeviceMemory(VkDeviceMemory& m);
 
 	static VKAPI_ATTR VkBool32 VKAPI_CALL validationCallback(
 			VkDebugUtilsMessageSeverityFlagBitsEXT severity,

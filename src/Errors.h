@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include <vk_enum_string_helper.h>
+#include <vulkan/vk_enum_string_helper.h>
 #include <SDL3/SDL.h>
 
 class Error {
@@ -27,7 +27,8 @@ public:
 	// for efficiency, should only be used on infrequent (non-per-frame) vk function calls
 	void vkCatch(VkResult r);
 	// vkCatch but for SDL ops. reads SDL_GetError()
-	void sdlCatch(SDL_bool r);
+	// cmake got mad at me on linux for using SDL_bool
+	void sdlCatch(bool r);
 };
 
 class WarningError : public Error {
