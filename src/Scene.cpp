@@ -85,7 +85,7 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 }
 
 Scene::Scene(float a) {
-	camera = new Camera(glm::vec3(3), glm::vec3(-3), glm::quarter_pi<float>(), a);
+	camera = new Camera(glm::vec3(5, 4, 5), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
 	// GH::createDS(ds);
 	lightub = {};
 	/*

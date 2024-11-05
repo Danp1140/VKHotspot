@@ -31,10 +31,7 @@ Camera::Camera(glm::vec3 p, glm::vec3 f, float fov, float ar) :
 // -- Private --
 
 void Camera::updateView() {
-	view = glm::lookAt<float>(
-		glm::vec3(3),
-		glm::vec3(0),
-		glm::vec3(0, 1, 0));
+	view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
 	vp = projection * view;
 }
 
