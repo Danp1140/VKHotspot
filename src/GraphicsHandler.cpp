@@ -592,16 +592,17 @@ void GH::terminateSamplers() {
 	vkDestroySampler(logicaldevice, nearestsampler, nullptr);
 }
 
-void GH::initDescriptorPoolsAndSetLayouts() {
-	VkDescriptorPoolSize poolsizes[1] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4}
+void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
+	VkDescriptorPoolSize poolsizes[2] {
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		4,
-		1, &poolsizes[0] 
+		5,
+		2, &poolsizes[0] 
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
 }

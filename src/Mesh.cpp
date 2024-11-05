@@ -81,7 +81,12 @@ void Mesh::ungetVISCI(VkPipelineVertexInputStateCreateInfo v) {
 	delete[] v.pVertexAttributeDescriptions;
 }
 
-const MeshDrawData Mesh::getDrawData(VkRenderPass r,  const PipelineInfo& p, VkPushConstantRange pcr, const void* pcd) const {
+const MeshDrawData Mesh::getDrawData(
+	VkRenderPass r, 
+	const PipelineInfo& p, 
+	VkPushConstantRange pcr, 
+	const void* pcd,
+	VkDescriptorSet ds) const {
 	return (MeshDrawData){
 		r,
 		p.pipeline,
@@ -179,4 +184,60 @@ void Mesh::loadOBJ(const char* fp) {
 	free(vdst);
 	GH::updateWholeBuffer(indexbuffer, idst);
 	free(idst);
+}
+
+InstancedMesh::InstancedMesh() : Mesh() {
+	drawfunc = InstancedMesh::recordDraw;
+}
+
+InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
+	loadOBJ(fp);
+	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	instanceub.size = m.size() * sizeof(InstancedMeshData);
+	GH::createBuffer(instanceub);
+	GH::updateWholeBuffer(instanceub, m.data());
+}
+
+InstancedMesh::~InstancedMesh() {
+	GH::destroyBuffer(instanceub);
+}
+
+void InstancedMesh::updateInstanceUB(std::vector<InstancedMeshData> m) {
+	if (m.size() * sizeof(InstancedMeshData) == instanceub.size) {
+		GH::updateWholeBuffer(instanceub, m.data());
+		return;
+	}
+	GH::destroyBuffer(instanceub);
+	instanceub.size = m.size() * sizeof(InstancedMeshData);
+	GH::createBuffer(instanceub);
+	GH::updateWholeBuffer(instanceub, m.data());
+}
+
+void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
+	VkCommandBufferInheritanceInfo cbinherinfo {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		nullptr,
+		d.r, 0,
+		f,
+		VK_FALSE, 0, 0
+	};
+	VkCommandBufferBeginInfo cbbi {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
+		&cbinherinfo
+	};
+	vkBeginCommandBuffer(c, &cbbi);
+	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
+	vkCmdBindDescriptorSets(
+		c,
+		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		d.pl,
+		0, 1, &d.d,
+		0, nullptr);
+	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
+	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
+	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(c, d.nv, 32, 0, 0, 0);
+	vkEndCommandBuffer(c);
 }
