@@ -54,6 +54,10 @@ typedef struct BufferInfo {
 	VkBufferUsageFlags usage = 0x0;
 	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	VkDeviceSize size;
+
+	constexpr VkDescriptorBufferInfo getDBI() const {
+		return {buffer, 0, VK_WHOLE_SIZE};
+	}
 } BufferInfo;
 
 typedef struct ImageInfo {
@@ -66,7 +70,7 @@ typedef struct ImageInfo {
 	VkImageLayout layout = VK_IMAGE_LAYOUT_PREINITIALIZED;
 	VkSampler sampler = VK_NULL_HANDLE;
 	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	VkImageTiling tiling; // set by ci depending on img props
+	VkImageTiling tiling; // set by GH::createImage depending on img props
 
 	constexpr VkImageSubresource getDefaultSubresource() const {
 		return {

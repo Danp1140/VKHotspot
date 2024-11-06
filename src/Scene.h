@@ -12,6 +12,7 @@ typedef struct ScenePCData {
 typedef struct RenderSet {
 	PipelineInfo pipeline;
 	std::vector<const Mesh*> meshes;
+	std::vector<VkDescriptorSet> objdss; // associates with same-index Mesh* in meshes
 	const void* pcdata;
 } RenderSet;
 
@@ -30,12 +31,13 @@ public:
 	void destroy(); // handles actual destruction of VK objects pointed to by handles
 	
 	void addPipeline(const PipelineInfo& p, const void* pcd);
-	void addMesh(const Mesh* m, size_t pidx);
+	void addMesh(const Mesh* m, VkDescriptorSet ds, size_t pidx);
 
 	std::vector<cbRecTaskTemplate> getTasks() const;
 
 	const VkRenderPass getRenderPass() const {return renderpass;}
 	const VkFramebuffer* getFramebuffers() const {return framebuffers;}
+	const RenderSet& getRenderSet(size_t i) const {return rendersets[i];}
 	const VkExtent2D& getExtent() const {return extent;}
 	const std::vector<VkClearValue>& getClears() const {return clears;}
 
@@ -61,6 +63,7 @@ public:
 	void addRenderPass(const RenderPassInfo& r);
 
 	const Camera* const getCamera() const {return camera;}
+	RenderPassInfo& getRenderPass(size_t i) {return renderpasses[i];}
 
 private:
 	Camera* camera;

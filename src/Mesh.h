@@ -22,9 +22,13 @@ typedef struct MeshDrawData {
 	size_t nv;
 } MeshDrawData;
 
+typedef std::function<void (VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c)> MeshDrawFunc;
+
 class Mesh {
 public:
-	Mesh() : vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
+	Mesh() : 
+		vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL), 
+		drawfunc(Mesh::recordDraw) {}
 	Mesh(const char* f);
 	~Mesh();
 
@@ -33,30 +37,62 @@ public:
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
 
-	const MeshDrawData getDrawData(VkRenderPass r, const PipelineInfo& p, VkPushConstantRange pcr, const void* pcd) const;
+	// TODO; reevaluate the usefulness of this function
+	const MeshDrawData getDrawData(
+		VkRenderPass r, 
+		const PipelineInfo& p, 
+		VkPushConstantRange pcr, 
+		const void* pcd,
+		VkDescriptorSet ds) const;
 
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}
 	const PipelineInfo& getGraphicsPipeline() const {return pipeline;}
-	const VkDescriptorSet getDS() const {return ds;}
+	const MeshDrawFunc& getDrawFunc() const {return drawfunc;}
+
+protected:
+	MeshDrawFunc drawfunc;
+	static VkDeviceSize vboffsettemp;
+
+	/*
+	 * Also creates buffers, so make sure there aren't valid buffers that will get
+	 * lost in vertexbuffer and indebuffer before you call this
+	 */
+	void loadOBJ(const char* fp);
 
 private:
+	// TODO: make position scale & rotation actually affect model, and send model over to shader
 	glm::vec3 position, scale;
 	glm::quat rotation;
 	glm::mat4 model;
 	BufferInfo vertexbuffer, indexbuffer;
 	VertexBufferTraits vbtraits;
 	PipelineInfo pipeline;
-	VkDescriptorSet ds;
-	static VkDeviceSize vboffsettemp;
 
 	size_t getVertexBufferElementSize() const;
-	
+};
+
+typedef struct InstancedMeshData {
+	glm::mat4 m;
+} InstancedMeshData;
+
+class InstancedMesh : public Mesh {
+public:
+	InstancedMesh();
+	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
+	~InstancedMesh();
+
+	const BufferInfo& getInstanceUB() const {return instanceub;}
 	/*
-	 * Also creates buffers, so make sure there aren't valid buffers that will get
-	 * lost in vertexbuffer and indebuffer before you call this
+	 * Reuses buffer if it's the same size, otherwise recreates
+	 * TODO: implement more detailed buffer update functions in GH [l]
 	 */
-	void loadOBJ(const char* fp);
+	void updateInstanceUB(std::vector<InstancedMeshData> m);
+
+	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
+
+private:
+	BufferInfo instanceub;
 };
 
 /*
