@@ -299,7 +299,10 @@ public:
 	WindowInfo(WindowInfo&& rvalue) = delete;
 	~WindowInfo();
 
-	void frameCallback();
+	/*
+	 * Returns false if the window should close (SDL_EVENT_QUIT or _WINDOW_CLOSE REQUESTED), true otherwise
+	 */
+	bool frameCallback();
 	void addTask(const cbRecTaskTemplate& t);
 	void addTasks(std::vector<cbRecTaskTemplate>&& t);
 
@@ -313,6 +316,7 @@ public:
 private:
 	SDL_Window* sdlwindow;
 	uint32_t sdlwindowid;
+	SDL_Event eventtemp;
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
 	ImageInfo* scimages, depthbuffer;

@@ -132,7 +132,14 @@ WindowInfo::~WindowInfo() {
 	SDL_DestroyWindow(sdlwindow);
 }
 
-void WindowInfo::frameCallback() {
+bool WindowInfo::frameCallback() {
+	while (SDL_PollEvent(&eventtemp)) {
+		if (eventtemp.type == SDL_EVENT_QUIT
+			|| eventtemp.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+			return false;
+		}
+	}
+
 	vkAcquireNextImageKHR(
 		GH::getLD(),
 		swapchain,
@@ -152,6 +159,8 @@ void WindowInfo::frameCallback() {
 	collectPrimaryCB();
 
 	submitAndPresent();
+
+	return true;
 }
 
 void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
