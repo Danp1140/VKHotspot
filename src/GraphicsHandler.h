@@ -85,6 +85,12 @@ typedef struct ImageInfo {
 			0, 1
 		};
 	}
+	constexpr VkImageSubresourceLayers getDefaultSubresourceLayers() const {
+		return {
+			format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+			0, 0, 1
+		};
+	}
 	constexpr VkDescriptorImageInfo getDII() const {
 		return {sampler, view, layout};
 	}
@@ -92,7 +98,11 @@ typedef struct ImageInfo {
 		switch (format) { 
 			case VK_FORMAT_R8_UNORM:
 				return 1;
+			case VK_FORMAT_R8G8B8_UNORM:
+				return 3;
 			case VK_FORMAT_R8G8B8A8_SRGB:
+				return 4;
+			case VK_FORMAT_R8G8B8A8_UNORM:
 				return 4;
 			default:
 				FatalError("Unknown format for getPixelSize()").raise();
@@ -396,17 +406,6 @@ public:
 	static void createImage(ImageInfo& i);
 	static void destroyImage(ImageInfo& i);
 	static void updateImage(ImageInfo& i, void* src);
-
-	// unsure if an entire other secondary cb is inefficient here
-	/*
-	static void recordPushConsts(
-		VkShaderStageFlags stages,
-		uint32_t offset,
-		uint32_t size,
-		const void* pc,
-		cbRecData d, 
-		VkCommandBuffer& c);
-		*/
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}

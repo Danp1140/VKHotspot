@@ -27,6 +27,14 @@ void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 	};
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
+	if (d.d != VK_NULL_HANDLE) {
+		vkCmdBindDescriptorSets(
+			c,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			d.pl,
+			0, 1, &d.d,
+			0, nullptr);
+	}
 	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
 	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
 	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);

@@ -17,6 +17,7 @@ endif()
 find_package(Freetype REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared Headers)
+find_package(PNG REQUIRED)
 
 find_path(GLM_INCLUDE glm.hpp PATH_SUFFIXES glm REQUIRED)
 find_path(USMINT_INCLUDE UI.h PATH_SUFFIXES UsMInt REQUIRED)
@@ -25,6 +26,7 @@ find_library(USMINT_LIB UsMInt REQUIRED)
 
 include_directories(
 	${FREETYPE_INCLUDE_DIRS} 
+	${PNG_INCLUDE_DIRS}
 	Vulkan::Headers
 	SDL3::Headers
 	${GLM_INCLUDE}
@@ -37,11 +39,13 @@ add_executable(VulkanProject
 	src/UIHandler.cpp src/UIHandler.h
 	src/Scene.cpp src/Scene.h
 	src/Projection.cpp src/Projection.h
-	src/Mesh.cpp src/Mesh.h)
+	src/Mesh.cpp src/Mesh.h
+	src/TextureHandler.cpp src/TextureHandler.h)
 
 target_link_libraries(
 	${PROJECT_NAME} 
 	${USMINT_LIB} 
 	Freetype::Freetype
 	Vulkan::Vulkan
-	SDL3::SDL3)
+	SDL3::SDL3
+	PNG::PNG)
