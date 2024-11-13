@@ -11,7 +11,7 @@ int main() {
 	s.getCamera()->setPos(glm::vec3(100));
 	s.getCamera()->setForward(glm::vec3(-1));
 
-	Mesh floor("resources/models/floor.obj");
+	Mesh floor("../resources/models/floor.obj");
 	s.getRenderPass(0).addMesh(&floor, VK_NULL_HANDLE, 0);
 
 	std::vector<InstancedMeshData> imdtemp(8);
@@ -27,7 +27,7 @@ int main() {
 		imdtemp[4 + i].m = imdtemp[i].m;
 		imdtemp[4 + i].m[1][1] *= -1;
 	}
-	InstancedMesh largeplanters("resources/models/largeplanter.obj", imdtemp);
+	InstancedMesh largeplanters("../resources/models/largeplanter.obj", imdtemp);
 	VkDescriptorSet dstemp;
 	GH::createDS(s.getRenderPass(0).getRenderSet(1).pipeline, dstemp);
 	GH::updateDS(dstemp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, largeplanters.getInstanceUB().getDBI());
