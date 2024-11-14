@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(VulkanProject)
 
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++14 -Wno-deprecated")
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++20 -Wno-deprecated")
 
 if (UNIX)
 	if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
@@ -37,7 +37,8 @@ add_executable(VulkanProject
 	src/UIHandler.cpp src/UIHandler.h
 	src/Scene.cpp src/Scene.h
 	src/Projection.cpp src/Projection.h
-	src/Mesh.cpp src/Mesh.h)
+	src/Mesh.cpp src/Mesh.h
+	src/PhysicsHandler.cpp src/PhysicsHandler.h)
 
 target_link_libraries(
 	${PROJECT_NAME} 

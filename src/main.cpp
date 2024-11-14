@@ -1,5 +1,6 @@
 #include "UIHandler.h"
 #include "Scene.h"
+#include "PhysicsHandler.h"
 
 void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	VkRenderPass r;
@@ -134,12 +135,25 @@ int main() {
 
 	w.addTasks(s.getDrawTasks());
 
+	PhysicsHandler ph;
+	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
+	pc->setPos(glm::vec3(1, 10, 0));
+	pc->applyForce(glm::vec3(0, -9.807, 0));
+	MeshCollider* mc = static_cast<MeshCollider*>(ph.addCollider(MeshCollider("resources/models/objs/plane.obj")));
+	ph.addColliderPair(ColliderPair(pc, mc));
+
+	ph.start();
 	bool xpressed = false;
 	SDL_Event eventtemp;
 	while (!xpressed) {
-		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
+		// throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
-		w.frameCallback();
+		// w.frameCallback();
+		
+		SDL_Delay(17);
+		ph.update();
+		std::cout << pc->getPos().y << std::endl;
+		// if (pc->getPos().y < 0) break;
 
 		while (SDL_PollEvent(&eventtemp)) {
 			if (eventtemp.type == SDL_EVENT_QUIT

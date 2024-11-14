@@ -1,3 +1,6 @@
+#ifndef VKH_ERRORS_H
+#define VKH_ERRORS_H
+
 #include <iostream>
 
 #include <vulkan/vk_enum_string_helper.h>
@@ -39,3 +42,5 @@ public:
 
 	void raise();
 };
+
+#endif

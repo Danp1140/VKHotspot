@@ -47,7 +47,6 @@ public:
 
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}
-	const PipelineInfo& getGraphicsPipeline() const {return pipeline;}
 	const MeshDrawFunc& getDrawFunc() const {return drawfunc;}
 
 protected:
@@ -67,7 +66,6 @@ private:
 	glm::mat4 model;
 	BufferInfo vertexbuffer, indexbuffer;
 	VertexBufferTraits vbtraits;
-	PipelineInfo pipeline;
 
 	size_t getVertexBufferElementSize() const;
 };

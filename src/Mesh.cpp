@@ -241,3 +241,4 @@ void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer&
 	vkCmdDrawIndexed(c, d.nv, 32, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
+
