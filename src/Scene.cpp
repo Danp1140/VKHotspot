@@ -34,12 +34,21 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 	std::vector<cbRecTaskTemplate> tasks;
 	tasks.emplace_back(getRPT());
 	size_t counter;
+#ifdef VKH_VERBOSE_DRAW_TASKS
+	std::cout << "RenderPassInfo " << this << " tasks {" << std::endl;
+#endif
 	for (const RenderSet& r : rendersets) {
+#ifdef VKH_VERBOSE_DRAW_TASKS
+		std::cout << "RenderSet " << &r << " tasks {" << std::endl;
+#endif
 		// can't do pipeline binds out here ;-;	
 		// could add a setting that puts entire pipeline & all mesh records in one 2ary cb
 		// this would be more efficient for meshes that aren't swapped in and out frequently
 		counter = 0;
 		for (const Mesh* m : r.meshes) {
+#ifdef VKH_VERBOSE_DRAW_TASKS
+			std::cout << "Mesh " << &m << std::endl;
+#endif
 			tasks.emplace_back(
 					[d = m->getDrawData(
 						renderpass, 
@@ -54,7 +63,13 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 			});
 			counter++;
 		}
-	}
+#ifdef VKH_VERBOSE_DRAW_TASKS
+		std::cout << "}" << std::endl;
+#endif
+	}	
+#ifdef VKH_VERBOSE_DRAW_TASKS
+	std::cout << "}" << std::endl;
+#endif
 	return tasks;
 }
 

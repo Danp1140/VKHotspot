@@ -132,7 +132,14 @@ WindowInfo::~WindowInfo() {
 	SDL_DestroyWindow(sdlwindow);
 }
 
-void WindowInfo::frameCallback() {
+bool WindowInfo::frameCallback() {
+	while (SDL_PollEvent(&eventtemp)) {
+		if (eventtemp.type == SDL_EVENT_QUIT
+			|| eventtemp.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+			return false;
+		}
+	}
+
 	vkAcquireNextImageKHR(
 		GH::getLD(),
 		swapchain,
@@ -152,6 +159,8 @@ void WindowInfo::frameCallback() {
 	collectPrimaryCB();
 
 	submitAndPresent();
+
+	return true;
 }
 
 void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
@@ -345,7 +354,7 @@ BufferInfo GH::scratchbuffer = {
 	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 	0
 };
-const char* GH::shaderdir = "./resources/shaders/SPIRV/";
+const char* GH::shaderdir = "../resources/shaders/SPIRV/";
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -512,6 +521,7 @@ void GH::initDevicesAndQueues() {
 		}
 	}
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
+	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 		nullptr,
@@ -1077,7 +1087,7 @@ void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
 	else {
 		scratchbuffer.size = b.size;
 		createBuffer(scratchbuffer);
-		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, scratchbuffer.size, 0, &dst);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
 		memcpy(dst, src, scratchbuffer.size);
 		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
 		VkBufferCopy cpyregion {0, 0, b.size};
@@ -1168,24 +1178,70 @@ void GH::updateImage(ImageInfo& i, void* src) {
 			&subresourcelayout);
 	}
 	void* dst;
-	vkMapMemory(logicaldevice,
-		i.memory,
-		0,
-		VK_WHOLE_SIZE,
-		0,
-		&dst);
 	VkDeviceSize pitch;
 	if (querysubresource) pitch = subresourcelayout.rowPitch;
 	else pitch = i.extent.width * i.getPixelSize();
-	char* dstscan = reinterpret_cast<char*>(dst), * srcscan = reinterpret_cast<char*>(src);
-	for (uint32_t x = 0; x < i.extent.height; x++) {
-		memcpy(reinterpret_cast<void*>(dstscan), 
-			reinterpret_cast<void*>(srcscan),
-			i.extent.width * i.getPixelSize());
-		dstscan += pitch;
-		srcscan += i.extent.width * i.getPixelSize();
+	// TODO: change this and buffer update casts to static_cast where possible
+	char* dstscan, * srcscan = reinterpret_cast<char*>(src);
+	// TODO: refactor to consolidate identical code
+	if (i.memprops |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+		VkImageLayout lastlayout = i.layout;
+		if (i.layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+			transitionImageLayout(i, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		}
+		scratchbuffer.size = pitch * i.extent.height;
+		createBuffer(scratchbuffer);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
+		dstscan = static_cast<char*>(dst);
+		for (uint32_t x = 0; x < i.extent.height; x++) {
+			memcpy(reinterpret_cast<void*>(dstscan), 
+				reinterpret_cast<void*>(srcscan),
+				i.extent.width * i.getPixelSize());
+			dstscan += pitch;
+			srcscan += i.extent.width * i.getPixelSize();
+		}
+		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
+		VkBufferImageCopy cpyregion {
+			0, i.extent.width, i.extent.height, 
+			i.getDefaultSubresourceLayers(), {0, 0, 0}, {i.extent.width, i.extent.height, 1}
+		};
+		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
+		vkCmdCopyBufferToImage(
+			interimcb,
+			scratchbuffer.buffer,
+			i.image,
+			i.layout, 
+			1, &cpyregion);
+		vkEndCommandBuffer(interimcb);
+		// TODO: move this and buffer update to executeinterimcb that can take a lambda
+		vkResetFences(logicaldevice, 1, &interimfence);
+		const VkSubmitInfo si {
+			VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			nullptr,
+			0, nullptr, nullptr,
+			1, &interimcb,
+			0, nullptr
+		};
+		vkQueueSubmit(genericqueue, 1, &si, interimfence);
+		FatalError("Image-buffer copy took too long\n").vkCatch(
+			// TODO: move this timeout and the one in the buffer update to macro
+			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
+		);
+		destroyBuffer(scratchbuffer);
+		if (lastlayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) transitionImageLayout(i, lastlayout);
 	}
-	vkUnmapMemory(logicaldevice, i.memory);
+	else {
+		vkMapMemory(logicaldevice, i.memory, 0, VK_WHOLE_SIZE, 0, &dst);
+		dstscan = static_cast<char*>(dst);
+		for (uint32_t x = 0; x < i.extent.height; x++) {
+			memcpy(reinterpret_cast<void*>(dstscan), 
+				reinterpret_cast<void*>(srcscan),
+				i.extent.width * i.getPixelSize());
+			dstscan += pitch;
+			srcscan += i.extent.width * i.getPixelSize();
+		}
+		vkUnmapMemory(logicaldevice, i.memory);
+	}
 }
 
 void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {

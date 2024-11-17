@@ -28,6 +28,16 @@ Camera::Camera(glm::vec3 p, glm::vec3 f, float fov, float ar) :
 	updateProj();
 }
 
+void Camera::setPos(glm::vec3 p) {
+	position = p;
+	updateView();
+}
+
+void Camera::setForward(glm::vec3 f) {
+	forward = f;
+	updateView();
+}
+
 // -- Private --
 
 void Camera::updateView() {
