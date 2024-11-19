@@ -141,7 +141,7 @@ int main() {
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
 	pc->setPos(glm::vec3(0, 5, -10));
-	pc->applyForce(glm::vec3(0, -9.807, 10));
+	pc->applyForce(glm::vec3(0, -9.807, 5));
 
 	/*
 	MeshCollider* mc = static_cast<MeshCollider*>(ph.addCollider(MeshCollider("resources/models/objs/plane.obj")));
@@ -161,8 +161,6 @@ int main() {
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
 		plane.setPos(plc->getPos());
-
-		std::cout << pc->getAcc().z << std::endl;
 
 		w.frameCallback();
 		

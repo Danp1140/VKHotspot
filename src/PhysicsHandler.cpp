@@ -1,7 +1,6 @@
 #include "PhysicsHandler.h"
 
 Collider& Collider::operator=(Collider rhs) {
-	std::cout << "Collider::operator=" << std::endl;
 	std::swap(p, rhs.p);
 	std::swap(dp, rhs.dp);
 	std::swap(ddp, rhs.ddp);
@@ -43,7 +42,6 @@ void Collider::updateContact(glm::vec3 nf, float dt0, float dt1) {
 void Collider::applyMomentum(glm::vec3 po) {
 	if (m == std::numeric_limits<float>::infinity()) return;
 	if (m == 0) return; // idk what to do here, either infinite velocity or none
-	std::cout << this << ": added p_y of " << (po.y / m) << std::endl;
 	dp += po / m; // should probably have a carve-out for m = 0 or inf
 }
 
@@ -95,7 +93,6 @@ MeshCollider& MeshCollider::operator=(const MeshCollider& rhs) {
 }
 
 MeshCollider& MeshCollider::operator=(MeshCollider&& rhs) {
-	std::cout << "MeshCollider::operator=" << std::endl;
 	Collider::operator=(rhs);
 	std::swap(vertices, rhs.vertices);
 	rhs.vertices = nullptr;
@@ -105,7 +102,6 @@ MeshCollider& MeshCollider::operator=(MeshCollider&& rhs) {
 	rhs.numv = 0;
 	std::swap(numt, rhs.numt);
 	rhs.numt = 0;
-	std::cout << this << ": tris = " << tris << std::endl;
 	return *this;
 }
 
@@ -305,12 +301,13 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 	glm::vec3 p0top1 = c1->getPos() - c1->getLastPos();
 	float dt0 = dt * glm::length(p - c1->getLastPos()) / glm::length(p0top1);
 	glm::vec3 dp0 = p0top1 / dt;
-	float po = 0;
-	if (c1->getMass() != std::numeric_limits<float>::infinity())
-		po += glm::dot((dp0 + c1->getAcc() * dt0) * c1->getMass() * (float)c1->getDamp() / 255.f, -n);
-	if (c2->getMass() != std::numeric_limits<float>::infinity())
-		po += glm::dot(((c2->getPos() - c2->getLastPos()) / dt + c2->getAcc() * dt0) * c2->getMass() * (float)c2->getDamp() / 255.f, n);
-	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+	float po1 = c1->getMass() != std::numeric_limits<float>::infinity() ?
+			glm::dot((dp0 + c1->getAcc() * dt0) * c1->getMass(), -n) : 0,
+		po2 = c2->getMass() != std::numeric_limits<float>::infinity() ?
+			glm::dot(((c2->getPos() - c2->getLastPos()) / dt + c2->getAcc() * dt0) * c2->getMass(), n) : 0,
+		po = (po1 * (float)c1->getDamp() + po2 * (float)c2->getDamp()) / 255.f;
+
+		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 		if (po > PH_CONTACT_THRESHOLD) {
 			FatalError("Objects no longer in contact").raise();
 		}
@@ -319,10 +316,6 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 		}
 	}
 	else if (po < PH_CONTACT_THRESHOLD) {
-		/*
-		 * I still see some sketchy deceleration in the non-normal directions
-		 * !!! i think this is actually a problem in a bouncing collision, not in a contact !!!
-		 */
 		f |= COLLIDER_PAIR_FLAG_CONTACT;
 		nf = c1->getForce() + c2->getForce();
 		glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
@@ -347,9 +340,8 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 	}
 	else {
 		/* TODO: there are still losses in this system, figure out what they are */
-		// can avoid some multiplication by storing po * t->n and then negating it
-		c1->updateCollision(dt0, dt - dt0, po * n);
-		c2->updateCollision(dt0, dt - dt0, po * -n);
+		c1->updateCollision(dt0, dt - dt0, c1->getMomentum() + (po1 + po) * n);
+		c2->updateCollision(dt0, dt - dt0, c2->getMomentum() + (po2 + po) * -n);
 	}
 }
 
