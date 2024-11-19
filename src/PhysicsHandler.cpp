@@ -16,15 +16,34 @@ Collider& Collider::operator=(Collider rhs) {
 
 void Collider::update(float dt) {
 	lp = p;
-	p += dp * dt;
 	dp += ddp * dt;
-	r += dr * dt;
+	p += dp * dt;
 	dr += ddr * dt;
+	r += dr * dt;
+}
+
+void Collider::updateCollision(float dt0, float dt1, glm::vec3 mom) {
+	// see if you can shove these into dp somehow to avoid allocs
+	glm::vec3 dp0 = (p - lp) / (dt0 + dt1);
+	p = lp + dp0 * dt0;
+
+	dp = mom / m + ddp * (dt0 + dt1);
+	p += dp * dt1;
+}
+
+void Collider::updateContact(glm::vec3 nf, float dt0, float dt1) {
+	glm::vec3 dp0 = (p - lp) / (dt0 + dt1);
+	p = lp + dp0 * dt0;
+	dp = dp0 + ddp * dt0;
+	applyForce(nf);
+	dp += ddp * dt1;
+	p += dp * dt1;
 }
 
 void Collider::applyMomentum(glm::vec3 po) {
 	if (m == std::numeric_limits<float>::infinity()) return;
 	if (m == 0) return; // idk what to do here, either infinite velocity or none
+	std::cout << this << ": added p_y of " << (po.y / m) << std::endl;
 	dp += po / m; // should probably have a carve-out for m = 0 or inf
 }
 
@@ -34,8 +53,22 @@ void Collider::applyForce(glm::vec3 F) {
 	ddp += F / m; // should probably have a carve-out for m = 0 or inf
 }
 
+glm::vec3 Collider::getMomentum() const {
+	if (m == std::numeric_limits<float>::infinity()) return glm::vec3(0);
+	return dp * m;
+}
+
+glm::vec3 Collider::getForce() const {
+	if (m == std::numeric_limits<float>::infinity()) return glm::vec3(0);
+	return ddp * m;
+}
+
 PointCollider::PointCollider() : Collider() {
 	type = COLLIDER_TYPE_POINT;
+}
+
+PlaneCollider::PlaneCollider(glm::vec3 norm) : Collider(), n(norm) {
+	type = COLLIDER_TYPE_PLANE;
 }
 
 MeshCollider::MeshCollider() : Collider(), vertices(nullptr), tris(nullptr), numv(0), numt(0) {
@@ -184,30 +217,37 @@ ColliderPair& ColliderPair::operator=(ColliderPair rhs) {
 }
 
 void ColliderPair::setCollisionFunc() {
-	// prob a better way to do this, maybe with macros
+	cf = nullptr;
 	if (c1->getType() == COLLIDER_TYPE_POINT) {
-		if (c2->getType() == COLLIDER_TYPE_POINT) 
-			cf = std::bind(&ColliderPair::collidePointPoint, this);
+		if (c2->getType() == COLLIDER_TYPE_PLANE) {
+			cf = [this] (float dt) { collidePointPlane(dt); };
+		}
 		else if (c2->getType() == COLLIDER_TYPE_MESH) {
 			nearest = static_cast<const Tri*>(static_cast<MeshCollider*>(c2)->getTris());
-			// cf = std::bind(&ColliderPair::collidePointMesh, this);
-			cf = [this] () { collidePointMesh(); };
+			cf = [this] (float dt) { collidePointMesh(dt); };
+		}
+	}
+	else if (c1->getType() == COLLIDER_TYPE_PLANE) {
+		if (c2->getType() == COLLIDER_TYPE_POINT) {
+			std::swap(c1, c2);
+			cf = [this] (float dt) { collidePointMesh(dt); };
 		}
 	}
 	else if (c2->getType() == COLLIDER_TYPE_MESH) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
 			nearest = static_cast<const Tri*>(static_cast<MeshCollider*>(c2)->getTris());
-			cf = std::bind(&ColliderPair::collidePointMesh, this);
+			cf = [this] (float dt) { collidePointMesh(dt); };
 		}
-		if (c2->getType() == COLLIDER_TYPE_MESH) {
-			cf = std::bind(&ColliderPair::collideMeshMesh, this);
-		}
+	}
+
+	if (!cf) {
+		FatalError("Unsupported ColliderPair Collider Type combination").raise();
 	}
 }
 
-void ColliderPair::check() const {
-	cf();
+void ColliderPair::check(float dt) const {
+	cf(dt);
 }
 
 bool ColliderPair::testPointTri(const PointCollider& p, const Tri& t) {
@@ -261,50 +301,138 @@ bool ColliderPair::pointTriPossible(const PointCollider& p, const Tri& t) {
 		 || glm::dot(ldp, p.getPos() - t.v[2]->p) >= 0;
 }
 
-void ColliderPair::collidePointPoint() {
-	FatalError("Point-point collision not yet supported").raise();
+void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
+	glm::vec3 p0top1 = c1->getPos() - c1->getLastPos();
+	float dt0 = dt * glm::length(p - c1->getLastPos()) / glm::length(p0top1);
+	glm::vec3 dp0 = p0top1 / dt;
+	float po = 0;
+	if (c1->getMass() != std::numeric_limits<float>::infinity())
+		po += glm::dot((dp0 + c1->getAcc() * dt0) * c1->getMass() * (float)c1->getDamp() / 255.f, -n);
+	if (c2->getMass() != std::numeric_limits<float>::infinity())
+		po += glm::dot(((c2->getPos() - c2->getLastPos()) / dt + c2->getAcc() * dt0) * c2->getMass() * (float)c2->getDamp() / 255.f, n);
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		if (po > PH_CONTACT_THRESHOLD) {
+			FatalError("Objects no longer in contact").raise();
+		}
+		else {
+
+		}
+	}
+	else if (po < PH_CONTACT_THRESHOLD) {
+		/*
+		 * I still see some sketchy deceleration in the non-normal directions
+		 * !!! i think this is actually a problem in a bouncing collision, not in a contact !!!
+		 */
+		f |= COLLIDER_PAIR_FLAG_CONTACT;
+		nf = c1->getForce() + c2->getForce();
+		glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
+		glm::vec3 zprime = glm::cross(xprime, n);
+		// could probably avoid storing xprime and doing cross for zprime
+		/*
+		nf = glm::vec3(
+			glm::dot(nf, xprime), 
+			glm::dot(nf, n), 
+			glm::dot(nf, zprime)
+		);
+		*/
+		nf = glm::vec3(0, glm::dot(nf, n), 0);
+		// it seems like there are a lot of simplifications to make here
+		nf = glm::vec3(
+			glm::dot(nf, glm::vec3(xprime.x, 0, 0)),
+			glm::dot(nf, glm::vec3(0, n.y, 0)),
+			glm::dot(nf, glm::vec3(0, 0, zprime.z))
+		);
+		c1->updateContact(-nf, dt0, dt - dt0);
+		c2->updateContact(nf, dt0, dt - dt0);
+	}
+	else {
+		/* TODO: there are still losses in this system, figure out what they are */
+		// can avoid some multiplication by storing po * t->n and then negating it
+		c1->updateCollision(dt0, dt - dt0, po * n);
+		c2->updateCollision(dt0, dt - dt0, po * -n);
+	}
 }
 
-void ColliderPair::collidePointMesh() {
-	// FatalError("Point-mesh collision not yet supported").raise();
+void ColliderPair::collidePointPlane(float dt) {
+	PointCollider* pt = static_cast<PointCollider*>(c1);
+	PlaneCollider* pl = static_cast<PlaneCollider*>(c2);
+
+	if (glm::dot(pt->getLastPos() - pl->getLastPos(), pl->getNorm()) > 0
+		 && glm::dot(pt->getPos() - pl->getPos(), pl->getNorm()) < 0) {
+		glm::vec3 colpos = pt->getLastPos()
+			 - glm::dot(pl->getPos() - pt->getLastPos(), pl->getNorm()) // TODO: pl->getPos() should actually be a sub-pos at collision time
+			 / glm::dot(pt->getLastPos() - pt->getPos(), pl->getNorm()) 
+			 * (pt->getLastPos() - pt->getPos()); 
+		collide(dt, colpos, pl->getNorm());
+	}
+}
+
+void ColliderPair::collidePointMesh(float dt) {
+	// TODO: make this work if the mesh's position and/or rotation has changed [l]
+	/*
+	 * TODO: stress-testing more complex meshes
+	 */
 	PointCollider* p = static_cast<PointCollider*>(c1);
 	MeshCollider* m = static_cast<MeshCollider*>(c2);
-	auto handlecollision = [this, p, m] (const Tri* t) {
-		// f |= COLLIDER_PAIR_FLAG_CONTACT;
-		float po = glm::dot(p->getMomentum(), -t->n) + glm::dot(m->getMomentum(), t->n);
-		// multiplying by 2 here cancels the previous momentum and adds the deflected
-		p->applyMomentum(2 * po * t->n);
-		m->applyMomentum(2 * po * -t->n); // is there more efficiency to be had here???
-		nearest = static_cast<const void*>(t);
+	auto handlecollision = [this, p, m, dt] (const Tri* t) {
+		glm::vec3 p0top1 = p->getPos() - p->getLastPos();
+		float dt0 = -glm::dot(p->getLastPos() - t->v[0]->p, t->n) / glm::dot(p0top1, t->n) * dt;
+		glm::vec3 dp0 = p0top1 / dt;
+		float po = 0;
+		if (p->getMass() != std::numeric_limits<float>::infinity())
+			po += glm::dot((dp0 + p->getAcc() * dt0) * p->getMass() * (float)p->getDamp() / 255.f, -t->n);
+		if (m->getMass() != std::numeric_limits<float>::infinity())
+			po += glm::dot(((m->getPos() - m->getLastPos()) / dt + m->getAcc() * dt0) * m->getMass() * (float)m->getDamp() / 255.f, t->n);
+		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+			if (po > PH_CONTACT_THRESHOLD) {
+				FatalError("Objects no longer in contact").raise();
+			}
+			else {
+
+			}
+		}
+		else if (po < PH_CONTACT_THRESHOLD) {
+			/*
+			 * I still see some sketchy deceleration in the non-normal directions
+			 */
+			f |= COLLIDER_PAIR_FLAG_CONTACT;
+			nf = p->getForce() + m->getForce();
+			glm::vec3 xprime = glm::normalize(glm::vec3(t->n.y, -t->n.x, 0));
+			glm::vec3 zprime = glm::cross(xprime, t->n);
+			// could probably avoid storing xprime and doing cross for zprime
+			/*
+			nf = glm::vec3(
+				glm::dot(nf, xprime), 
+				glm::dot(nf, t->n), 
+				glm::dot(nf, zprime)
+			);
+			*/
+			nf = glm::vec3(0, glm::dot(nf, t->n), 0);
+			// it seems like there are a lot of simplifications to make here
+			nf = glm::vec3(
+				glm::dot(nf, glm::vec3(xprime.x, 0, 0)),
+				glm::dot(nf, glm::vec3(0, t->n.y, 0)),
+				glm::dot(nf, glm::vec3(0, 0, zprime.z))
+			);
+			p->updateContact(-nf, dt0, dt - dt0);
+			m->updateContact(nf, dt0, dt - dt0);
+		}
+		else {
+			/* TODO: there are still losses in this system, figure out what they are */
+			// can avoid some multiplication by storing po * t->n and then negating it
+			p->updateCollision(dt0, dt - dt0, po * t->n);
+			m->updateCollision(dt0, dt - dt0, po * -t->n);
+		}
+		// nearest = static_cast<const void*>(t);
 	};
 	if (testPointTri(*p, *static_cast<const Tri*>(nearest))) {
-		std::cout << "collision with nearest!" << std::endl;
 		handlecollision(static_cast<const Tri*>(nearest));
-		// f |= COLLIDER_PAIR_FLAG_CONTACT;
 		return;
 	}
 	std::set<const Tri*> searched = {static_cast<const Tri*>(nearest)}, 
 		searching = {static_cast<const Tri*>(nearest)}, 
 		nextsearch;
 	bool looking = true;
-
-	/*
-	 * adding a feasibility dot-product check adds three dot products and some algebra to every
-	 * tri, reasonable or not, but on a sufficiently big mesh this is better than no restriction.
-	 *
-	 * on a smaller mesh where this isnt better, we wouldn't be worried about performance issues
-	 * anyway
-	 */
-
-	/*
-	 * if FLAG_CONTACT is set, it's probably worth having a slightly different collsion check
-	 * at the very least the flag can be used to modulate forces/accelerations during the update phase
-	 */
-
-	/*
-	 * could use a "closest" instead of "last" system, allowing for more efficient computation coming
-	 * from a no-collision situation...
-	 */
 
 	while (looking) {
 		nextsearch = std::set<const Tri*>();
@@ -314,74 +442,51 @@ void ColliderPair::collidePointMesh() {
 					nextsearch.insert(t->adj[ai]);
 			}
 		}
-		// std::cout << "searching " << nextsearch.size() << " remaining adjacencies" << std::endl;
 		if (nextsearch.size() == 0) {
-			std::cout << "ran out of things to search" << std::endl;
+			if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+				f &= ~COLLIDER_PAIR_FLAG_CONTACT;
+				p->applyForce(nf);
+				m->applyForce(-nf);
+			}
 			/* 
 			 * note that this non-collision condition requires checking against
 			 * every triangle every frame there is no collision
 			 */
-			return; /* handle no collision */
+			return;
 		}
 		searching = nextsearch;
 		for (const Tri* t : searching) {
 			if (testPointTri(*p, *t)) {
-				// assumes single possible collision
-				// multiple is very unlikely, would require a very precise
-				// point or edge position
-				// not even any downsides i can think of
-				/* set last col */
-				/* set col flags */
-				/* set relevent positions */
 				handlecollision(t);
 				nearest = t;
-				std::cout << "collision with " << t << std::endl;
 				return;
 			}
-			else {
-				searched.insert(t);
-			}
+			else searched.insert(t);
 		}
 	}
 	/* is it possible to reach this point? */
 }
 
-void ColliderPair::collideMeshMesh() {
-	FatalError("Mesh-mesh collision not yet supported").raise();
-}
-
-
 PhysicsHandler::PhysicsHandler() : numcolliders(0), dt(0) {
 	ti = (float)SDL_GetTicks() / 1000.f;
-	std::cout << "init'd at " << ti << std::endl;
 	lastt = ti;
 }
 
 void PhysicsHandler::start() {
 	lastt = (float)SDL_GetTicks() / 1000.f;
-	std::cout << "started at " << lastt << std::endl;
 }
 
 void PhysicsHandler::update() {
 	// if we reworked this slightly we could multithread/parallelize it...
 	dt = (float)SDL_GetTicks() / 1000.f - lastt;
-	std::cout << "dt = " << dt << std::endl;
 	lastt += dt;
 	for (size_t i = 0; i < numcolliders; i++) {
 		colliders[i].update(dt);
 	}
 	for (const ColliderPair& p : pairs) {
-		p.check();
+		p.check(dt);
 	}
 }
-
-/*
-Collider* PhysicsHandler::addCollider(const Collider& c) {
-	colliders[numcolliders] = c;
-	numcolliders++;
-	return &colliders[numcolliders - 1];
-}
-*/
 
 void PhysicsHandler::addColliderPair(ColliderPair&& p) {
 	pairs.push_back(p);

@@ -36,17 +36,16 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "default";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = r;
-	p.cullmode = VK_CULL_MODE_NONE; // temp to troubleshoot
 	GH::createPipeline(p);
 	rpi.addPipeline(p, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(p.vertexinputstateci);
 	
-	rpi.addMesh(&m, VK_NULL_HANDLE, 0);
+	rpi.addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
 
 	PipelineInfo ip;
 	ip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -131,29 +130,44 @@ int main() {
 	VkDescriptorSet temp;
 	GH::createDS(s.getRenderPass(0).getRenderSet(1).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
-	s.getRenderPass(0).addMesh(&im, temp, 1);
+	s.getRenderPass(0).addMesh(&im, temp, nullptr, 1);
+
+	Mesh plane("resources/models/objs/plane.obj");
+	s.getRenderPass(0).addMesh(&plane, VK_NULL_HANDLE, &plane.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
 
 	PhysicsHandler ph;
+
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
-	pc->setPos(glm::vec3(1, 10, 0));
-	pc->applyForce(glm::vec3(0, -9.807, 0));
+	pc->setPos(glm::vec3(0, 5, -10));
+	pc->applyForce(glm::vec3(0, -9.807, 10));
+
+	/*
 	MeshCollider* mc = static_cast<MeshCollider*>(ph.addCollider(MeshCollider("resources/models/objs/plane.obj")));
-	ph.addColliderPair(ColliderPair(pc, mc));
+	mc->setMass(std::numeric_limits<float>::infinity());
+	*/
+
+	PlaneCollider* plc = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
+	plc->setMass(std::numeric_limits<float>::infinity());
+
+	ph.addColliderPair(ColliderPair(pc, plc));
 
 	ph.start();
 	bool xpressed = false;
 	SDL_Event eventtemp;
 	while (!xpressed) {
-		// throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
+		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
-		// w.frameCallback();
+		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
+		plane.setPos(plc->getPos());
+
+		std::cout << pc->getAcc().z << std::endl;
+
+		w.frameCallback();
 		
 		SDL_Delay(17);
 		ph.update();
-		std::cout << pc->getPos().y << std::endl;
-		// if (pc->getPos().y < 0) break;
 
 		while (SDL_PollEvent(&eventtemp)) {
 			if (eventtemp.type == SDL_EVENT_QUIT
