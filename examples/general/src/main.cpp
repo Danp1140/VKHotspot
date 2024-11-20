@@ -64,7 +64,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		0,
 		1, &bindings[0]
 	};
-	ip.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	ip.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	ip.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	ip.depthtest = true;
 	ip.extent = w.getSCExtent();
@@ -89,7 +89,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		0,
 		1, &dtbindings[0]
 	};
-	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	tp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	tp.depthtest = true;
 	tp.extent = w.getSCExtent();
@@ -149,7 +149,7 @@ int main() {
 	*/
 	
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
-	Mesh m("../resources/models/plane.obj");
+	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
 	std::vector<InstancedMeshData> imdatatemp;
@@ -174,8 +174,8 @@ int main() {
 	PhysicsHandler ph;
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
-	pc->setPos(glm::vec3(0, 5, -10));
-	pc->applyForce(glm::vec3(0, -9.807, 5));
+	pc->setPos(glm::vec3(0, 5, 0));
+	pc->applyForce(glm::vec3(0, -9.807, 0));
 
 	/*
 	MeshCollider* mc = static_cast<MeshCollider*>(ph.addCollider(MeshCollider("resources/models/objs/plane.obj")));

@@ -83,7 +83,7 @@ Scene createScene(const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "viewport";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(
 		VERTEX_BUFFER_TRAIT_POSITION 
 		 | VERTEX_BUFFER_TRAIT_UV 
