@@ -3,7 +3,7 @@
 #include "Projection.h"
 #include "Mesh.h"
 
-#define RENDERPASSINFO_VERBOSE_OBJECTS
+// #define VKH_VERBOSE_DRAW_TASKS
 
 typedef struct ScenePCData {
 	glm::mat4 vp;
@@ -63,7 +63,7 @@ public:
 
 	void addRenderPass(const RenderPassInfo& r);
 
-	const Camera* const getCamera() const {return camera;}
+	Camera* getCamera() {return camera;}
 	RenderPassInfo& getRenderPass(size_t i) {return renderpasses[i];}
 
 private:
