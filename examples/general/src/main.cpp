@@ -163,18 +163,21 @@ int main() {
 	s.getRenderPass(0).addMesh(&plane, VK_NULL_HANDLE, &plane.getModelMatrix(), 0);
 
 	Mesh suz("../resources/models/suzanne.obj");
+	/*
 	TextureSet t("../resources/textures/uvgrid");
 	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
 	GH::createDS(s.getRenderPass(0).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
 	s.getRenderPass(0).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
+	*/
+	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
 
 	PhysicsHandler ph;
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
-	pc->setPos(glm::vec3(0, 5, 0));
+	pc->setPos(glm::vec3(0, 10, 0));
 	pc->applyForce(glm::vec3(0, -9.807, 0));
 
 	/*

@@ -36,6 +36,7 @@ void Collider::updateContact(glm::vec3 nf, float dt0, float dt1) {
 	dp = dp0 + ddp * dt0;
 	applyForce(nf);
 	dp += ddp * dt1;
+	dp -= glm::dot(dp, glm::normalize(nf)) * glm::normalize(nf);
 	p += dp * dt1;
 }
 
