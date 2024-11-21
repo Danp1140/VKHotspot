@@ -9,8 +9,8 @@ TextureSet::TextureSet(const char* d) {
 	png_image i;
 	png_bytep buffer;
 	ImageInfo* dst;
-	while (f = fts_read(dir)) {
-		if (f->fts_level == 1) {	
+	while ((f = fts_read(dir))) {
+		if (f->fts_level == 1) {
 			if (strcmp(f->fts_name + f->fts_parent->fts_pathlen, "diffuse")) {
 				dst = &diffuse;
 			}
@@ -19,7 +19,7 @@ TextureSet::TextureSet(const char* d) {
 				continue;
 			}
 
-			i.version = PNG_IMAGE_VERSION;	
+			i.version = PNG_IMAGE_VERSION;
 			i.opaque = NULL;
 			png_image_begin_read_from_file(&i, f->fts_accpath);
 			i.format = PNG_FORMAT_RGBA;

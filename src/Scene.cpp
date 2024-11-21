@@ -22,12 +22,13 @@ void RenderPassInfo::destroy() {
 }
 
 void RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
-	rendersets.push_back({p, {}, {}, pcd});
+	rendersets.push_back({p, {}, {}, {}, pcd});
 }
 
-void RenderPassInfo::addMesh(const Mesh* m, VkDescriptorSet ds, size_t pidx) {
+void RenderPassInfo::addMesh(const Mesh* m, VkDescriptorSet ds, const void* pc, size_t pidx) {
 	rendersets[pidx].meshes.push_back(m);
 	rendersets[pidx].objdss.push_back(ds);
+	rendersets[pidx].objpcdata.push_back(pc);
 }
 
 std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
@@ -46,6 +47,8 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 		// this would be more efficient for meshes that aren't swapped in and out frequently
 		counter = 0;
 		for (const Mesh* m : r.meshes) {
+			/* TODO: generalize push constants here */
+			/* may need PCRanges in RenderSet */
 #ifdef VKH_VERBOSE_DRAW_TASKS
 			std::cout << "Mesh " << &m << std::endl;
 #endif
@@ -55,6 +58,8 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 						r.pipeline, 
 						{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)}, 
 						r.pcdata,
+						{VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)},
+						r.objpcdata[counter],
 						r.objdss[counter]), 
 					f = framebuffers,
 					df = m->getDrawFunc()] 
@@ -100,7 +105,7 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 }
 
 Scene::Scene(float a) {
-	camera = new Camera(glm::vec3(5, 4, 5), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
+	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
 	// GH::createDS(ds);
 	lightub = {};
 	/*

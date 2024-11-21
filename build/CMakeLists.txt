@@ -1,12 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 project(VKH)
 
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++14 -Wno-deprecated")
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++20 -Wno-deprecated")
 
 if (UNIX)
 	if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework Metal -framework Foundation -framework QuartzCore -framework IOKit -framework IOSurface -framework Cocoa -framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework CoreServices -framework Carbon -framework CoreFoundation -framework Security")
+		set(CMAKE_FIND_FRAMEWORK LAST)
+		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework Metal -framework Foundation -framework QuartzCore -framework IOKit -framework IOSurface -framework Cocoa -framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework CoreServices -framework Carbon -framework CoreFoundation -framework Security")
+		set(CMAKE_PREFIX_PATH "/usr/local/opt/zlib" ${CMAKE_PREFIX_PATH})
+		set(ENV{PKG_CONFIG_PATH} "/usr/local/opt/zlib/lib/pkgconfig/")
     set(CMAKE_IGNORE_PATH "/Library/Frameworks/")
 		set(CMAKE_FIND_LIBRARY_SUFFIXES ".dylib" ".a")
 	else()
@@ -38,7 +41,8 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Scene.cpp ../src/Scene.h
 	../src/Projection.cpp ../src/Projection.h
 	../src/Mesh.cpp ../src/Mesh.h
-	../src/TextureHandler.cpp ../src/TextureHandler.h)
+	../src/TextureHandler.cpp ../src/TextureHandler.h
+	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h)
 
 target_link_libraries(
 	${PROJECT_NAME} 
@@ -57,5 +61,6 @@ install(FILES ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Projection.cpp ../src/Projection.h
 	../src/Mesh.cpp ../src/Mesh.h
 	../src/TextureHandler.cpp ../src/TextureHandler.h
+	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
 # TODO: install as package

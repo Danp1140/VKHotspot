@@ -36,6 +36,7 @@ void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 			0, nullptr);
 	}
 	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
+	vkCmdPushConstants(c, d.pl, d.opcr.stageFlags, d.opcr.offset, d.opcr.size, d.opcd);
 	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
 	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
 	vkCmdDrawIndexed(c, d.nv, 1, 0, 0, 0);
@@ -94,6 +95,8 @@ const MeshDrawData Mesh::getDrawData(
 	const PipelineInfo& p, 
 	VkPushConstantRange pcr, 
 	const void* pcd,
+	VkPushConstantRange opcr,
+	const void* opcd,
 	VkDescriptorSet ds) const {
 	return (MeshDrawData){
 		r,
@@ -101,10 +104,17 @@ const MeshDrawData Mesh::getDrawData(
 		p.layout,
 		pcr,
 		pcd,
+		opcr,
+		opcd,
 		ds,
 		vertexbuffer.buffer, indexbuffer.buffer,
 		indexbuffer.size / sizeof(MeshIndex)
 	};
+}
+
+void Mesh::setPos(glm::vec3 p) {
+	position = p;
+	updateModelMatrix();
 }
 
 // could maybe make this constexpr
@@ -194,6 +204,13 @@ void Mesh::loadOBJ(const char* fp) {
 	free(idst);
 }
 
+void Mesh::updateModelMatrix() {
+	// TODO: maximize efficiency, this feels like it could be made way better
+	model = glm::translate(glm::mat4(1), position)
+		* glm::mat4_cast(rotation)
+		* glm::scale(glm::mat4(1), scale);
+}
+
 InstancedMesh::InstancedMesh() : Mesh() {
 	drawfunc = InstancedMesh::recordDraw;
 }
@@ -249,3 +266,4 @@ void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer&
 	vkCmdDrawIndexed(c, d.nv, 32, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
+

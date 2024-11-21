@@ -12,7 +12,7 @@ int main() {
 	s.getCamera()->setForward(glm::vec3(-1));
 
 	Mesh floor("../resources/models/floor.obj");
-	s.getRenderPass(0).addMesh(&floor, VK_NULL_HANDLE, 0);
+	s.getRenderPass(0).addMesh(&floor, VK_NULL_HANDLE, &floor.getModelMatrix(), 0);
 
 	std::vector<InstancedMeshData> imdtemp(8);
 	imdtemp[0].m = glm::translate(glm::mat4(1), glm::vec3(-13.8278, 0, -21.9972));
@@ -31,7 +31,7 @@ int main() {
 	VkDescriptorSet dstemp;
 	GH::createDS(s.getRenderPass(0).getRenderSet(1).pipeline, dstemp);
 	GH::updateDS(dstemp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, largeplanters.getInstanceUB().getDBI());
-	s.getRenderPass(0).addMesh(&largeplanters, dstemp, 1);
+	s.getRenderPass(0).addMesh(&largeplanters, dstemp, nullptr, 1);
 	
 	w.addTasks(s.getDrawTasks());
 
@@ -83,7 +83,7 @@ Scene createScene(const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "viewport";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(
 		VERTEX_BUFFER_TRAIT_POSITION 
 		 | VERTEX_BUFFER_TRAIT_UV 

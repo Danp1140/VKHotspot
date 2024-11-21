@@ -1184,7 +1184,7 @@ void GH::updateImage(ImageInfo& i, void* src) {
 	// TODO: change this and buffer update casts to static_cast where possible
 	char* dstscan, * srcscan = reinterpret_cast<char*>(src);
 	// TODO: refactor to consolidate identical code
-	if (i.memprops |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+	if (i.memprops & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
 		VkImageLayout lastlayout = i.layout;
 		if (i.layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
 			transitionImageLayout(i, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);

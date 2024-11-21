@@ -1,5 +1,6 @@
 #include "UIHandler.h"
 #include "Scene.h"
+#include "PhysicsHandler.h"
 #include "TextureHandler.h"
 
 void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
@@ -36,17 +37,16 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "default";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = r;
-	p.cullmode = VK_CULL_MODE_NONE; // temp to troubleshoot
 	GH::createPipeline(p);
 	rpi.addPipeline(p, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(p.vertexinputstateci);
 	
-	rpi.addMesh(&m, VK_NULL_HANDLE, 0);
+	rpi.addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
 
 	PipelineInfo ip;
 	ip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -64,7 +64,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		0,
 		1, &bindings[0]
 	};
-	ip.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	ip.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	ip.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	ip.depthtest = true;
 	ip.extent = w.getSCExtent();
@@ -89,7 +89,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		0,
 		1, &dtbindings[0]
 	};
-	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
 	tp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	tp.depthtest = true;
 	tp.extent = w.getSCExtent();
@@ -149,7 +149,7 @@ int main() {
 	*/
 	
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
-	Mesh m("../resources/models/plane.obj");
+	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
 	std::vector<InstancedMeshData> imdatatemp;
@@ -157,23 +157,52 @@ int main() {
 	VkDescriptorSet temp;
 	GH::createDS(s.getRenderPass(0).getRenderSet(1).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
-	s.getRenderPass(0).addMesh(&im, temp, 1);
+	s.getRenderPass(0).addMesh(&im, temp, nullptr, 1);
+
+	Mesh plane("../resources/models/plane.obj");
+	s.getRenderPass(0).addMesh(&plane, VK_NULL_HANDLE, &plane.getModelMatrix(), 0);
 
 	Mesh suz("../resources/models/suzanne.obj");
+	/*
 	TextureSet t("../resources/textures/uvgrid");
 	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
 	GH::createDS(s.getRenderPass(0).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
-	s.getRenderPass(0).addMesh(&suz, temp, 2);
+	s.getRenderPass(0).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
+	*/
+	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
 
+	PhysicsHandler ph;
+
+	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
+	pc->setPos(glm::vec3(0, 10, 0));
+	pc->applyForce(glm::vec3(0, -9.807, 0));
+
+	/*
+	MeshCollider* mc = static_cast<MeshCollider*>(ph.addCollider(MeshCollider("resources/models/objs/plane.obj")));
+	mc->setMass(std::numeric_limits<float>::infinity());
+	*/
+
+	PlaneCollider* plc = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
+	plc->setMass(std::numeric_limits<float>::infinity());
+
+	ph.addColliderPair(ColliderPair(pc, plc));
+
+	ph.start();
 	bool xpressed = false;
 	SDL_Event eventtemp;
 	while (!xpressed) {
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
+		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
+		plane.setPos(plc->getPos());
+
 		w.frameCallback();
+		
+		SDL_Delay(17);
+		ph.update();
 
 		while (SDL_PollEvent(&eventtemp)) {
 			if (eventtemp.type == SDL_EVENT_QUIT

@@ -1,3 +1,5 @@
+#include <gtc/quaternion.hpp>
+
 #include "GraphicsHandler.h"
 
 typedef uint16_t MeshIndex;
@@ -17,6 +19,8 @@ typedef struct MeshDrawData {
 	VkPipelineLayout pl;
 	VkPushConstantRange pcr;
 	const void* pcd;
+	VkPushConstantRange opcr;
+	const void* opcd;
 	VkDescriptorSet d;
 	VkBuffer vb, ib;
 	size_t nv;
@@ -24,9 +28,17 @@ typedef struct MeshDrawData {
 
 typedef std::function<void (VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c)> MeshDrawFunc;
 
+typedef struct MeshPCData {
+	glm::mat4 m;
+} MeshPCData;
+
 class Mesh {
 public:
 	Mesh() : 
+		position(glm::vec3(0)),
+		scale(glm::vec3(1)),
+		rotation(glm::vec3(0)),
+		model(glm::mat4(1)),
 		vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL), 
 		drawfunc(Mesh::recordDraw) {}
 	Mesh(const char* f);
@@ -43,12 +55,16 @@ public:
 		const PipelineInfo& p, 
 		VkPushConstantRange pcr, 
 		const void* pcd,
+		VkPushConstantRange opcr,
+		const void* opcd,
 		VkDescriptorSet ds) const;
 
+	const glm::mat4& getModelMatrix() const {return model;}
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}
-	const PipelineInfo& getGraphicsPipeline() const {return pipeline;}
 	const MeshDrawFunc& getDrawFunc() const {return drawfunc;}
+
+	void setPos(glm::vec3 p);
 
 protected:
 	MeshDrawFunc drawfunc;
@@ -67,9 +83,10 @@ private:
 	glm::mat4 model;
 	BufferInfo vertexbuffer, indexbuffer;
 	VertexBufferTraits vbtraits;
-	PipelineInfo pipeline;
 
 	size_t getVertexBufferElementSize() const;
+	
+	void updateModelMatrix();
 };
 
 typedef struct InstancedMeshData {
@@ -81,6 +98,11 @@ public:
 	InstancedMesh();
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
+
+	/*
+	 * TODO: should instanced mesh still use other position rotation etc stuff? to just apply to all
+	 * of them?
+	 */
 
 	const BufferInfo& getInstanceUB() const {return instanceub;}
 	/*
