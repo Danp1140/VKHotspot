@@ -44,16 +44,16 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/TextureHandler.cpp ../src/TextureHandler.h
 	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h)
 
+target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE})
+
 target_link_libraries(
-	${PROJECT_NAME} 
+	${PROJECT_NAME} PUBLIC
 	${USMINT_LIB} 
 	Freetype::Freetype
 	Vulkan::Vulkan
 	SDL3::SDL3
 	PNG::PNG)
 
-install(TARGETS ${PROJECT_NAME}
-	LIBRARY DESTINATION /usr/local/lib)
 install(FILES ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Errors.cpp ../src/Errors.h
 	../src/UIHandler.cpp ../src/UIHandler.h
@@ -63,4 +63,44 @@ install(FILES ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/TextureHandler.cpp ../src/TextureHandler.h
 	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
-# TODO: install as package
+
+install(
+	FILES
+	../src/GraphicsHandler.h
+	../src/Errors.h
+	../src/UIHandler.h
+	../src/Scene.h
+	../src/Projection.h
+	../src/Mesh.h
+	../src/TextureHandler.h
+	../src/PhysicsHandler.h
+	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+include(GNUInstallDirs)
+install(
+	TARGETS ${PROJECT_NAME}
+	EXPORT ${PROJECT_NAME}Targets
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(
+	EXPORT ${PROJECT_NAME}Targets
+	FILE ${PROJECT_NAME}Targets.cmake
+	NAMESPACE VKH::
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+	${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
+	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+write_basic_package_version_file(
+	${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
+	VERSION 1.0.0
+	COMPATIBILITY AnyNewerVersion)
+install(
+	FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+message(WARNING ${CMAKE_INSTALL_LIBDIR})
+message(WARNING ${CMAKE_CURRENT_BINARY_DIR})
+
