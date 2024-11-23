@@ -10,6 +10,8 @@ public:
 	~Camera() = default;
 
 	const glm::mat4& getVP() const {return vp;}
+	const glm::vec3& getPos() const {return position;}
+
 	void setPos(glm::vec3 p);
 	void setForward(glm::vec3 f);
 

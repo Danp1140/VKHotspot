@@ -35,8 +35,8 @@ void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 			0, 1, &d.d,
 			0, nullptr);
 	}
-	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
-	vkCmdPushConstants(c, d.pl, d.opcr.stageFlags, d.opcr.offset, d.opcr.size, d.opcd);
+	if (d.pcd) vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
+	if (d.opcd) vkCmdPushConstants(c, d.pl, d.opcr.stageFlags, d.opcr.offset, d.opcr.size, d.opcd);
 	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
 	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
 	vkCmdDrawIndexed(c, d.nv, 1, 0, 0, 0);
