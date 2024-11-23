@@ -46,7 +46,7 @@ TextureSet::~TextureSet() {
 }
 
 TextureHandler::~TextureHandler() {
-	for (const std::pair<const char*, VkSampler>& s : samplers) 
+	for (const std::pair<std::string, VkSampler>& s : samplers) 
 		vkDestroySampler(GH::getLD(), s.second, nullptr);
 }
 
