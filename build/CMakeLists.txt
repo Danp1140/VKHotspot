@@ -1,9 +1,10 @@
+# Project Setup
 cmake_minimum_required(VERSION 3.20)
 project(VKH)
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++20 -Wno-deprecated")
 
+# Platform-Dependent Setup, jank central
 if (UNIX)
 	if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 		set(CMAKE_FIND_FRAMEWORK LAST)
@@ -17,6 +18,7 @@ if (UNIX)
 	endif()
 endif()
 
+# Finding Dependencies
 find_package(Freetype REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared Headers)
@@ -35,6 +37,7 @@ include_directories(
 	${GLM_INCLUDE}
 	${USMINT_INCLUDE})
 
+# Adding and Linking Library
 add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Errors.cpp ../src/Errors.h
 	../src/UIHandler.cpp ../src/UIHandler.h
@@ -54,14 +57,17 @@ target_link_libraries(
 	SDL3::SDL3
 	PNG::PNG)
 
-install(FILES ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
-	../src/Errors.cpp ../src/Errors.h
-	../src/UIHandler.cpp ../src/UIHandler.h
-	../src/Scene.cpp ../src/Scene.h
-	../src/Projection.cpp ../src/Projection.h
-	../src/Mesh.cpp ../src/Mesh.h
-	../src/TextureHandler.cpp ../src/TextureHandler.h
-	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
+# Installing Library Files
+install(
+	FILES 
+	../src/GraphicsHandler.h
+	../src/Errors.h
+	../src/UIHandler.h
+	../src/Scene.h
+	../src/Projection.h
+	../src/Mesh.h
+	../src/TextureHandler.h
+	../src/PhysicsHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
 
 install(
@@ -76,6 +82,7 @@ install(
 	../src/PhysicsHandler.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
+# Package Config Hell
 include(GNUInstallDirs)
 install(
 	TARGETS ${PROJECT_NAME}
@@ -101,6 +108,4 @@ install(
 	FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
 	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
-message(WARNING ${CMAKE_INSTALL_LIBDIR})
-message(WARNING ${CMAKE_CURRENT_BINARY_DIR})
 
