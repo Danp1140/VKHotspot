@@ -15,5 +15,5 @@ layout (location = 1) out vec3 no;
 void main() {
 	gl_Position = constants.vp * constants.m * vec4(pi, 1);
 	to = ti;
-	no = ni;
+	no = mat3(constants.m) * ni;
 }

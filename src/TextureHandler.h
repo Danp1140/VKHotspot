@@ -12,10 +12,12 @@ public:
 	~TextureSet();
 
 	const ImageInfo& getDiffuse() const {return diffuse;}
+	const ImageInfo& getNormal() const {return normal;}
 	void setDiffuseSampler(VkSampler s) {diffuse.sampler = s;}
+	void setNormalSampler(VkSampler s) {normal.sampler = s;}
 
 private:
-	ImageInfo diffuse;	
+	ImageInfo diffuse, normal;
 };
 
 class TextureHandler {

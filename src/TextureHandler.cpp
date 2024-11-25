@@ -11,8 +11,13 @@ TextureSet::TextureSet(const char* d) {
 	ImageInfo* dst;
 	while ((f = fts_read(dir))) {
 		if (f->fts_level == 1) {
-			if (strcmp(f->fts_name + f->fts_parent->fts_pathlen, "diffuse")) {
+			if (strcmp(f->fts_name + f->fts_namelen - 11, "diffuse.png") == 0) {
 				dst = &diffuse;
+				std::cout << f->fts_name << std::endl;
+			}
+			else if (strcmp(f->fts_name + f->fts_namelen - 10, "normal.png") == 0) {
+				dst = &normal;
+				std::cout << f->fts_name << std::endl;
 			}
 			else {
 				WarningError("Unexpected file in TextureSet directory").raise();
@@ -28,6 +33,7 @@ TextureSet::TextureSet(const char* d) {
 			png_image_finish_read(&i, NULL, buffer, 0, NULL);
 
 			dst->extent = {i.width, i.height};
+			// TODO: format setting
 			dst->format = VK_FORMAT_R8G8B8A8_SRGB;
 			dst->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 			dst->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -43,6 +49,7 @@ TextureSet::TextureSet(const char* d) {
 
 TextureSet::~TextureSet() {
 	if (diffuse.image != VK_NULL_HANDLE) GH::destroyImage(diffuse);
+	if (normal.image != VK_NULL_HANDLE) GH::destroyImage(normal);
 }
 
 TextureHandler::~TextureHandler() {

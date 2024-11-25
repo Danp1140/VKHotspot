@@ -56,9 +56,9 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 					[d = m->getDrawData(
 						renderpass, 
 						r.pipeline, 
-						{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)}, 
+						{r.pipeline.pushconstantrange.stageFlags, 0, sizeof(ScenePCData)}, 
 						r.pcdata,
-						{VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)},
+						{r.pipeline.pushconstantrange.stageFlags, sizeof(ScenePCData), sizeof(MeshPCData)},
 						r.objpcdata[counter],
 						r.objdss[counter]), 
 					f = framebuffers,

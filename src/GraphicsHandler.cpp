@@ -604,14 +604,14 @@ void GH::terminateSamplers() {
 
 void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
 	VkDescriptorPoolSize poolsizes[2] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5},
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		5,
+		6,
 		2, &poolsizes[0] 
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
@@ -1033,6 +1033,7 @@ void GH::updateDS(
 	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
 }
 
+// TODO: rename, can be used to update not all of DS, just select bindings
 void GH::updateWholeDS(
 	const VkDescriptorSet& ds, 
 	std::vector<VkDescriptorType>&& t,
@@ -1333,33 +1334,6 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 	i.layout = newlayout;
 	vkQueueWaitIdle(genericqueue);
 }
-
-/*
-void GH::recordPushConsts(
-		VkShaderStageFlags stages,
-		uint32_t offset,
-		uint32_t size,
-		const void* pc,
-		cbRecData d, 
-		VkCommandBuffer& c) {
-	VkCommandBufferInheritanceInfo cbinherinfo {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
-		nullptr,
-		d.rp, 0,
-		d.fb,
-		VK_FALSE, 0, 0
-	};
-	VkCommandBufferBeginInfo cbbi {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		nullptr,
-		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
-		&cbinherinfo
-	};
-	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdPushConstants(c, d.p->layout, stages, offset, size, pc);
-	vkEndCommandBuffer(c);
-}
-*/
 
 VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
 		VkDebugUtilsMessageSeverityFlagBitsEXT severity,

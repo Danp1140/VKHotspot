@@ -77,11 +77,11 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	tp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	tp.shaderfilepathprefix = "diffusetexture";
 	VkDescriptorSetLayoutBinding dtbindings[1] {{
-		0,
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		1,
-		VK_SHADER_STAGE_FRAGMENT_BIT,
-		nullptr
+			0,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			1,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
 	}};
 	tp.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -97,6 +97,38 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	GH::createPipeline(tp);
 	rpi.addPipeline(tp, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(tp.vertexinputstateci);
+
+	PipelineInfo ndtp;
+	ndtp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	ndtp.shaderfilepathprefix = "NDtexture";
+	VkDescriptorSetLayoutBinding ndtbindings[2] {{
+			0,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			1,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+		}, {
+			1,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			1,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+
+	}};
+	ndtp.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		2, &ndtbindings[0]
+	};
+	ndtp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
+	ndtp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	ndtp.depthtest = true;
+	ndtp.extent = w.getSCExtent();
+	ndtp.renderpass = r;
+	GH::createPipeline(ndtp);
+	rpi.addPipeline(ndtp, &s.getCamera()->getVP());
+	Mesh::ungetVISCI(ndtp.vertexinputstateci);
 
 	s.addRenderPass(rpi);
 }
@@ -157,20 +189,23 @@ int main() {
 	VkDescriptorSet temp;
 	GH::createDS(s.getRenderPass(0).getRenderSet(1).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
-	s.getRenderPass(0).addMesh(&im, temp, nullptr, 1);
-
-	Mesh plane("../resources/models/plane.obj");
-	s.getRenderPass(0).addMesh(&plane, VK_NULL_HANDLE, &plane.getModelMatrix(), 0);
+	s.getRenderPass(0).addMesh(&im, temp, nullptr, 1);	
 
 	Mesh suz("../resources/models/suzanne.obj");
-	/*
 	TextureSet t("../resources/textures/uvgrid");
 	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
 	GH::createDS(s.getRenderPass(0).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
 	s.getRenderPass(0).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
-	*/
-	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
+
+	Mesh plane("../resources/models/plane.obj");
+	TextureSet planet("../resources/textures/arcadefloor");
+	planet.setDiffuseSampler(th.getSampler("bilinear"));
+	planet.setNormalSampler(th.getSampler("bilinear"));
+	GH::createDS(s.getRenderPass(0).getRenderSet(3).pipeline, temp);
+	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, planet.getDiffuse().getDII(), {});
+	GH::updateDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, planet.getNormal().getDII(), {});
+	s.getRenderPass(0).addMesh(&plane, temp, &plane.getModelMatrix(), 3);
 
 	w.addTasks(s.getDrawTasks());
 
@@ -197,7 +232,7 @@ int main() {
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
-		plane.setPos(plc->getPos());
+		// plane.setPos(plc->getPos());
 
 		w.frameCallback();
 		
