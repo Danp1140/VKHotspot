@@ -140,6 +140,8 @@ bool WindowInfo::frameCallback() {
 		}
 	}
 
+	// TODO: add wait for sub finish
+	// this will limit framerate to hardware/monitor's framerate limit, but it's for the best
 	vkAcquireNextImageKHR(
 		GH::getLD(),
 		swapchain,
@@ -1343,7 +1345,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
 	if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
 	 || severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
 		std::cout << "----- Validation Error -----\n";
-		std::cout << callbackdata->pMessage << std::endl;
+		//std::cout << callbackdata->pMessage << std::endl;
+		FatalError(callbackdata->pMessage).raise();
 	}
 	return VK_FALSE;
 }

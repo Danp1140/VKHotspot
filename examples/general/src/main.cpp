@@ -184,6 +184,10 @@ int main() {
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
+	th.setDefaultSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
+	th.addSet("uvgrid", TextureSet("../resources/textures/uvgrid"));
+	th.addSet("arcadefloor", TextureSet("../resources/textures/arcadefloor"));
+
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
 	VkDescriptorSet temp;
@@ -192,19 +196,14 @@ int main() {
 	s.getRenderPass(0).addMesh(&im, temp, nullptr, 1);	
 
 	Mesh suz("../resources/models/suzanne.obj");
-	TextureSet t("../resources/textures/uvgrid");
-	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
 	GH::createDS(s.getRenderPass(0).getRenderSet(2).pipeline, temp);
-	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
+	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, th.getSet("uvgrid").getTexture("diffuse").getDII(), {});
 	s.getRenderPass(0).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
 
 	Mesh plane("../resources/models/plane.obj");
-	TextureSet planet("../resources/textures/arcadefloor");
-	planet.setDiffuseSampler(th.getSampler("bilinear"));
-	planet.setNormalSampler(th.getSampler("bilinear"));
 	GH::createDS(s.getRenderPass(0).getRenderSet(3).pipeline, temp);
-	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, planet.getDiffuse().getDII(), {});
-	GH::updateDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, planet.getNormal().getDII(), {});
+	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, th.getSet("arcadefloor").getTexture("diffuse").getDII(), {});
+	GH::updateDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, th.getSet("arcadefloor").getTexture("normal").getDII(), {});
 	s.getRenderPass(0).addMesh(&plane, temp, &plane.getModelMatrix(), 3);
 
 	w.addTasks(s.getDrawTasks());

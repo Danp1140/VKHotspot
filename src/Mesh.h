@@ -44,6 +44,9 @@ public:
 	Mesh(const char* f);
 	~Mesh();
 
+	// TODO: specialized move/copy assign and move/copy initializers
+	Mesh& operator=(Mesh m);
+
 	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
 	static size_t getTraitsElementSize(VertexBufferTraits t);
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
@@ -98,6 +101,8 @@ public:
 	InstancedMesh();
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
+
+	InstancedMesh& operator=(InstancedMesh rhs);
 
 	/*
 	 * TODO: should instanced mesh still use other position rotation etc stuff? to just apply to all

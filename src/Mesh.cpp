@@ -11,6 +11,20 @@ Mesh::~Mesh() {
 	if (indexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(indexbuffer);
 }
 
+Mesh& Mesh::operator=(Mesh rhs) {
+	std::swap(position, rhs.position);
+	std::swap(scale, rhs.scale);
+	std::swap(rotation, rhs.rotation);
+	std::swap(model, rhs.model);
+	std::swap(vertexbuffer, rhs.vertexbuffer);
+	rhs.vertexbuffer = {};
+	std::swap(indexbuffer, rhs.indexbuffer);
+	rhs.indexbuffer = {};
+	std::swap(vbtraits, rhs.vbtraits);
+	std::swap(drawfunc, rhs.drawfunc);
+	return *this;
+}
+
 void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
@@ -224,7 +238,14 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) :
 }
 
 InstancedMesh::~InstancedMesh() {
-	GH::destroyBuffer(instanceub);
+	if (instanceub.buffer != VK_NULL_HANDLE) GH::destroyBuffer(instanceub);
+}
+
+InstancedMesh& InstancedMesh::operator=(InstancedMesh rhs) {
+	Mesh::operator=(rhs);
+	std::swap(instanceub, rhs.instanceub);
+	rhs.instanceub = {};
+	return *this;
 }
 
 void InstancedMesh::updateInstanceUB(std::vector<InstancedMeshData> m) {
