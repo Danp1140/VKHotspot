@@ -19,7 +19,10 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo() {
+WindowInfo::WindowInfo() : WindowInfo(glm::vec2(0), glm::vec2(1)) {
+}
+
+WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
@@ -31,10 +34,32 @@ WindowInfo::WindowInfo() {
 
 	sdlwindow = SDL_CreateWindow(
 		"Vulkan Project", 
-		displaymode->w, displaymode->h, 
+		displaymode->w * s.x, displaymode->h * s.y, 
 		SDL_WINDOW_VULKAN);
+	SDL_SetWindowPosition(
+		sdlwindow,
+		displaymode->w * p.x, displaymode->h * (1 - s.y));
 
 	sdlwindowid = SDL_GetWindowID(sdlwindow);
+
+	/*
+	 * This should be the only event filter (since InputHandler should use a iterative
+	 * event poll every frame). This is a possible source of thread-related
+	 * badness, as it runs in a different thread, modifies close, but close is read by
+	 * the thread calling frameCallback()
+	 *
+	 * That *shouldn't* be an issue, as worst-case it'll result in an extra frame getting rendered
+	 * (I think)
+	 */
+	close = false;
+	SDL_AddEventWatch([] (void* d, SDL_Event* e) {
+		// TODO: check windowID
+		*static_cast<bool*>(d) = (
+			e->type == SDL_EVENT_QUIT
+			 || e->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED
+			);
+		return !*static_cast<bool*>(d);
+	}, &close);
 
 	SDL_Vulkan_CreateSurface(
 		sdlwindow, 
@@ -133,13 +158,6 @@ WindowInfo::~WindowInfo() {
 }
 
 bool WindowInfo::frameCallback() {
-	while (SDL_PollEvent(&eventtemp)) {
-		if (eventtemp.type == SDL_EVENT_QUIT
-			|| eventtemp.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
-			return false;
-		}
-	}
-
 	vkAcquireNextImageKHR(
 		GH::getLD(),
 		swapchain,
@@ -160,7 +178,7 @@ bool WindowInfo::frameCallback() {
 
 	submitAndPresent();
 
-	return true;
+	return !close;
 }
 
 void WindowInfo::addTask(const cbRecTaskTemplate& t)  {

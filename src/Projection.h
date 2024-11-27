@@ -10,11 +10,19 @@ public:
 	~Camera() = default;
 
 	const glm::mat4& getVP() const {return vp;}
+	const glm::vec3& getForward() const {return forward;}
+	const glm::vec3& getRight() const {return right;}
+	const glm::vec3& getUp() const {return up;}
+
 	void setPos(glm::vec3 p);
+	/* 
+	 * normalizes provided vector...possible efficiency loss, could provide one that
+	 * expects a pre-normalized vector
+	 */
 	void setForward(glm::vec3 f);
 
 private:
-	glm::vec3 position, forward;
+	glm::vec3 position, forward, right, up;
 	glm::mat4 view, projection, vp;
 	float fovy, aspectratio, nearclip, farclip;
 

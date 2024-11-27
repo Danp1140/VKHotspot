@@ -34,13 +34,15 @@ void Camera::setPos(glm::vec3 p) {
 }
 
 void Camera::setForward(glm::vec3 f) {
-	forward = f;
+	forward = glm::normalize(f);
 	updateView();
 }
 
 // -- Private --
 
 void Camera::updateView() {
+	right = glm::normalize(glm::vec3(-forward.z, 0, forward.x));
+	up = glm::cross(right, forward);
 	view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
 	vp = projection * view;
 }

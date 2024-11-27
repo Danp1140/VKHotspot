@@ -165,6 +165,12 @@ private:
 	void collidePointMesh(float dt);
 };
 
+typedef struct TimedMomentum {
+	Collider* c;
+	glm::vec3 po;
+	float dt;
+} TimedMomentum;
+
 class PhysicsHandler {
 public:
 	PhysicsHandler();
@@ -194,10 +200,15 @@ public:
 	}
 	void addColliderPair(ColliderPair&& p);
 
+	// rounds down; if dt == 0, will just apply during one update cycle
+	void addTimedMomentum(TimedMomentum&& t); 
+
+
 private:
 	Collider colliders[PH_MAX_NUM_COLLIDERS];
 	size_t numcolliders;
 	std::vector<ColliderPair> pairs;
+	std::vector<TimedMomentum> tms;
 
 	float ti, lastt, dt; // in s
 };

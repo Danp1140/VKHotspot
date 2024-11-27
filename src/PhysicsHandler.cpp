@@ -473,6 +473,15 @@ void PhysicsHandler::update() {
 	// if we reworked this slightly we could multithread/parallelize it...
 	dt = (float)SDL_GetTicks() / 1000.f - lastt;
 	lastt += dt;
+	for (size_t i = 0; i < tms.size(); i++) {
+		if (tms[i].dt < 0) {
+			tms[i].c->applyMomentum(-tms[i].po);
+			tms.erase(tms.begin() + i);
+		}
+		else {
+			tms[i].dt -= dt;
+		}
+	}
 	for (size_t i = 0; i < numcolliders; i++) {
 		colliders[i].update(dt);
 	}
@@ -483,5 +492,10 @@ void PhysicsHandler::update() {
 
 void PhysicsHandler::addColliderPair(ColliderPair&& p) {
 	pairs.push_back(p);
+}
+
+void PhysicsHandler::addTimedMomentum(TimedMomentum&& t) {
+	tms.push_back(t);
+	tms.back().c->applyMomentum(tms.back().po);
 }
 
