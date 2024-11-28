@@ -7,6 +7,13 @@ bool InputCheck::check(const SDL_Event& e) const {
 	return false;
 }
 
+InputHold::InputHold(SDL_Scancode s, HoldCallback d) :
+	during(d),
+	on(false) {
+	start = [s] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == s; };
+	end = [s] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_UP && e.key.scancode == s; };
+}
+
 bool InputHold::check(const SDL_Event& e) {
 	if (start(e)) {
 		on = true;

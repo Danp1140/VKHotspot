@@ -29,6 +29,7 @@ public:
 		end(e),
 		during(d),
 		on(false) {}
+	InputHold(SDL_Scancode s, HoldCallback d);
 	~InputHold() = default;
 
 	bool check(const SDL_Event& e);
