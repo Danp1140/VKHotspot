@@ -5,9 +5,6 @@ Collider& Collider::operator=(Collider rhs) {
 	std::swap(dp, rhs.dp);
 	std::swap(ddp, rhs.ddp);
 	std::swap(lp, rhs.lp);
-	std::swap(r, rhs.r);
-	std::swap(dr, rhs.dr);
-	std::swap(ddr, rhs.ddr);
 	std::swap(m, rhs.m);
 	std::swap(type, rhs.type);
 	return *this;
@@ -17,8 +14,6 @@ void Collider::update(float dt) {
 	lp = p;
 	dp += ddp * dt;
 	p += dp * dt;
-	dr += ddr * dt;
-	r += dr * dt;
 }
 
 void Collider::updateCollision(float dt0, float dt1, glm::vec3 mom) {
@@ -31,6 +26,7 @@ void Collider::updateCollision(float dt0, float dt1, glm::vec3 mom) {
 }
 
 void Collider::updateContact(glm::vec3 nf, float dt0, float dt1) {
+	// TODO: efficiency; redundant normalization of nf
 	glm::vec3 dp0 = (p - lp) / (dt0 + dt1);
 	p = lp + dp0 * dt0;
 	dp = dp0 + ddp * dt0;
@@ -66,8 +62,32 @@ PointCollider::PointCollider() : Collider() {
 	type = COLLIDER_TYPE_POINT;
 }
 
-PlaneCollider::PlaneCollider(glm::vec3 norm) : Collider(), n(norm) {
+void OrientedCollider::update(float dt) {
+	Collider::update(dt);
+	dr += ddr * dt;
+	r += dr * dt;
+}
+
+PlaneCollider::PlaneCollider() :
+		OrientedCollider(),
+		n(0, 1, 0) {
 	type = COLLIDER_TYPE_PLANE;
+}
+
+PlaneCollider::PlaneCollider(glm::vec3 norm) : PlaneCollider() {
+	n = norm;
+}
+
+void PlaneCollider::update(float dt) {
+	OrientedCollider::update(dt);
+	// how many ops does this truly save us?
+	// 3 float comps instead of a few multiplications? probably worth it...
+	if (getAngVel() != glm::quat(0, 0, 0, 1)) n = getRot() * glm::vec3(0, 1, 0);
+}
+
+RectCollider::RectCollider() : PlaneCollider() {
+	type = COLLIDER_TYPE_RECT;
+	len = glm::vec2(2, 2);
 }
 
 MeshCollider::MeshCollider() : Collider(), vertices(nullptr), tris(nullptr), numv(0), numt(0) {
@@ -310,7 +330,7 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 		if (po > PH_CONTACT_THRESHOLD) {
-			FatalError("Objects no longer in contact").raise();
+			// FatalError("Objects no longer in contact").raise();
 		}
 		else {
 
@@ -319,6 +339,9 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 	else if (po < PH_CONTACT_THRESHOLD) {
 		f |= COLLIDER_PAIR_FLAG_CONTACT;
 		nf = c1->getForce() + c2->getForce();
+#ifdef PH_VERBOSE_COLLISIONS
+		std::cout << c1 << " and " << c2 << " coupled, ||nf|| = " << glm::length(nf) << std::endl;
+#endif
 		glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
 		glm::vec3 zprime = glm::cross(xprime, n);
 		// could probably avoid storing xprime and doing cross for zprime
@@ -340,9 +363,28 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 		c2->updateContact(nf, dt0, dt - dt0);
 	}
 	else {
+#ifdef PH_VERBOSE_COLLISIONS
+		std::cout << c1 << " and " << c2 << " bounced, ||po|| = " << glm::length(po) << std::endl;
+#endif
 		/* TODO: there are still losses in this system, figure out what they are */
 		c1->updateCollision(dt0, dt - dt0, c1->getMomentum() + (po1 + po) * n);
 		c2->updateCollision(dt0, dt - dt0, c2->getMomentum() + (po2 + po) * -n);
+	}
+}
+
+void ColliderPair::uncontact() {
+	/*
+	c1->updateContact(nf, dt0, dt - dt0);
+	c2->updateContact(-nf, dt0, dt - dt0);
+	*/
+	if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
+			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) { 
+#ifdef PH_VERBOSE_COLLISIONS
+		std::cout << c1 << " and " << c2 << " decoupled" << std::endl;
+#endif
+		c1->applyForce(nf);
+		c2->applyForce(-nf);
+		f &= ~COLLIDER_PAIR_FLAG_CONTACT;
 	}
 }
 
@@ -358,6 +400,18 @@ void ColliderPair::collidePointPlane(float dt) {
 			 * (pt->getLastPos() - pt->getPos()); 
 		collide(dt, colpos, pl->getNorm());
 	}
+	else {
+		/*
+		 * HANDLE UN-COLLISIION VIA GENERALIZED FUNCTION!!!
+		 */
+		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+			uncontact();
+		}
+	}
+}
+
+void ColliderPair::collidePointRect(float dt) {
+	return collidePointPlane(dt); // &&& other conditions!!!
 }
 
 void ColliderPair::collidePointMesh(float dt) {
@@ -475,11 +529,20 @@ void PhysicsHandler::update() {
 	lastt += dt;
 	for (size_t i = 0; i < tms.size(); i++) {
 		if (tms[i].dt < 0) {
-			tms[i].c->applyMomentum(-tms[i].po);
+			tms[i].c->applyMomentum(-tms[i].v);
 			tms.erase(tms.begin() + i);
 		}
 		else {
 			tms[i].dt -= dt;
+		}
+	}
+	for (size_t i = 0; i < tfs.size(); i++) {
+		if (tfs[i].dt < 0) {
+			tfs[i].c->applyForce(-tfs[i].v);
+			tfs.erase(tfs.begin() + i);
+		}
+		else {
+			tfs[i].dt -= dt;
 		}
 	}
 	for (size_t i = 0; i < numcolliders; i++) {
@@ -494,8 +557,13 @@ void PhysicsHandler::addColliderPair(ColliderPair&& p) {
 	pairs.push_back(p);
 }
 
-void PhysicsHandler::addTimedMomentum(TimedMomentum&& t) {
+void PhysicsHandler::addTimedMomentum(TimedValue&& t) {
 	tms.push_back(t);
-	tms.back().c->applyMomentum(tms.back().po);
+	tms.back().c->applyMomentum(tms.back().v);
+}
+
+void PhysicsHandler::addTimedForce(TimedValue&& t) {
+	tfs.push_back(t);
+	tfs.back().c->applyForce(tfs.back().v);
 }
 

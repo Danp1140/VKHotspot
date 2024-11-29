@@ -44,7 +44,7 @@ void InputHandler::update() {
 			h.check(e);
 		}
 	}
-	for (const InputHold & h : holds) {
+	for (const InputHold& h : holds) {
 		h.update();
 	}
 }

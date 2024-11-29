@@ -9,10 +9,13 @@
 #define PH_MAX_NUM_COLLIDERS 64
 #define PH_CONTACT_THRESHOLD 0.3 // if the momentum exchanged during a collision is less than this, the objects are presumed to be in contact
 
+#define PH_VERBOSE_COLLISIONS
+
 typedef enum ColliderType {
 	COLLIDER_TYPE_UNKNOWN,
 	COLLIDER_TYPE_POINT,
 	COLLIDER_TYPE_PLANE,
+	COLLIDER_TYPE_RECT,
 	COLLIDER_TYPE_MESH
 } ColliderType;
 
@@ -23,9 +26,6 @@ public:
 		dp(glm::vec3(0)),
 		ddp(glm::vec3(0)),
 		lp(glm::vec3(0)),
-		r(glm::vec3(0)),
-		dr(glm::vec3(0)),
-		ddr(glm::vec3(0)),
 		m(1),
 		dampening(0x55),
 		type(COLLIDER_TYPE_UNKNOWN) {}
@@ -41,7 +41,6 @@ public:
 	void setMass(float ma) {m = ma;}
 	void applyMomentum(glm::vec3 po);
 	void applyForce(glm::vec3 F);
-	// might want an applyTorque function too
 
 	glm::vec3 getPos() const {return p;}
 	glm::vec3 getVel() const {return dp;}
@@ -58,7 +57,6 @@ protected:
 
 private:
 	glm::vec3 p, dp, ddp, lp; // since p, dp, and ddp are all updated together, lp must be stored and cannot be derived
-	glm::quat r, dr, ddr;
 	float m;
 	uint8_t dampening; // applied to the objects momentum contribution during collision, 0 => all momentum diffused, 1 => all momentum transferred
 };
@@ -66,23 +64,53 @@ private:
 class PointCollider : public Collider {
 public:
 	PointCollider(); 
+	~PointCollider() = default;
 
 private:
 };
 
-class PlaneCollider : public Collider {
+class OrientedCollider : public Collider {
 public:
-	PlaneCollider() = default;
+	OrientedCollider() :
+		Collider(),
+		r(0, 0, 0, 1),
+		dr(0, 0, 0, 1),
+		ddr(0, 0, 0, 1) {}
+	~OrientedCollider() = default;
+
+	virtual void update(float dt);
+
+	const glm::quat& getRot() const {return r;}
+	const glm::quat& getAngVel() const {return dr;}
+
+private:
+	glm::quat r, dr, ddr;
+};
+
+class PlaneCollider : public OrientedCollider {
+public:
+	PlaneCollider();
 	PlaneCollider(glm::vec3 norm);
 	~PlaneCollider() = default;
+
+	void update(float dt);
 
 	const glm::vec3& getNorm() const {return n;}
 
 private:
-	glm::vec3 n;
+	glm::vec3 n; 
+	// redundant with rotation and implicit default normal of +y
+	// calculated during update if dr != 0, just saves us redundant calc
 };
 
-class RectCollider : public PlaneCollider {};
+class RectCollider : public PlaneCollider {
+public:
+	RectCollider();
+	~RectCollider() = default;
+
+private:
+	glm::vec2 len; // expanded equidistant from center at p
+};
 
 struct Tri;
 
@@ -100,6 +128,7 @@ typedef struct Tri {
 	glm::vec3 e[3], n;
 } Tri;
 
+// TODO: should be OrientedCollider
 class MeshCollider : public Collider {
 public:
 	MeshCollider();
@@ -161,13 +190,15 @@ private:
 
 	void collide(float dt, const glm::vec3& p, const glm::vec3& n);
 	void contact(float dt);
+	void uncontact();
 	void collidePointPlane(float dt);
+	void collidePointRect(float dt);
 	void collidePointMesh(float dt);
 };
 
-typedef struct TimedMomentum {
+typedef struct TimedValue {
 	Collider* c;
-	glm::vec3 po;
+	glm::vec3 v;
 	float dt;
 } TimedMomentum;
 
@@ -201,14 +232,15 @@ public:
 	void addColliderPair(ColliderPair&& p);
 
 	// rounds down; if dt == 0, will just apply during one update cycle
-	void addTimedMomentum(TimedMomentum&& t); 
+	void addTimedMomentum(TimedValue&& t); 
+	void addTimedForce(TimedValue&& t); 
 
 
 private:
 	Collider colliders[PH_MAX_NUM_COLLIDERS];
 	size_t numcolliders;
 	std::vector<ColliderPair> pairs;
-	std::vector<TimedMomentum> tms;
+	std::vector<TimedValue> tms, tfs;
 
 	float ti, lastt, dt; // in s
 };

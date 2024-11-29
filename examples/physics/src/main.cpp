@@ -58,8 +58,19 @@ int main() {
 	ih.addHold(InputHold(
 		[] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_W; },
 		[] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_UP && e.key.scancode == SDL_SCANCODE_W; },
-		[&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * c->getForward() * glm::vec3(1, 0, 1), 0}); }));
-	ih.addHold(InputHold(SDL_SCANCODE_A, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * c->getRight(), 0}); }));
+		[&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * glm::normalize(c->getForward() * glm::vec3(1, 0, 1)), 0}); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, -MOVEMENT_SENS * c->getRight(), 0}); }));
+	ih.addHold(InputHold(SDL_SCANCODE_S, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, -MOVEMENT_SENS * glm::normalize(c->getForward() * glm::vec3(1, 0, 1)), 0}); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * c->getRight(), 0}); }));
+
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&ph, pov] (const SDL_Event& e) {
+		if (e.key.scancode == SDL_SCANCODE_SPACE && !e.key.repeat) {
+			ph.addTimedForce({pov, glm::vec3(0, 25, 0), 0.2});
+			return true;
+		}
+		return false;
+	}));
+
 	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_MOTION, [pov, c = fps.getCamera()] (const SDL_Event& e) {
 		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
 		return true;
