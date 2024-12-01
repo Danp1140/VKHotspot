@@ -55,7 +55,7 @@ int main() {
 
 	RectCollider* mainstage = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 0), glm::vec2(20))));
 	
-	// ph.addColliderPair(ColliderPair(pov, deathplane));
+	ph.addColliderPair(ColliderPair(pov, deathplane));
 
 	ih.addHold(InputHold(
 		[] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_W; },

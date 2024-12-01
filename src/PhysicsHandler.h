@@ -30,7 +30,17 @@ public:
 		m(1),
 		dampening(0x55),
 		type(COLLIDER_TYPE_UNKNOWN) {}
+	Collider(const Collider& lvalue) = default;
+	Collider(Collider&& rvalue) :
+		p(std::move(rvalue.p)),
+		dp(std::move(rvalue.dp)),
+		ddp(std::move(rvalue.ddp)),
+		lp(std::move(rvalue.lp)),
+		m(std::move(rvalue.m)),
+		type(std::move(rvalue.type)) {}
 	~Collider() = default;
+
+	friend void swap(Collider& lhs, Collider& rhs);
 
 	virtual Collider& operator=(Collider rhs);
 
@@ -65,15 +75,23 @@ private:
 class PointCollider : public Collider {
 public:
 	PointCollider(); 
+	PointCollider(const PointCollider& lvalue) = default;
+	PointCollider(PointCollider&& rvalue) : Collider(rvalue) {}
 	~PointCollider() = default;
-
-private:
 };
 
 class OrientedCollider : public Collider {
 public:
 	OrientedCollider();
+	OrientedCollider(const OrientedCollider& lvalue) = default;
+	OrientedCollider(OrientedCollider&& rvalue) : 
+		Collider(rvalue),
+		r(std::move(rvalue.r)),
+		dr(std::move(rvalue.dr)),
+		ddr(std::move(rvalue.ddr)) {}
 	~OrientedCollider() = default;
+
+	friend void swap(OrientedCollider& lhs, OrientedCollider& rhs);
 
 	OrientedCollider& operator=(OrientedCollider rhs);
 
@@ -91,6 +109,10 @@ private:
 class PlaneCollider : public OrientedCollider {
 public:
 	PlaneCollider();
+	PlaneCollider(const PlaneCollider& lvalue) = default;
+	PlaneCollider(PlaneCollider&& rvalue) :
+		OrientedCollider(rvalue),
+		n(std::move(rvalue.n)) {}
 	PlaneCollider(glm::vec3 norm);
 	~PlaneCollider() = default;
 
@@ -114,6 +136,10 @@ private:
 class RectCollider : public PlaneCollider {
 public:
 	RectCollider();
+	RectCollider(const RectCollider& lvalue) = default;
+	RectCollider(RectCollider&& rvalue) :
+		PlaneCollider(rvalue),
+		len(std::move(rvalue.len)) {}
 	RectCollider(glm::vec3 norm, glm::vec2 l);
 	~RectCollider() = default;
 
@@ -216,7 +242,7 @@ typedef struct TimedValue {
 class PhysicsHandler {
 public:
 	PhysicsHandler();
-	~PhysicsHandler() = default;
+	~PhysicsHandler();
 
 	// so that dt doesn't accumulate during init optimizations
 	// call this as shortly before your first draw loop as possible
@@ -236,9 +262,8 @@ public:
 	 */
 	template<class T>
 	Collider* addCollider(T&& c) {
-		*static_cast<T*>(&colliders[numcolliders]) = std::move(c);
-		numcolliders++;
-		return &colliders[numcolliders - 1];
+		colliders.push_back(new T(c));
+		return colliders.back();
 	}
 	void addColliderPair(ColliderPair&& p);
 
@@ -248,8 +273,7 @@ public:
 
 
 private:
-	Collider colliders[PH_MAX_NUM_COLLIDERS];
-	size_t numcolliders;
+	std::vector<Collider*> colliders;
 	std::vector<ColliderPair> pairs;
 	std::vector<TimedValue> tms, tfs;
 

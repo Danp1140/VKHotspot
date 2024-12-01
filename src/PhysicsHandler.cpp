@@ -1,20 +1,23 @@
 #include "PhysicsHandler.h"
 
+void swap(Collider& lhs, Collider& rhs) {
+	std::swap(lhs.p, rhs.p);
+	std::swap(lhs.dp, rhs.dp);
+	std::swap(lhs.ddp, rhs.ddp);
+	std::swap(lhs.lp, rhs.lp);
+	std::swap(lhs.m, rhs.m);
+	std::swap(lhs.type, rhs.type);
+}
+
 Collider& Collider::operator=(Collider rhs) {
 #ifdef PH_VERBOSE_COLLIDER_OBJECTS
 	std::cout << this << ": Collider::=" << std::endl;
 #endif
-	std::swap(p, rhs.p);
-	std::swap(dp, rhs.dp);
-	std::swap(ddp, rhs.ddp);
-	std::swap(lp, rhs.lp);
-	std::swap(m, rhs.m);
-	std::swap(type, rhs.type);
+	swap(*this, rhs);
 	return *this;
 }
 
 void Collider::update(float dt) {
-	std::cout << "top of C::update" << std::endl;
 	lp = p;
 	dp += ddp * dt;
 	p += dp * dt;
@@ -73,28 +76,30 @@ OrientedCollider::OrientedCollider() : Collider() {
 #ifdef PH_VERBOSE_COLLIDER_OBJECTS
 	std::cout << this << ": OrientedCollider()" << std::endl;
 #endif
-	r = glm::quat(0, 0, 0, 1);
-	dr = glm::quat(0, 0, 0, 1);
-	ddr = glm::quat(0, 0, 0, 1);
+	r = glm::quat(1, 0, 0, 0);
+	dr = glm::quat(1, 0, 0, 0);
+	ddr = glm::quat(1, 0, 0, 0);
+}
+
+void swap(OrientedCollider& lhs, OrientedCollider& rhs) {
+	swap(static_cast<Collider&>(lhs), static_cast<Collider&>(rhs));
+	std::swap(lhs.r, rhs.r);
+	std::swap(lhs.dr, rhs.dr);
+	std::swap(lhs.ddr, rhs.ddr);
 }
 
 OrientedCollider& OrientedCollider::operator=(OrientedCollider rhs) {
 #ifdef PH_VERBOSE_COLLIDER_OBJECTS
 	std::cout << this << ": OrientedCollider::=" << std::endl;
 #endif
-	Collider::operator=(rhs);
-	std::swap(r, rhs.r);
-	std::swap(dr, rhs.dr);
-	std::swap(ddr, rhs.ddr);
+	std::swap(*this, rhs);
 	return *this;
 }
 
 void OrientedCollider::update(float dt) {
-	std::cout << "top of OC::update" << std::endl;
 	Collider::update(dt);
-	std::cout << "mid of OC::update" << std::endl;
-	dr += ddr * dt;
-	r += dr * dt;
+	dr = (ddr * dt) * dr;
+	r = (dr * dt) * r;
 }
 
 PlaneCollider::PlaneCollider() :
@@ -126,13 +131,14 @@ void PlaneCollider::update(float dt) {
 	OrientedCollider::update(dt);
 	// how many ops does this truly save us?
 	// 4 float comps instead of a few multiplications? probably worth it...
-	if (getAngVel() != glm::quat(0, 0, 0, 1)) n = getRot() * glm::vec3(0, 1, 0);
+	if (getAngVel() != glm::quat(1, 0, 0, 0)) n = getRot() * glm::vec3(0, 1, 0);
 }
 
 void PlaneCollider::setNorm(glm::vec3 norm) {
 	n = glm::normalize(norm);
 	glm::vec3 v = glm::cross(n, glm::vec3(0, 1, 0));
-	float theta = asin(glm::length(v));
+	float theta = asin(glm::length(v)) / 2;
+	// float theta = asin(glm::length(v));
 	setRot(glm::quat(cos(theta), sin(theta) * v));
 }
 
@@ -476,9 +482,6 @@ void ColliderPair::collidePointPlane(float dt) {
 		collide(dt, colpos, pl->getNorm());
 	}
 	else {
-		/*
-		 * HANDLE UN-COLLISIION VIA GENERALIZED FUNCTION!!!
-		 */
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 			uncontact();
 		}
@@ -589,9 +592,13 @@ void ColliderPair::collidePointMesh(float dt) {
 	/* is it possible to reach this point? */
 }
 
-PhysicsHandler::PhysicsHandler() : numcolliders(0), dt(0) {
+PhysicsHandler::PhysicsHandler() : dt(0) {
 	ti = (float)SDL_GetTicks() / 1000.f;
 	lastt = ti;
+}
+
+PhysicsHandler::~PhysicsHandler() {
+	for (Collider* c : colliders) delete c;
 }
 
 void PhysicsHandler::start() {
@@ -620,8 +627,8 @@ void PhysicsHandler::update() {
 			tfs[i].dt -= dt;
 		}
 	}
-	for (size_t i = 0; i < numcolliders; i++) {
-		colliders[i].update(dt);
+	for (Collider* c : colliders) {
+		c->update(dt);
 	}
 	for (const ColliderPair& p : pairs) {
 		p.check(dt);
