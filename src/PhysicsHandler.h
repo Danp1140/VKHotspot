@@ -9,7 +9,8 @@
 #define PH_MAX_NUM_COLLIDERS 64
 #define PH_CONTACT_THRESHOLD 0.3 // if the momentum exchanged during a collision is less than this, the objects are presumed to be in contact
 
-#define PH_VERBOSE_COLLISIONS
+// #define PH_VERBOSE_COLLISIONS
+// #define PH_VERBOSE_COLLIDER_OBJECTS
 
 typedef enum ColliderType {
 	COLLIDER_TYPE_UNKNOWN,
@@ -71,17 +72,17 @@ private:
 
 class OrientedCollider : public Collider {
 public:
-	OrientedCollider() :
-		Collider(),
-		r(0, 0, 0, 1),
-		dr(0, 0, 0, 1),
-		ddr(0, 0, 0, 1) {}
+	OrientedCollider();
 	~OrientedCollider() = default;
+
+	OrientedCollider& operator=(OrientedCollider rhs);
 
 	virtual void update(float dt);
 
 	const glm::quat& getRot() const {return r;}
 	const glm::quat& getAngVel() const {return dr;}
+
+	void setRot(glm::quat rot) {r = rot;}
 
 private:
 	glm::quat r, dr, ddr;
@@ -93,20 +94,30 @@ public:
 	PlaneCollider(glm::vec3 norm);
 	~PlaneCollider() = default;
 
+	PlaneCollider& operator=(PlaneCollider rhs);
+
 	void update(float dt);
 
 	const glm::vec3& getNorm() const {return n;}
 
+protected:
+	// adjusts rotation as appropriate, may cause jumping behavior so should only
+	// really be set in init
+	void setNorm(glm::vec3 norm);
+
 private:
-	glm::vec3 n; 
 	// redundant with rotation and implicit default normal of +y
 	// calculated during update if dr != 0, just saves us redundant calc
+	glm::vec3 n; 
 };
 
 class RectCollider : public PlaneCollider {
 public:
 	RectCollider();
+	RectCollider(glm::vec3 norm, glm::vec2 l);
 	~RectCollider() = default;
+
+	RectCollider& operator=(RectCollider rhs);
 
 private:
 	glm::vec2 len; // expanded equidistant from center at p

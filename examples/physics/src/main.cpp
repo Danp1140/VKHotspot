@@ -52,8 +52,10 @@ int main() {
 
 	PlaneCollider* deathplane = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
 	deathplane->setMass(std::numeric_limits<float>::infinity());
+
+	RectCollider* mainstage = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 0), glm::vec2(20))));
 	
-	ph.addColliderPair(ColliderPair(pov, deathplane));
+	// ph.addColliderPair(ColliderPair(pov, deathplane));
 
 	ih.addHold(InputHold(
 		[] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_W; },
@@ -85,6 +87,7 @@ int main() {
 		ph.update();
 		fps.getCamera()->setPos(pov->getPos() + glm::vec3(0, 1, 0));
 		povcube.setPos(pov->getPos() + glm::vec3(0, 1, 0));
+
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());

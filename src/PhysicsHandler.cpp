@@ -1,6 +1,9 @@
 #include "PhysicsHandler.h"
 
 Collider& Collider::operator=(Collider rhs) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": Collider::=" << std::endl;
+#endif
 	std::swap(p, rhs.p);
 	std::swap(dp, rhs.dp);
 	std::swap(ddp, rhs.ddp);
@@ -11,6 +14,7 @@ Collider& Collider::operator=(Collider rhs) {
 }
 
 void Collider::update(float dt) {
+	std::cout << "top of C::update" << std::endl;
 	lp = p;
 	dp += ddp * dt;
 	p += dp * dt;
@@ -59,11 +63,36 @@ glm::vec3 Collider::getForce() const {
 }
 
 PointCollider::PointCollider() : Collider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PointCollider()" << std::endl;
+#endif
 	type = COLLIDER_TYPE_POINT;
 }
 
+OrientedCollider::OrientedCollider() : Collider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": OrientedCollider()" << std::endl;
+#endif
+	r = glm::quat(0, 0, 0, 1);
+	dr = glm::quat(0, 0, 0, 1);
+	ddr = glm::quat(0, 0, 0, 1);
+}
+
+OrientedCollider& OrientedCollider::operator=(OrientedCollider rhs) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": OrientedCollider::=" << std::endl;
+#endif
+	Collider::operator=(rhs);
+	std::swap(r, rhs.r);
+	std::swap(dr, rhs.dr);
+	std::swap(ddr, rhs.ddr);
+	return *this;
+}
+
 void OrientedCollider::update(float dt) {
+	std::cout << "top of OC::update" << std::endl;
 	Collider::update(dt);
+	std::cout << "mid of OC::update" << std::endl;
 	dr += ddr * dt;
 	r += dr * dt;
 }
@@ -71,23 +100,65 @@ void OrientedCollider::update(float dt) {
 PlaneCollider::PlaneCollider() :
 		OrientedCollider(),
 		n(0, 1, 0) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PlaneCollider()" << std::endl;
+#endif
 	type = COLLIDER_TYPE_PLANE;
 }
 
 PlaneCollider::PlaneCollider(glm::vec3 norm) : PlaneCollider() {
-	n = norm;
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PlaneCollider(vec3)" << std::endl;
+#endif
+	setNorm(norm);
+}
+
+PlaneCollider& PlaneCollider::operator=(PlaneCollider rhs) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PlaneCollider::=" << std::endl;
+#endif
+	OrientedCollider::operator=(rhs);
+	std::swap(n, rhs.n);
+	return *this;
 }
 
 void PlaneCollider::update(float dt) {
 	OrientedCollider::update(dt);
 	// how many ops does this truly save us?
-	// 3 float comps instead of a few multiplications? probably worth it...
+	// 4 float comps instead of a few multiplications? probably worth it...
 	if (getAngVel() != glm::quat(0, 0, 0, 1)) n = getRot() * glm::vec3(0, 1, 0);
 }
 
+void PlaneCollider::setNorm(glm::vec3 norm) {
+	n = glm::normalize(norm);
+	glm::vec3 v = glm::cross(n, glm::vec3(0, 1, 0));
+	float theta = asin(glm::length(v));
+	setRot(glm::quat(cos(theta), sin(theta) * v));
+}
+
 RectCollider::RectCollider() : PlaneCollider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": RectCollider()" << std::endl;
+#endif
 	type = COLLIDER_TYPE_RECT;
 	len = glm::vec2(2, 2);
+}
+
+RectCollider::RectCollider(glm::vec3 norm, glm::vec2 l) : RectCollider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": RectCollider(vec3, vec2)" << std::endl;
+#endif
+	setNorm(norm);
+	len = l;
+}
+
+RectCollider& RectCollider::operator=(RectCollider rhs) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": RectCollider::=" << std::endl;
+#endif
+	PlaneCollider::operator=(rhs);
+	std::swap(len, rhs.len);
+	return *this;
 }
 
 MeshCollider::MeshCollider() : Collider(), vertices(nullptr), tris(nullptr), numv(0), numt(0) {
@@ -379,6 +450,10 @@ void ColliderPair::uncontact() {
 	*/
 	if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
 			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) { 
+		/*
+		 * TODO: this system appears to have issues with small-scale decoupling
+		 * should test edge-cases
+		 */
 #ifdef PH_VERBOSE_COLLISIONS
 		std::cout << c1 << " and " << c2 << " decoupled" << std::endl;
 #endif
