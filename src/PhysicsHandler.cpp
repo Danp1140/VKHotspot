@@ -98,8 +98,29 @@ OrientedCollider& OrientedCollider::operator=(OrientedCollider rhs) {
 
 void OrientedCollider::update(float dt) {
 	Collider::update(dt);
-	dr = (ddr * dt) * dr;
-	r = (dr * dt) * r;
+	dr = glm::mix(dr, ddr, dt);
+	r = glm::mix(r, dr, dt);
+	/*
+	dr = dr * (ddr * dt);
+	r = r * (dr * dt);
+	*/
+}
+
+void OrientedCollider::setRot(glm::quat rot) {
+	/*
+	 * TODO: rotation update system
+	 * want it so dr and ddr are adjusted with r
+	 * basically, whatever orientation change needs to happen to make r = rot,
+	 * apply that to dr and ddr too
+	 */
+	r = rot;
+	// dr = dr * (rot - r);
+	/*
+	dr = glm::quat(0, 0, 0, 0);
+	ddr = glm::quat(0, 0, 0, 0);
+	*/
+	dr = r;
+	ddr = r;
 }
 
 PlaneCollider::PlaneCollider() :
@@ -136,9 +157,9 @@ void PlaneCollider::update(float dt) {
 
 void PlaneCollider::setNorm(glm::vec3 norm) {
 	n = glm::normalize(norm);
-	glm::vec3 v = glm::cross(n, glm::vec3(0, 1, 0));
+	std::cout << this << " norm set to [" << n.x << ", " << n.y << ", " << n.z << "]" << std::endl;
+	glm::vec3 v = glm::cross(glm::vec3(0, 1, 0), n);
 	float theta = asin(glm::length(v)) / 2;
-	// float theta = asin(glm::length(v));
 	setRot(glm::quat(cos(theta), sin(theta) * v));
 }
 
@@ -307,6 +328,10 @@ ColliderPair& ColliderPair::operator=(ColliderPair rhs) {
 	std::swap(c2, rhs.c2);
 	std::swap(cf, rhs.cf);
 	std::swap(nearest, rhs.nearest);
+	std::swap(nf, rhs.nf);
+	std::swap(reldp, rhs.reldp);
+	std::swap(lreldp, rhs.lreldp);
+	std::swap(dynf, rhs.dynf);
 	return *this;
 }
 
@@ -316,15 +341,25 @@ void ColliderPair::setCollisionFunc() {
 		if (c2->getType() == COLLIDER_TYPE_PLANE) {
 			cf = [this] (float dt) { collidePointPlane(dt); };
 		}
+		else if (c2->getType() == COLLIDER_TYPE_RECT) {
+			cf = [this] (float dt) { collidePointRect(dt); };
+		}
 		else if (c2->getType() == COLLIDER_TYPE_MESH) {
 			nearest = static_cast<const Tri*>(static_cast<MeshCollider*>(c2)->getTris());
 			cf = [this] (float dt) { collidePointMesh(dt); };
 		}
 	}
+	// TODO: test this swapping tec
 	else if (c1->getType() == COLLIDER_TYPE_PLANE) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
-			cf = [this] (float dt) { collidePointMesh(dt); };
+			cf = [this] (float dt) { collidePointPlane(dt); };
+		}
+	}
+	else if (c1->getType() == COLLIDER_TYPE_RECT) {
+		if (c2->getType() == COLLIDER_TYPE_POINT) {
+			std::swap(c1, c2);
+			cf = [this] (float dt) { collidePointRect(dt); };
 		}
 	}
 	else if (c2->getType() == COLLIDER_TYPE_MESH) {
@@ -340,7 +375,10 @@ void ColliderPair::setCollisionFunc() {
 	}
 }
 
-void ColliderPair::check(float dt) const {
+void ColliderPair::check(float dt) {
+	lreldp = reldp;
+	reldp = c1->getVel() - c2->getVel();
+	std::cout << "reldp in update " << glm::length(reldp) << std::endl;
 	cf(dt);
 }
 
@@ -357,27 +395,10 @@ bool ColliderPair::testPointTri(const PointCollider& p, const Tri& t) {
 	// this technique also assumes a CCW front-face; for CW, swap the inequalities
 	glm::vec3 v;
 	for (uint8_t i = 0; i < 3; i++) {
-		/*
-		std::cout << "n = <" << t.n.x << ", " << t.n.y << ", " << t.n.z << ">" << std::endl;
-		std::cout << "last: " << std::endl;
-		v = p.getLastPos() - t.v[i]->p;
-		std::cout << "<" << t.e[i].x << ", " << t.e[i].y << ", " << t.e[i].z << "> x <"
-			<< v.x << ", " << v.y << ", " << v.z << "> = <";
-		v = glm::cross(t.e[i], v);
-		std::cout << v.x << ", " << v.y << ", " << v.z << ">" << std::endl; 
-		*/
 		v = p.getLastPos() - t.v[i]->p;
 		if (glm::dot(glm::cross(t.e[i], v), t.n) < 0) return false;
 		// std::cout << glm::dot(v, t.n) << std::endl;
 		if (i == 0 && glm::dot(v, t.n) < 0) return false;
-		/*
-		std::cout << "current: " << std::endl;
-		v = p.getPos() - t.v[i]->p;
-		std::cout << "<" << t.e[i].x << ", " << t.e[i].y << ", " << t.e[i].z << "> x <"
-			<< v.x << ", " << v.y << ", " << v.z << "> = <";
-		v = glm::cross(t.e[i], v);
-		std::cout << v.x << ", " << v.y << ", " << v.z << ">" << std::endl; 
-		*/
 		v = p.getPos() - t.v[i]->p;
 		if (glm::dot(glm::cross(t.e[i], (p.getPos() - t.v[i]->p)), t.n) < 0) return false;
 		// std::cout << glm::dot(v, t.n) << std::endl;
@@ -417,7 +438,7 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 		f |= COLLIDER_PAIR_FLAG_CONTACT;
 		nf = c1->getForce() + c2->getForce();
 #ifdef PH_VERBOSE_COLLISIONS
-		std::cout << c1 << " and " << c2 << " coupled, ||nf|| = " << glm::length(nf) << std::endl;
+		std::cout << c1 << " and " << c2 << " coupled, ||nf|| = [" << nf.x << ", " << nf.y << ", " << nf.z << "]" << std::endl;
 #endif
 		glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
 		glm::vec3 zprime = glm::cross(xprime, n);
@@ -454,15 +475,21 @@ void ColliderPair::uncontact() {
 	c1->updateContact(nf, dt0, dt - dt0);
 	c2->updateContact(-nf, dt0, dt - dt0);
 	*/
+	// TODO: this check should be specialized to the collision function
+	// this function should just be the contents of the if check
 	if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
 			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) { 
 		/*
 		 * TODO: this system appears to have issues with small-scale decoupling
 		 * should test edge-cases
+		 *
+		 * also seems to have issue with zero-normal-velocity decoupling (e.g. walking off a plane)
 		 */
 #ifdef PH_VERBOSE_COLLISIONS
 		std::cout << c1 << " and " << c2 << " decoupled" << std::endl;
 #endif
+		c1->applyMomentum(-dynf);
+		c2->applyMomentum(dynf);
 		c1->applyForce(nf);
 		c2->applyForce(-nf);
 		f &= ~COLLIDER_PAIR_FLAG_CONTACT;
@@ -470,6 +497,7 @@ void ColliderPair::uncontact() {
 }
 
 void ColliderPair::collidePointPlane(float dt) {
+	std::cout << "reldp in coll " << glm::length(reldp) << std::endl;
 	PointCollider* pt = static_cast<PointCollider*>(c1);
 	PlaneCollider* pl = static_cast<PlaneCollider*>(c2);
 
@@ -483,13 +511,66 @@ void ColliderPair::collidePointPlane(float dt) {
 	}
 	else {
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+			std::cout << "reldp in contact " << glm::length(reldp) << std::endl;
+			// TODO: early escape for no friction
+				if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
+					std::cout << "dyn friction" << std::endl;
+					/*
+					c1->applyMomentum(-dynf);
+					c2->applyMomentum(dynf);
+					dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
+						 * -glm::normalize(reldp) * dt;
+					c1->applyMomentum(dynf);
+					c2->applyMomentum(-dynf);
+					*/
+					c1->applyForce(-dynf);
+					c2->applyForce(dynf);
+					dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
+						 * -glm::normalize(reldp);
+					c1->applyForce(dynf);
+					c2->applyForce(-dynf);
+				}
+				else if (reldp != glm::vec3(0)) {
+					c1->applyMomentum(c1->getMass() * -reldp);
+					c2->applyMomentum(c2->getMass() * reldp);
+				}
 			uncontact();
 		}
 	}
 }
 
 void ColliderPair::collidePointRect(float dt) {
-	return collidePointPlane(dt); // &&& other conditions!!!
+	PointCollider* pt = static_cast<PointCollider*>(c1);
+	RectCollider* rc = static_cast<RectCollider*>(c2);
+
+	// TODO: find a way to remove redundant collision and colpos code
+	if (glm::dot(pt->getLastPos() - rc->getLastPos(), rc->getNorm()) > 0
+		 && glm::dot(pt->getPos() - rc->getPos(), rc->getNorm()) < 0) {
+		glm::vec3 colpos = pt->getLastPos()
+			 - glm::dot(rc->getPos() - pt->getLastPos(), rc->getNorm()) // TODO: rc->getPos() should actually be a sub-pos at collision time
+			 / glm::dot(pt->getLastPos() - pt->getPos(), rc->getNorm()) 
+			 * (pt->getLastPos() - pt->getPos());
+		// TODO: same as above, rc->getPos() should be a collision time subpos
+		glm::vec3 testpos = colpos;
+		testpos -= rc->getPos();
+		// testpos = testpos * rc->getRot();
+		testpos = rc->getRot() * testpos;
+		if (testpos.x > -rc->getLen().x && testpos.x < rc->getLen().x
+			&& testpos.z > -rc->getLen().y && testpos.z < rc->getLen().y) {
+			collide(dt, colpos, rc->getNorm());
+			std::cout << "in bounds" << std::endl;
+			return;
+		}
+		else if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+			c1->applyForce(nf);
+			c2->applyForce(-nf);
+			f &= ~COLLIDER_PAIR_FLAG_CONTACT;
+			return;
+		}
+	}
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		uncontact();
+	}
 }
 
 void ColliderPair::collidePointMesh(float dt) {
@@ -609,30 +690,25 @@ void PhysicsHandler::update() {
 	// if we reworked this slightly we could multithread/parallelize it...
 	dt = (float)SDL_GetTicks() / 1000.f - lastt;
 	lastt += dt;
+	/*
+	 * TODO: find a way to do this with one loop instead of two??
+	 */
 	for (size_t i = 0; i < tms.size(); i++) {
 		if (tms[i].dt < 0) {
 			tms[i].c->applyMomentum(-tms[i].v);
 			tms.erase(tms.begin() + i);
 		}
-		else {
-			tms[i].dt -= dt;
-		}
 	}
+	for (size_t i = 0; i < tms.size(); i++) tms[i].dt -= dt;
 	for (size_t i = 0; i < tfs.size(); i++) {
 		if (tfs[i].dt < 0) {
 			tfs[i].c->applyForce(-tfs[i].v);
 			tfs.erase(tfs.begin() + i);
 		}
-		else {
-			tfs[i].dt -= dt;
-		}
 	}
-	for (Collider* c : colliders) {
-		c->update(dt);
-	}
-	for (const ColliderPair& p : pairs) {
-		p.check(dt);
-	}
+	for (size_t i = 0; i < tfs.size(); i++) tfs[i].dt -= dt;
+	for (Collider* c : colliders) c->update(dt);
+	for (ColliderPair& p : pairs) p.check(dt);
 }
 
 void PhysicsHandler::addColliderPair(ColliderPair&& p) {

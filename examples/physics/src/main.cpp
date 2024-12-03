@@ -2,7 +2,7 @@
 #include "PhysicsHandler.h"
 #include "InputHandler.h"
 
-#define MOVEMENT_SENS 2.f
+#define MOVEMENT_SENS 5.f
 #define CAMERA_SENS 0.01f
 
 RenderPassInfo createRenderPass(const WindowInfo& w);
@@ -16,6 +16,8 @@ int main() {
 	InputHandler ih;
 
 	Mesh floor("../resources/models/plane.obj");
+	Mesh ramp("../resources/models/plane.obj");
+	ramp.setScale(glm::vec3(0.5));
 	Mesh povcube("../resources/models/cube.obj");
 
 	/*
@@ -31,10 +33,12 @@ int main() {
 	fprp.addPipeline(fpp, &fps.getCamera()->getVP());
 	fps.addRenderPass(fprp);
 	fps.getRenderPass(0).addMesh(&floor, VK_NULL_HANDLE, &floor.getModelMatrix(), 0);
+	fps.getRenderPass(0).addMesh(&ramp, VK_NULL_HANDLE, &ramp.getModelMatrix(), 0);
 
 	tprp.addPipeline(tpp, &tps.getCamera()->getVP());
 	tps.addRenderPass(tprp);
 	tps.getRenderPass(0).addMesh(&floor, VK_NULL_HANDLE, &floor.getModelMatrix(), 0);
+	tps.getRenderPass(0).addMesh(&ramp, VK_NULL_HANDLE, &ramp.getModelMatrix(), 0);
 	tps.getRenderPass(0).addMesh(&povcube, VK_NULL_HANDLE, &povcube.getModelMatrix(), 0);
 
 	fpw.addTasks(fps.getDrawTasks());
@@ -52,15 +56,20 @@ int main() {
 
 	PlaneCollider* deathplane = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
 	deathplane->setMass(std::numeric_limits<float>::infinity());
+	deathplane->setPos(glm::vec3(0, -1, 0));
 
-	RectCollider* mainstage = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 0), glm::vec2(20))));
+	RectCollider* mainstage = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 0), glm::vec2(10))));
+	mainstage->setMass(std::numeric_limits<float>::infinity());
+
+	RectCollider* rampcol = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 1), glm::vec2(5))));
+	rampcol->setMass(std::numeric_limits<float>::infinity());
+	rampcol->setPos(glm::vec3(0, 0, -5));
 	
 	ph.addColliderPair(ColliderPair(pov, deathplane));
+	// ph.addColliderPair(ColliderPair(pov, mainstage));
+	ph.addColliderPair(ColliderPair(pov, rampcol));
 
-	ih.addHold(InputHold(
-		[] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_W; },
-		[] (const SDL_Event& e) { return e.type == SDL_EVENT_KEY_UP && e.key.scancode == SDL_SCANCODE_W; },
-		[&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * glm::normalize(c->getForward() * glm::vec3(1, 0, 1)), 0}); }));
+	ih.addHold(InputHold(SDL_SCANCODE_W, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * glm::normalize(c->getForward() * glm::vec3(1, 0, 1)), 0}); }));
 	ih.addHold(InputHold(SDL_SCANCODE_A, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, -MOVEMENT_SENS * c->getRight(), 0}); }));
 	ih.addHold(InputHold(SDL_SCANCODE_S, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, -MOVEMENT_SENS * glm::normalize(c->getForward() * glm::vec3(1, 0, 1)), 0}); }));
 	ih.addHold(InputHold(SDL_SCANCODE_D, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * c->getRight(), 0}); }));
@@ -87,7 +96,13 @@ int main() {
 		ph.update();
 		fps.getCamera()->setPos(pov->getPos() + glm::vec3(0, 1, 0));
 		povcube.setPos(pov->getPos() + glm::vec3(0, 1, 0));
-
+		floor.setPos(deathplane->getPos());
+		ramp.setPos(rampcol->getPos());
+		ramp.setRot(rampcol->getRot());
+		// std::cout << rampcol->getRot().w << ", " << rampcol->getRot().x << ", " << rampcol->getRot().y << ", " << rampcol->getRot().z << ", " << std::endl;
+		// std::cout << pov->getPos().x << ", " << pov->getPos().y << ", " << pov->getPos().z << std::endl;
+		// std::cout << pov->getVel().x << ", " << pov->getVel().y << ", " << pov->getVel().z << std::endl;
+		// std::cout << pov->getAcc().x << ", " << pov->getAcc().y << ", " << pov->getAcc().z << std::endl;
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());
