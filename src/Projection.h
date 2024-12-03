@@ -13,6 +13,7 @@ public:
 	const glm::vec3& getForward() const {return forward;}
 	const glm::vec3& getRight() const {return right;}
 	const glm::vec3& getUp() const {return up;}
+	const glm::vec3& getPos() const {return position;}
 
 	void setPos(glm::vec3 p);
 	/* 

@@ -23,11 +23,13 @@ public:
 	TextureHandler() = default;
 	~TextureHandler();
 
+	VkSampler getSampler(std::string n) {return samplers[n];}
+
 	VkSampler addSampler(
 		const char* n, 
 		VkFilter mag, VkFilter min, 
 		VkSamplerAddressMode addr, 
 		VkBool32 aniso);
 private:
-	std::map<const char*, VkSampler> samplers;
+	std::map<std::string, VkSampler> samplers;
 };

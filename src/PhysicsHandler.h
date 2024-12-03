@@ -1,5 +1,6 @@
 #include <vector>
 #include <set>
+#include <functional>
 
 #include <ext.hpp>
 #include <SDL3/SDL.h>
@@ -204,7 +205,12 @@ typedef enum ColliderPairFlagBits {
 } ColliderPairFlagBits;
 typedef uint8_t ColliderPairFlags;
 
-typedef std::function<void(float)> CollisionFunc;
+// TODO: cleanup
+class ColliderPair;
+
+//typedef std::function<void(float)> CollisionFunc;
+// typedef std::_Mem_fn<void(ColliderPair::*)(float)> CollisionFunc;
+// typedef void (ColliderPair::CollisionFunc)(float);
 
 class ColliderPair {
 public:
@@ -227,7 +233,9 @@ public:
 private:
 	Collider* c1, * c2;
 	ColliderPairFlags f;
-	CollisionFunc cf;
+	// CollisionFunc cf;
+	void (ColliderPair::*cf)(float);
+	
 	const void* nearest;
 	glm::vec3 nf, reldp, lreldp, dynf; 
 	// could eliminate contact flag by checking if nf is nonzero?

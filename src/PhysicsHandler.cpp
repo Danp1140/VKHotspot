@@ -339,34 +339,34 @@ void ColliderPair::setCollisionFunc() {
 	cf = nullptr;
 	if (c1->getType() == COLLIDER_TYPE_POINT) {
 		if (c2->getType() == COLLIDER_TYPE_PLANE) {
-			cf = [this] (float dt) { collidePointPlane(dt); };
+			cf = &ColliderPair::collidePointPlane;
 		}
 		else if (c2->getType() == COLLIDER_TYPE_RECT) {
-			cf = [this] (float dt) { collidePointRect(dt); };
+			cf = &ColliderPair::collidePointRect;
 		}
 		else if (c2->getType() == COLLIDER_TYPE_MESH) {
 			nearest = static_cast<const Tri*>(static_cast<MeshCollider*>(c2)->getTris());
-			cf = [this] (float dt) { collidePointMesh(dt); };
+			cf = &ColliderPair::collidePointMesh;
 		}
 	}
 	// TODO: test this swapping tec
 	else if (c1->getType() == COLLIDER_TYPE_PLANE) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
-			cf = [this] (float dt) { collidePointPlane(dt); };
+			cf = &ColliderPair::collidePointPlane;
 		}
 	}
 	else if (c1->getType() == COLLIDER_TYPE_RECT) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
-			cf = [this] (float dt) { collidePointRect(dt); };
+			cf = &ColliderPair::collidePointRect;
 		}
 	}
 	else if (c2->getType() == COLLIDER_TYPE_MESH) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
 			nearest = static_cast<const Tri*>(static_cast<MeshCollider*>(c2)->getTris());
-			cf = [this] (float dt) { collidePointMesh(dt); };
+			cf = &ColliderPair::collidePointMesh;
 		}
 	}
 
@@ -379,7 +379,7 @@ void ColliderPair::check(float dt) {
 	lreldp = reldp;
 	reldp = c1->getVel() - c2->getVel();
 	std::cout << "reldp in update " << glm::length(reldp) << std::endl;
-	cf(dt);
+	(this->*cf)(dt);
 }
 
 bool ColliderPair::testPointTri(const PointCollider& p, const Tri& t) {
