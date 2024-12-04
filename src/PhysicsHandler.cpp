@@ -476,21 +476,18 @@ void ColliderPair::uncontact() {
 	*/
 	// TODO: this check should be specialized to the collision function
 	// this function should just be the contents of the if check
-	if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
-			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) { 
-		/*
-		 * TODO: this system appears to have issues with small-scale decoupling
-		 * should test edge-cases
-		 *
-		 * also seems to have issue with zero-normal-velocity decoupling (e.g. walking off a plane)
-		 */
+	/*
+	 * TODO: this system appears to have issues with small-scale decoupling
+	 * should test edge-cases
+	 *
+	 * also seems to have issue with zero-normal-velocity decoupling (e.g. walking off a plane)
+	 */
 #ifdef PH_VERBOSE_COLLISIONS
-		std::cout << c1 << " and " << c2 << " decoupled" << std::endl;
+	std::cout << c1 << " and " << c2 << " decoupled" << std::endl;
 #endif
-		c1->applyForce(nf);
-		c2->applyForce(-nf);
-		f &= ~COLLIDER_PAIR_FLAG_CONTACT;
-	}
+	c1->applyForce(nf);
+	c2->applyForce(-nf);
+	f &= ~COLLIDER_PAIR_FLAG_CONTACT;
 }
 
 void ColliderPair::slide(float dt) {
@@ -523,7 +520,10 @@ void ColliderPair::collidePointPlane(float dt) {
 	else {
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 			slide(dt);
-			uncontact();
+			if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
+				 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
+				uncontact();
+			}
 		}
 	}
 }
@@ -542,7 +542,6 @@ void ColliderPair::collidePointRect(float dt) {
 		// TODO: same as above, rc->getPos() should be a collision time subpos
 		glm::vec3 testpos = colpos;
 		testpos -= rc->getPos();
-		// testpos = testpos * rc->getRot();
 		testpos = rc->getRot() * testpos;
 		if (testpos.x > -rc->getLen().x && testpos.x < rc->getLen().x
 			&& testpos.z > -rc->getLen().y && testpos.z < rc->getLen().y) {
@@ -550,16 +549,27 @@ void ColliderPair::collidePointRect(float dt) {
 			std::cout << "in bounds" << std::endl;
 			return;
 		}
-		else if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-			c1->applyForce(nf);
-			c2->applyForce(-nf);
-			f &= ~COLLIDER_PAIR_FLAG_CONTACT;
+		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+			uncontact();
 			return;
 		}
 	}
 	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 		slide(dt);
-		uncontact();
+		if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
+			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
+			uncontact();
+		}
+		else {
+			glm::vec3 testpos = pt->getPos();
+			testpos -= rc->getPos();
+			testpos = rc->getRot() * testpos;
+			std::cout << testpos.x << ", " << testpos.z << std::endl;
+			if (testpos.x < -rc->getLen().x || testpos.x > rc->getLen().x
+				|| testpos.z < -rc->getLen().y || testpos.z > rc->getLen().y) {
+				uncontact();
+			}
+		}
 	}
 }
 
