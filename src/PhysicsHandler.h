@@ -205,13 +205,6 @@ typedef enum ColliderPairFlagBits {
 } ColliderPairFlagBits;
 typedef uint8_t ColliderPairFlags;
 
-// TODO: cleanup
-class ColliderPair;
-
-//typedef std::function<void(float)> CollisionFunc;
-// typedef std::_Mem_fn<void(ColliderPair::*)(float)> CollisionFunc;
-// typedef void (ColliderPair::CollisionFunc)(float);
-
 class ColliderPair {
 public:
 	ColliderPair() : 
@@ -252,6 +245,7 @@ private:
 	void collide(float dt, const glm::vec3& p, const glm::vec3& n);
 	void contact(float dt);
 	void uncontact();
+	void slide(float dt);
 	void collidePointPlane(float dt);
 	void collidePointRect(float dt);
 	void collidePointMesh(float dt);

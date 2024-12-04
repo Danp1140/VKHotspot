@@ -378,7 +378,6 @@ void ColliderPair::setCollisionFunc() {
 void ColliderPair::check(float dt) {
 	lreldp = reldp;
 	reldp = c1->getVel() - c2->getVel();
-	std::cout << "reldp in update " << glm::length(reldp) << std::endl;
 	(this->*cf)(dt);
 }
 
@@ -488,16 +487,28 @@ void ColliderPair::uncontact() {
 #ifdef PH_VERBOSE_COLLISIONS
 		std::cout << c1 << " and " << c2 << " decoupled" << std::endl;
 #endif
-		c1->applyMomentum(-dynf);
-		c2->applyMomentum(dynf);
 		c1->applyForce(nf);
 		c2->applyForce(-nf);
 		f &= ~COLLIDER_PAIR_FLAG_CONTACT;
 	}
 }
 
+void ColliderPair::slide(float dt) {
+	// TODO: early escape for both frictiondyn == 0
+	if (reldp == glm::vec3(0)) return;
+	if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
+		dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
+			 * -glm::normalize(reldp) * dt;
+		c1->applyMomentum(dynf);
+		c2->applyMomentum(-dynf);
+	}
+	else if (reldp != glm::vec3(0)) {
+		c1->applyMomentum(c1->getMass() * -reldp);
+		c2->applyMomentum(c2->getMass() * reldp);
+	}
+}
+
 void ColliderPair::collidePointPlane(float dt) {
-	std::cout << "reldp in coll " << glm::length(reldp) << std::endl;
 	PointCollider* pt = static_cast<PointCollider*>(c1);
 	PlaneCollider* pl = static_cast<PlaneCollider*>(c2);
 
@@ -511,29 +522,7 @@ void ColliderPair::collidePointPlane(float dt) {
 	}
 	else {
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-			std::cout << "reldp in contact " << glm::length(reldp) << std::endl;
-			// TODO: early escape for no friction
-				if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
-					std::cout << "dyn friction" << std::endl;
-					/*
-					c1->applyMomentum(-dynf);
-					c2->applyMomentum(dynf);
-					dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
-						 * -glm::normalize(reldp) * dt;
-					c1->applyMomentum(dynf);
-					c2->applyMomentum(-dynf);
-					*/
-					c1->applyForce(-dynf);
-					c2->applyForce(dynf);
-					dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
-						 * -glm::normalize(reldp);
-					c1->applyForce(dynf);
-					c2->applyForce(-dynf);
-				}
-				else if (reldp != glm::vec3(0)) {
-					c1->applyMomentum(c1->getMass() * -reldp);
-					c2->applyMomentum(c2->getMass() * reldp);
-				}
+			slide(dt);
 			uncontact();
 		}
 	}
@@ -569,6 +558,7 @@ void ColliderPair::collidePointRect(float dt) {
 		}
 	}
 	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		slide(dt);
 		uncontact();
 	}
 }

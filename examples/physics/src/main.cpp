@@ -2,7 +2,8 @@
 #include "PhysicsHandler.h"
 #include "InputHandler.h"
 
-#define MOVEMENT_SENS 5.f
+#define MOVEMENT_SENS 50.f
+#define MOVEMENT_CAP 5.f
 #define CAMERA_SENS 0.01f
 
 RenderPassInfo createRenderPass(const WindowInfo& w);
@@ -66,13 +67,14 @@ int main() {
 	rampcol->setPos(glm::vec3(0, 0, -5));
 	
 	ph.addColliderPair(ColliderPair(pov, deathplane));
-	// ph.addColliderPair(ColliderPair(pov, mainstage));
+	ph.addColliderPair(ColliderPair(pov, mainstage));
 	ph.addColliderPair(ColliderPair(pov, rampcol));
 
-	ih.addHold(InputHold(SDL_SCANCODE_W, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * glm::normalize(c->getForward() * glm::vec3(1, 0, 1)), 0}); }));
-	ih.addHold(InputHold(SDL_SCANCODE_A, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, -MOVEMENT_SENS * c->getRight(), 0}); }));
-	ih.addHold(InputHold(SDL_SCANCODE_S, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, -MOVEMENT_SENS * glm::normalize(c->getForward() * glm::vec3(1, 0, 1)), 0}); }));
-	ih.addHold(InputHold(SDL_SCANCODE_D, [&ph, pov, c = fps.getCamera()] () { ph.addTimedMomentum({pov, MOVEMENT_SENS * c->getRight(), 0}); }));
+	glm::vec3 movementdir;
+	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= c->getRight(); }));
+	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, pov, c = fps.getCamera()] () { movementdir += c->getRight(); }));
 
 	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&ph, pov] (const SDL_Event& e) {
 		if (e.key.scancode == SDL_SCANCODE_SPACE && !e.key.repeat) {
@@ -90,13 +92,17 @@ int main() {
 	SDL_Event eventtemp;
 	ph.start();
 	while (fpw.frameCallback() && tpw.frameCallback()) {
+		movementdir = glm::vec3(0);
 		ih.update();
 		SDL_PumpEvents();
+		if (movementdir != glm::vec3(0) && glm::length(pov->getVel()) < MOVEMENT_CAP) {
+			movementdir = glm::normalize(movementdir);
+			ph.addTimedForce({pov, MOVEMENT_SENS * movementdir, 0});
+		}
 
 		ph.update();
 		fps.getCamera()->setPos(pov->getPos() + glm::vec3(0, 1, 0));
 		povcube.setPos(pov->getPos() + glm::vec3(0, 1, 0));
-		floor.setPos(deathplane->getPos());
 		ramp.setPos(rampcol->getPos());
 		ramp.setRot(rampcol->getRot());
 		// std::cout << rampcol->getRot().w << ", " << rampcol->getRot().x << ", " << rampcol->getRot().y << ", " << rampcol->getRot().z << ", " << std::endl;
