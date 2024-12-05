@@ -65,6 +65,8 @@ public:
 	const MeshDrawFunc& getDrawFunc() const {return drawfunc;}
 
 	void setPos(glm::vec3 p);
+	void setRot(glm::quat r);
+	void setScale(glm::vec3 s);
 
 protected:
 	MeshDrawFunc drawfunc;

@@ -117,6 +117,16 @@ void Mesh::setPos(glm::vec3 p) {
 	updateModelMatrix();
 }
 
+void Mesh::setRot(glm::quat r) {
+	rotation = r;
+	updateModelMatrix();
+}
+
+void Mesh::setScale(glm::vec3 s) {
+	scale = s;
+	updateModelMatrix();
+}
+
 // could maybe make this constexpr
 size_t Mesh::getVertexBufferElementSize() const {
 	return getTraitsElementSize(vbtraits);

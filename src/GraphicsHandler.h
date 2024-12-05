@@ -304,6 +304,8 @@ public:
 	 * - Monitor
 	 */
 	WindowInfo();
+	/* p & s are normalized position & size  */
+	WindowInfo(glm::vec2 p, glm::vec2 s);
 	// explicitly delete these until we can safely implement them
 	WindowInfo(const WindowInfo& lvalue) = delete;
 	WindowInfo(WindowInfo&& rvalue) = delete;
@@ -326,7 +328,7 @@ public:
 private:
 	SDL_Window* sdlwindow;
 	uint32_t sdlwindowid;
-	SDL_Event eventtemp;
+	bool close;
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
 	ImageInfo* scimages, depthbuffer;
