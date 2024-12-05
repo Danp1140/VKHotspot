@@ -98,6 +98,8 @@ OrientedCollider& OrientedCollider::operator=(OrientedCollider rhs) {
 
 void OrientedCollider::update(float dt) {
 	Collider::update(dt);
+	// TODO: consider an update that doesn't rely upon TWO SLERPS PER FRAME thats pretty expensive...
+	// see if NLERP is good enough?
 	dr = glm::mix(dr, ddr, dt);
 	r = glm::mix(r, dr, dt);
 	/*
@@ -319,7 +321,9 @@ void MeshCollider::loadOBJ(const char* fp) {
 	}
 }
 
-ColliderPair::ColliderPair(Collider* col1, Collider* col2) : c1(col1), c2(col2), f(COLLIDER_PAIR_FLAG_NONE) {
+ColliderPair::ColliderPair(Collider* col1, Collider* col2) : ColliderPair() {
+	c1 = col1;
+	c2 = col2;
 	setCollisionFunc();
 }
 
@@ -332,6 +336,11 @@ ColliderPair& ColliderPair::operator=(ColliderPair rhs) {
 	std::swap(reldp, rhs.reldp);
 	std::swap(lreldp, rhs.lreldp);
 	std::swap(dynf, rhs.dynf);
+	std::swap(oncollide, rhs.oncollide);
+	std::swap(oncouple, rhs.oncouple);
+	std::swap(ondecouple, rhs.ondecouple);
+	std::swap(onslide, rhs.onslide);
+	std::swap(preventdefault, rhs.preventdefault);
 	return *this;
 }
 
@@ -415,7 +424,7 @@ bool ColliderPair::pointTriPossible(const PointCollider& p, const Tri& t) {
 		 || glm::dot(ldp, p.getPos() - t.v[2]->p) >= 0;
 }
 
-void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
+void ColliderPair::newtonianCollide(float dt, const glm::vec3& p, const glm::vec3& n) {
 	glm::vec3 p0top1 = c1->getPos() - c1->getLastPos();
 	float dt0 = dt * glm::length(p - c1->getLastPos()) / glm::length(p0top1);
 	glm::vec3 dp0 = p0top1 / dt;
@@ -425,7 +434,8 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 			glm::dot(((c2->getPos() - c2->getLastPos()) / dt + c2->getAcc() * dt0) * c2->getMass(), n) : 0,
 		po = (po1 * (float)c1->getDamp() + po2 * (float)c2->getDamp()) / 255.f;
 
-		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+	// TODO: investigate this logic lol
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 		if (po > PH_CONTACT_THRESHOLD) {
 			// FatalError("Objects no longer in contact").raise();
 		}
@@ -434,30 +444,8 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 		}
 	}
 	else if (po < PH_CONTACT_THRESHOLD) {
-		f |= COLLIDER_PAIR_FLAG_CONTACT;
-		nf = c1->getForce() + c2->getForce();
-#ifdef PH_VERBOSE_COLLISIONS
-		std::cout << c1 << " and " << c2 << " coupled, ||nf|| = [" << nf.x << ", " << nf.y << ", " << nf.z << "]" << std::endl;
-#endif
-		glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
-		glm::vec3 zprime = glm::cross(xprime, n);
-		// could probably avoid storing xprime and doing cross for zprime
-		/*
-		nf = glm::vec3(
-			glm::dot(nf, xprime), 
-			glm::dot(nf, n), 
-			glm::dot(nf, zprime)
-		);
-		*/
-		nf = glm::vec3(0, glm::dot(nf, n), 0);
-		// it seems like there are a lot of simplifications to make here
-		nf = glm::vec3(
-			glm::dot(nf, glm::vec3(xprime.x, 0, 0)),
-			glm::dot(nf, glm::vec3(0, n.y, 0)),
-			glm::dot(nf, glm::vec3(0, 0, zprime.z))
-		);
-		c1->updateContact(-nf, dt0, dt - dt0);
-		c2->updateContact(nf, dt0, dt - dt0);
+		newtonianCouple(dt, dt0, n); // if we're here, preventdefault must be false
+		if (oncouple) oncouple(coupledata); 
 	}
 	else {
 #ifdef PH_VERBOSE_COLLISIONS
@@ -469,7 +457,26 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 	}
 }
 
-void ColliderPair::uncontact() {
+void ColliderPair::newtonianCouple(float dt, float dt0, const glm::vec3& n) {
+#ifdef PH_VERBOSE_COLLISIONS
+	std::cout << c1 << " and " << c2 << " coupled, ||nf|| = [" << nf.x << ", " << nf.y << ", " << nf.z << "]" << std::endl;
+#endif
+	f |= COLLIDER_PAIR_FLAG_CONTACT;
+	nf = c1->getForce() + c2->getForce();
+	glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
+	glm::vec3 zprime = glm::cross(xprime, n);
+	nf = glm::vec3(0, glm::dot(nf, n), 0);
+	// it seems like there are a lot of simplifications to make here
+	nf = glm::vec3(
+		glm::dot(nf, glm::vec3(xprime.x, 0, 0)),
+		glm::dot(nf, glm::vec3(0, n.y, 0)),
+		glm::dot(nf, glm::vec3(0, 0, zprime.z))
+	);
+	c1->updateContact(-nf, dt0, dt - dt0);
+	c2->updateContact(nf, dt0, dt - dt0);
+}
+
+void ColliderPair::newtonianDecouple(float dt) {
 	/*
 	c1->updateContact(nf, dt0, dt - dt0);
 	c2->updateContact(-nf, dt0, dt - dt0);
@@ -490,7 +497,7 @@ void ColliderPair::uncontact() {
 	f &= ~COLLIDER_PAIR_FLAG_CONTACT;
 }
 
-void ColliderPair::slide(float dt) {
+void ColliderPair::newtonianSlide(float dt) {
 	// TODO: early escape for both frictiondyn == 0
 	if (reldp == glm::vec3(0)) return;
 	if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
@@ -515,14 +522,21 @@ void ColliderPair::collidePointPlane(float dt) {
 			 - glm::dot(pl->getPos() - pt->getLastPos(), pl->getNorm()) // TODO: pl->getPos() should actually be a sub-pos at collision time
 			 / glm::dot(pt->getLastPos() - pt->getPos(), pl->getNorm()) 
 			 * (pt->getLastPos() - pt->getPos()); 
-		collide(dt, colpos, pl->getNorm());
+		// TODO: move all these stacks to three different macros
+		COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, pl->getNorm())
+		/*
+		if (!preventdefault) newtonianCollide(dt, colpos, pl->getNorm());
+		if (oncollide) oncollide();
+		*/
 	}
 	else {
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-			slide(dt);
+			if (!preventdefault) newtonianSlide(dt);
+			if (onslide) onslide(slidedata);
 			if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
 				 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
-				uncontact();
+				if (!preventdefault) newtonianDecouple(dt);
+				if (ondecouple) ondecouple(decoupledata);
 			}
 		}
 	}
@@ -545,29 +559,33 @@ void ColliderPair::collidePointRect(float dt) {
 		testpos = rc->getRot() * testpos;
 		if (testpos.x > -rc->getLen().x && testpos.x < rc->getLen().x
 			&& testpos.z > -rc->getLen().y && testpos.z < rc->getLen().y) {
-			collide(dt, colpos, rc->getNorm());
+			COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, rc->getNorm())
 			std::cout << "in bounds" << std::endl;
 			return;
 		}
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-			uncontact();
+			if (!preventdefault) newtonianDecouple(dt);
+			if (ondecouple) ondecouple(decoupledata);
 			return;
 		}
 	}
 	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-		slide(dt);
+		if (!preventdefault) newtonianSlide(dt);
+		if (onslide) onslide(slidedata);
 		if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
 			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
-			uncontact();
+			if (!preventdefault) newtonianDecouple(dt);
+			if (ondecouple) ondecouple(decoupledata);
 		}
 		else {
 			glm::vec3 testpos = pt->getPos();
 			testpos -= rc->getPos();
 			testpos = rc->getRot() * testpos;
-			std::cout << testpos.x << ", " << testpos.z << std::endl;
+			// std::cout << testpos.x << ", " << testpos.z << std::endl;
 			if (testpos.x < -rc->getLen().x || testpos.x > rc->getLen().x
 				|| testpos.z < -rc->getLen().y || testpos.z > rc->getLen().y) {
-				uncontact();
+				if (!preventdefault) newtonianDecouple(dt);
+				if (ondecouple) ondecouple(decoupledata);
 			}
 		}
 	}

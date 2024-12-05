@@ -52,7 +52,7 @@ int main() {
 	/* TODO: error when we swap order of adding pov and deathplane */
 	PhysicsHandler ph;
 	PointCollider* pov = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
-	pov->setPos(glm::vec3(0, 10, 0));
+	pov->setPos(glm::vec3(0, 5, 0));
 	pov->applyForce(glm::vec3(0, -9.807 * pov->getMass(), 0));
 
 	PlaneCollider* deathplane = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
@@ -69,6 +69,12 @@ int main() {
 	ph.addColliderPair(ColliderPair(pov, deathplane));
 	ph.addColliderPair(ColliderPair(pov, mainstage));
 	ph.addColliderPair(ColliderPair(pov, rampcol));
+
+	ph.getColliderPair(0).setOnCollide([] (void* d) {
+			Collider* c = static_cast<Collider*>(d);
+			c->setPos(glm::vec3(0, 5, 0));
+		}, pov);
+	ph.getColliderPair(0).setPreventDefault(true);
 
 	glm::vec3 movementdir;
 	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));

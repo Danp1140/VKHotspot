@@ -205,6 +205,13 @@ typedef enum ColliderPairFlagBits {
 } ColliderPairFlagBits;
 typedef uint8_t ColliderPairFlags;
 
+typedef void (*PhysicsCallback)(void *);
+
+#define COLLIDER_PAIR_COLLIDE_CALL(dt, cp, n) { \
+	if (!preventdefault) newtonianCollide(dt, cp, n); \
+	if (oncollide) oncollide(collidedata); \
+}
+
 class ColliderPair {
 public:
 	ColliderPair() : 
@@ -216,18 +223,29 @@ public:
 		nf(glm::vec3(0)),
 		reldp(0),
 		lreldp(0),
-		dynf(0) {}
+		dynf(0),
+		oncollide(nullptr),
+		oncouple(nullptr),
+		ondecouple(nullptr),
+		onslide(nullptr),
+		preventdefault(false) {}
 	ColliderPair(Collider* col1, Collider* col2);
 	~ColliderPair() = default;
 
 	ColliderPair& operator=(ColliderPair rhs);
 
 	void check(float dt);
+
+	void setOnCollide(PhysicsCallback f, void* d) {oncollide = f; collidedata = d;}
+	void setPreventDefault(bool p) {preventdefault = p;}
+
 private:
 	Collider* c1, * c2;
 	ColliderPairFlags f;
-	// CollisionFunc cf;
 	void (ColliderPair::*cf)(float);
+	PhysicsCallback oncollide, oncouple, ondecouple, onslide; 
+	void* collidedata, * coupledata, * decoupledata, * slidedata;
+	bool preventdefault;
 	
 	const void* nearest;
 	glm::vec3 nf, reldp, lreldp, dynf; 
@@ -242,10 +260,10 @@ private:
 	static bool testPointTri(const PointCollider& p, const Tri& t);
 	static bool pointTriPossible(const PointCollider& p, const Tri& t);
 
-	void collide(float dt, const glm::vec3& p, const glm::vec3& n);
-	void contact(float dt);
-	void uncontact();
-	void slide(float dt);
+	void newtonianCollide(float dt, const glm::vec3& p, const glm::vec3& n);
+	void newtonianCouple(float dt, float dt0, const glm::vec3& n);
+	void newtonianDecouple(float dt);
+	void newtonianSlide(float dt);
 	void collidePointPlane(float dt);
 	void collidePointRect(float dt);
 	void collidePointMesh(float dt);
@@ -288,6 +306,9 @@ public:
 	// rounds down; if dt == 0, will just apply during one update cycle
 	void addTimedMomentum(TimedValue&& t); 
 	void addTimedForce(TimedValue&& t); 
+
+	// TODO: add system to get by collider pointers too
+	ColliderPair& getColliderPair(size_t i) {return pairs[i];}
 
 
 private:
