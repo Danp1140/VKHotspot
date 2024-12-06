@@ -23,6 +23,7 @@ find_package(Freetype REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared Headers)
 find_package(PNG REQUIRED)
+find_package(portaudio REQUIRED)
 
 find_path(GLM_INCLUDE glm.hpp PATH_SUFFIXES glm REQUIRED)
 find_path(USMINT_INCLUDE UI.h PATH_SUFFIXES UsMInt REQUIRED)
@@ -46,7 +47,8 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Mesh.cpp ../src/Mesh.h
 	../src/TextureHandler.cpp ../src/TextureHandler.h
 	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
-	../src/InputHandler.cpp ../src/InputHandler.h)
+	../src/InputHandler.cpp ../src/InputHandler.h
+	../src/AudioHandler.cpp ../src/AudioHandler.h)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE})
 
@@ -56,7 +58,8 @@ target_link_libraries(
 	Freetype::Freetype
 	Vulkan::Vulkan
 	SDL3::SDL3
-	PNG::PNG)
+	PNG::PNG
+	portaudio)
 
 # Installing Library Files
 install(
@@ -70,6 +73,7 @@ install(
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
 	../src/InputHandler.h
+	../src/AudioHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
 
 install(
@@ -83,6 +87,7 @@ install(
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
 	../src/InputHandler.h
+	../src/AudioHandler.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Package Config Hell
