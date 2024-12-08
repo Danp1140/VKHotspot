@@ -158,6 +158,7 @@ void PlaneCollider::update(float dt) {
 }
 
 void PlaneCollider::setNorm(glm::vec3 norm) {
+	// TODO: redo this, not fully correct at all periods
 	n = glm::normalize(norm);
 	std::cout << this << " norm set to [" << n.x << ", " << n.y << ", " << n.z << "]" << std::endl;
 	glm::vec3 v = glm::cross(glm::vec3(0, 1, 0), n);
