@@ -38,9 +38,11 @@ private:
 
 class Sound : public AudioObject {
 public:
-	Sound();
+	Sound() = delete;
+	Sound(const char* fp);
 
 	uint8_t* getBuf() {return buf;} // managing a data buffer??? gonna need good copy/move constructors ;-;
+	uint32_t getBufLen() {return buflen;}
 
 private:
 	uint8_t* buf;
@@ -52,6 +54,7 @@ private:
 class Listener : public AudioObject {
 public:
 	Listener();
+	Listener(std::vector<float> m);
 
 	uint8_t getNumChannels() const {return numchannels;}
 	const float* getMix() const {return &mix[0];}
@@ -76,6 +79,7 @@ typedef struct RelativityData {
 typedef struct ListenerData {
 	const Listener* l;
 	glm::vec3 lp, lf;
+	// TODO: do away with rel data, recalculated every invoc anyway
 	std::vector<RelativityData> rel; // TODO: can we make the vector but not the data within const???
 } ListenerData;
 
@@ -96,6 +100,7 @@ public:
 
 	// TODO: maybe a string-value map would be more intuitive
 	Sound& getSound(size_t i) {return *sounds[i];}
+	const std::vector<Sound*>& getSounds() const {return sounds;}
 	Listener& getListener(size_t i) {return *listeners[i];}
 
 private:
