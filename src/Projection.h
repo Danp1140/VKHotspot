@@ -21,6 +21,7 @@ public:
 	 * expects a pre-normalized vector
 	 */
 	void setForward(glm::vec3 f);
+	void setFOVY(float f);
 
 private:
 	glm::vec3 position, forward, right, up;

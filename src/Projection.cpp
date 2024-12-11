@@ -38,6 +38,11 @@ void Camera::setForward(glm::vec3 f) {
 	updateView();
 }
 
+void Camera::setFOVY(float f) {
+	fovy = f;
+	updateProj();
+}
+
 // -- Private --
 
 void Camera::updateView() {
