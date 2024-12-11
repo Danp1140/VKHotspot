@@ -103,10 +103,6 @@ int AudioHandler::streamCallback(
 	int16_t* outdst, sampletemp, * playheadtemp;
 	float respfactor, lrespfactor, respfactortemp, loffset, offset, offsettemp;
 	glm::vec3 diffvec, ldiffvec;
-	/*
-	float dt = -(float)framecount / (float)AH_SAMPLE_RATE,
-	      timeoffset;
-	      */
 	// watch out for overflow, although >256 listeners and/or sounds is criminal
 	for (uint8_t li = 0; li < d->listeners.size(); li++) {
 		for (uint8_t si = 0; si < d->sounds.size(); si++) {
@@ -141,9 +137,13 @@ int AudioHandler::streamCallback(
 					// record of sounds
 				}
 				offsettemp = std::lerp(loffset, offset, (float)i / (float)framecount);
-				sampletemp = std::lerp(
-						*(playheadtemp + (size_t)floor(offsettemp)),
-						*(playheadtemp + (size_t)ceil(offsettemp)), 
+				// TODO: see if you can adjust the math to remove a subtraction of unsigned values
+				if ((uint8_t*)(playheadtemp - (size_t)ceil(offsettemp)) < d->sounds[si].s->getBuf())
+					sampletemp = 0;
+				else 
+					sampletemp = std::lerp(
+						*(playheadtemp - (size_t)floor(offsettemp)),
+						*(playheadtemp - (size_t)ceil(offsettemp)), 
 						fmod(offsettemp, 1));
 				respfactortemp = std::lerp(lrespfactor, respfactor, (float)i / (float)framecount);
 				for (uint8_t c = 0; c < d->listeners[li].l->getNumChannels(); c++) { // technically this must be the same for all 

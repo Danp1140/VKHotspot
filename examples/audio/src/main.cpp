@@ -2,6 +2,7 @@
 #include "Scene.h"
 #include "InputHandler.h"
 
+#define MOVEMENT_SENS 1.f
 #define CAMERA_SENS 0.01f
 
 RenderPassInfo createRenderPass(const WindowInfo& w);
@@ -57,18 +58,25 @@ int main() {
 	s.getCamera()->setForward(glm::vec3(0, 0, -1));
 
 	InputHandler ih;
+	glm::vec3 movementdir;
+	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, c = s.getCamera()] () { movementdir -= c->getRight(); }));
+	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += c->getRight(); }));
 	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_MOTION, [c = s.getCamera()] (const SDL_Event& e) {
 		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
 		return true;
 	}));
 
-
 	ah.start();
 	float theta = 0;
 	const float scale = 100;
 	while (w.frameCallback()) {
+		movementdir = glm::vec3(0);
 		ih.update();
 		SDL_PumpEvents();
+		// TODO: this movement system causes jittery doppler shift, as the camera moves between one frame, but stays stationary across others
+		s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * movementdir);
 
 		updateStereoExample(ah, s);
 
@@ -78,13 +86,7 @@ int main() {
 		// Ambulance Donuts
 		// ah.getSound(0).setPos(scale * glm::vec3(sin(theta), 0, cos(theta) - 1) + glm::vec3(0, 0, -5));
 
-		/*
-		soundmesh.setPos(ah.getSound(0).getPos());
-		glm::vec3 v = glm::cross(glm::vec3(0, 0, 1), ah.getSound(0).getForward());
-		soundmesh.setRot(glm::normalize(glm::quat(1 + glm::dot(glm::vec3(0, 0, 1), ah.getSound(0).getForward()), v)));
-		*/
-		// TODO: update generated audio meshes
-		theta += 0.01;
+		// theta += 0.01;
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());
@@ -176,7 +178,9 @@ void setupStereoExample(AudioHandler& a) {
 	a.getListener(1).setForward(glm::vec3(0.5, 0, -1));
 
 	a.addSound(Sound("../resources/sounds/ta1.1mono.wav"));
+	a.addSound(Sound("../resources/sounds/ta1.2mono.wav"));
 	a.addSound(Sound("../resources/sounds/ta2.1mono.wav"));
+	a.addSound(Sound("../resources/sounds/ta2.2mono.wav"));
 	a.addSound(Sound("../resources/sounds/eu1.1mono.wav"));
 	a.addSound(Sound("../resources/sounds/eu2.1mono.wav"));
 	a.addSound(Sound("../resources/sounds/eu3.1mono.wav"));
@@ -184,30 +188,20 @@ void setupStereoExample(AudioHandler& a) {
 	a.addSound(Sound("../resources/sounds/ml2.1mono.wav"));
 	a.addSound(Sound("../resources/sounds/ml3.1mono.wav"));
 
-	const float r = 10;
-	const float dtheta = 6.28;
+	const float r = 50;
+	const float dtheta = 1.57;
 	float theta = -dtheta / 2;
 	for (uint8_t i = 0; i < a.getSounds().size(); i++) {
 		a.getSound(i).setPos(r * glm::vec3(sin(theta), 0, cos(theta)));
 		a.getSound(i).setForward(glm::vec3(-sin(theta), 0, -cos(theta)));
+		a.getSound(i).setRespFunc(conicResponseFunction);
 		theta += dtheta / a.getSounds().size();
 	}
-	/*
-	a.getSound(0).setPos(glm::vec3(5, 0, -10));
-	a.getSound(1).setPos(glm::vec3(-5, 0, -10));
-	a.getSound(2).setPos(glm::vec3(10, 0, -10));
-	a.getSound(3).setPos(glm::vec3(-10, 0, -10));
-	a.getSound(4).setPos(glm::vec3(-15, 0, -10));
-	a.getSound(0).setForward(glm::vec3(-5, 0, 10));
-	a.getSound(1).setForward(glm::vec3(5, 0, 10));
-	a.getSound(2).setForward(glm::vec3(-10, 0, 10));
-	a.getSound(3).setForward(glm::vec3(10, 0, 10));
-	a.getSound(4).setForward(glm::vec3(15, 0, 10));
-	*/
-	// TODO: conic resp func for horns too later
 }
 
 void updateStereoExample(AudioHandler& a, Scene& s) {
+	a.getListener(0).setPos(s.getCamera()->getPos());
+	a.getListener(1).setPos(s.getCamera()->getPos());
 	a.getListener(0).setForward(s.getCamera()->getForward() - 0.5f * s.getCamera()->getRight());
 	a.getListener(1).setForward(s.getCamera()->getForward() + 0.5f * s.getCamera()->getRight());
 }

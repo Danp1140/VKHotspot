@@ -109,6 +109,7 @@ private:
 	std::vector<Listener*> listeners;
 	// immediatelisteners (no speed of sound delay)
 	// directlisteners (no geometry considerations whatsoever)
+	// BIG TODO: gain system
 	AudioCallbackData acd;
 
 	// TODO: separate callback for sounds where speed of sound is negligible
