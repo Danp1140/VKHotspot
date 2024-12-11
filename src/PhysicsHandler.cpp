@@ -458,20 +458,18 @@ void ColliderPair::newtonianCollide(float dt, const glm::vec3& p, const glm::vec
 }
 
 void ColliderPair::newtonianCouple(float dt, float dt0, const glm::vec3& n) {
-#ifdef PH_VERBOSE_COLLISIONS
-	std::cout << c1 << " and " << c2 << " coupled, ||nf|| = [" << nf.x << ", " << nf.y << ", " << nf.z << "]" << std::endl;
-#endif
 	f |= COLLIDER_PAIR_FLAG_CONTACT;
 	nf = c1->getForce() + c2->getForce();
 	glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
+	// TODO: check xprime == vec3(0), then do a different basis
 	glm::vec3 zprime = glm::cross(xprime, n);
-	nf = glm::vec3(0, glm::dot(nf, n), 0);
-	// it seems like there are a lot of simplifications to make here
-	nf = glm::vec3(
-		glm::dot(nf, glm::vec3(xprime.x, 0, 0)),
-		glm::dot(nf, glm::vec3(0, n.y, 0)),
-		glm::dot(nf, glm::vec3(0, 0, zprime.z))
-	);
+
+	nf = glm::dot(nf, n) * n;
+
+#ifdef PH_VERBOSE_COLLISIONS
+	std::cout << c1 << " and " << c2 << " coupled, ||nf|| = [" << nf.x << ", " << nf.y << ", " << nf.z << "]" << std::endl;
+#endif
+
 	c1->updateContact(-nf, dt0, dt - dt0);
 	c2->updateContact(nf, dt0, dt - dt0);
 }
@@ -497,10 +495,21 @@ void ColliderPair::newtonianDecouple(float dt) {
 	f &= ~COLLIDER_PAIR_FLAG_CONTACT;
 }
 
-void ColliderPair::newtonianSlide(float dt) {
-	// TODO: early escape for both frictiondyn == 0
+void ColliderPair::newtonianSlide(float dt, const glm::vec3& n) {
 	if (reldp == glm::vec3(0)) return;
+
+	// TODO: avoid redundant calc?
+	glm::vec3 v = -glm::dot(reldp, n) * n;
+	if (glm::dot(reldp, n) < 0) {
+		c1->applyMomentum(c1->getMass() * v);
+		c2->applyMomentum(c2->getMass() * -v);
+
+		reldp = reldp + v;
+	}
+
+	// TODO: early escape for both frictiondyn == 0
 	if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
+		// not technically a force...
 		dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
 			 * -glm::normalize(reldp) * dt;
 		c1->applyMomentum(dynf);
@@ -522,21 +531,15 @@ void ColliderPair::collidePointPlane(float dt) {
 			 - glm::dot(pl->getPos() - pt->getLastPos(), pl->getNorm()) // TODO: pl->getPos() should actually be a sub-pos at collision time
 			 / glm::dot(pt->getLastPos() - pt->getPos(), pl->getNorm()) 
 			 * (pt->getLastPos() - pt->getPos()); 
-		// TODO: move all these stacks to three different macros
 		COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, pl->getNorm())
-		/*
-		if (!preventdefault) newtonianCollide(dt, colpos, pl->getNorm());
-		if (oncollide) oncollide();
-		*/
 	}
 	else {
+		// TODO: try checking contact at top, allowing slide first, then bounds check
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-			if (!preventdefault) newtonianSlide(dt);
-			if (onslide) onslide(slidedata);
+			COLLIDER_PAIR_SLIDE_CALL(dt, pl->getNorm());
 			if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
 				 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
-				if (!preventdefault) newtonianDecouple(dt);
-				if (ondecouple) ondecouple(decoupledata);
+				COLLIDER_PAIR_DECOUPLE_CALL(dt)
 			}
 		}
 	}
@@ -545,6 +548,24 @@ void ColliderPair::collidePointPlane(float dt) {
 void ColliderPair::collidePointRect(float dt) {
 	PointCollider* pt = static_cast<PointCollider*>(c1);
 	RectCollider* rc = static_cast<RectCollider*>(c2);
+
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		if (!preventdefault) newtonianSlide(dt, rc->getNorm());
+		if (onslide) onslide(slidedata);
+		if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
+			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
+			COLLIDER_PAIR_DECOUPLE_CALL(dt)
+		}
+		else {
+			glm::vec3 testpos = pt->getPos();
+			testpos -= rc->getPos();
+			testpos = rc->getRot() * testpos;
+			if (testpos.x < -rc->getLen().x || testpos.x > rc->getLen().x
+				|| testpos.z < -rc->getLen().y || testpos.z > rc->getLen().y) {
+				COLLIDER_PAIR_DECOUPLE_CALL(dt)
+			}
+		}
+	}
 
 	// TODO: find a way to remove redundant collision and colpos code
 	if (glm::dot(pt->getLastPos() - rc->getLastPos(), rc->getNorm()) > 0
@@ -560,33 +581,11 @@ void ColliderPair::collidePointRect(float dt) {
 		if (testpos.x > -rc->getLen().x && testpos.x < rc->getLen().x
 			&& testpos.z > -rc->getLen().y && testpos.z < rc->getLen().y) {
 			COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, rc->getNorm())
-			std::cout << "in bounds" << std::endl;
 			return;
 		}
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-			if (!preventdefault) newtonianDecouple(dt);
-			if (ondecouple) ondecouple(decoupledata);
+			COLLIDER_PAIR_DECOUPLE_CALL(dt)
 			return;
-		}
-	}
-	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-		if (!preventdefault) newtonianSlide(dt);
-		if (onslide) onslide(slidedata);
-		if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
-			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
-			if (!preventdefault) newtonianDecouple(dt);
-			if (ondecouple) ondecouple(decoupledata);
-		}
-		else {
-			glm::vec3 testpos = pt->getPos();
-			testpos -= rc->getPos();
-			testpos = rc->getRot() * testpos;
-			// std::cout << testpos.x << ", " << testpos.z << std::endl;
-			if (testpos.x < -rc->getLen().x || testpos.x > rc->getLen().x
-				|| testpos.z < -rc->getLen().y || testpos.z > rc->getLen().y) {
-				if (!preventdefault) newtonianDecouple(dt);
-				if (ondecouple) ondecouple(decoupledata);
-			}
 		}
 	}
 }
