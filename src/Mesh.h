@@ -1,6 +1,11 @@
+#ifndef MESH_H
+#define MESH_H
+
 #include <gtc/quaternion.hpp>
 
 #include "GraphicsHandler.h"
+class Mesh;
+#include "Scene.h"
 
 typedef uint16_t MeshIndex;
 
@@ -13,21 +18,6 @@ typedef enum VertexBufferTraitBits {
 typedef uint8_t VertexBufferTraits;
 #define MAX_VERTEX_BUFFER_NUM_TRAITS 4
 
-typedef struct MeshDrawData {
-	VkRenderPass r;
-	VkPipeline p;
-	VkPipelineLayout pl;
-	VkPushConstantRange pcr;
-	const void* pcd;
-	VkPushConstantRange opcr;
-	const void* opcd;
-	VkDescriptorSet d;
-	VkBuffer vb, ib;
-	size_t nv;
-} MeshDrawData;
-
-typedef std::function<void (VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c)> MeshDrawFunc;
-
 typedef struct MeshPCData {
 	glm::mat4 m;
 } MeshPCData;
@@ -39,37 +29,30 @@ public:
 		scale(glm::vec3(1)),
 		rotation(glm::vec3(0)),
 		model(glm::mat4(1)),
-		vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL), 
-		drawfunc(Mesh::recordDraw) {}
+		vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
 	Mesh(const char* f);
 	~Mesh();
 
-	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
+	virtual void recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const;
 	static size_t getTraitsElementSize(VertexBufferTraits t);
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
 
-	// TODO; reevaluate the usefulness of this function
-	const MeshDrawData getDrawData(
-		VkRenderPass r, 
-		const PipelineInfo& p, 
-		VkPushConstantRange pcr, 
-		const void* pcd,
-		VkPushConstantRange opcr,
-		const void* opcd,
-		VkDescriptorSet ds) const;
-
 	const glm::mat4& getModelMatrix() const {return model;}
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}
-	const MeshDrawFunc& getDrawFunc() const {return drawfunc;}
 
 	void setPos(glm::vec3 p);
 	void setRot(glm::quat r);
 	void setScale(glm::vec3 s);
 
 protected:
-	MeshDrawFunc drawfunc;
+	BufferInfo vertexbuffer, indexbuffer;
 	static VkDeviceSize vboffsettemp;
 
 	/*
@@ -83,7 +66,6 @@ private:
 	glm::vec3 position, scale;
 	glm::quat rotation;
 	glm::mat4 model;
-	BufferInfo vertexbuffer, indexbuffer;
 	VertexBufferTraits vbtraits;
 
 	size_t getVertexBufferElementSize() const;
@@ -97,7 +79,7 @@ typedef struct InstancedMeshData {
 
 class InstancedMesh : public Mesh {
 public:
-	InstancedMesh();
+	InstancedMesh() = default;
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
 
@@ -113,7 +95,12 @@ public:
 	 */
 	void updateInstanceUB(std::vector<InstancedMeshData> m);
 
-	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
+	void recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const;
 
 private:
 	BufferInfo instanceub;
@@ -124,14 +111,20 @@ public:
 	LODMesh() = default;
 	~LODMesh() = default;
 
-	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
+	void recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const;
+
 
 private:
 	Mesh* meshes;
 	uint8_t nummeshes;
 	// if multiple should draw, will draw highest LOD
 	std::function<bool ()> shouldload, shoulddraw;
-}
+};
 
 /*
  * Things you may want to draw with Mesh
@@ -153,3 +146,5 @@ private:
  * If you want any texture, you need uvs
  * If you want armatures, you need weights
  */
+
+#endif

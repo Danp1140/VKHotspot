@@ -11,11 +11,16 @@ Mesh::~Mesh() {
 	if (indexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(indexbuffer);
 }
 
-void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
+void Mesh::recordDraw(
+	VkFramebuffer f, 
+	VkRenderPass rp,
+	RenderSet rs,
+	size_t rsidx,
+	VkCommandBuffer& c) const {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
-		d.r, 0,
+		rp, 0,
 		f,
 		VK_FALSE, 0, 0
 	};
@@ -26,20 +31,34 @@ void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 		&cbinherinfo
 	};
 	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
-	if (d.d != VK_NULL_HANDLE) {
+	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
 		vkCmdBindDescriptorSets(
 			c,
 			VK_PIPELINE_BIND_POINT_GRAPHICS,
-			d.pl,
-			0, 1, &d.d,
+			rs.pipeline.layout,
+			0, 1, &rs.objdss[rsidx],
 			0, nullptr);
 	}
-	if (d.pcd) vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
-	if (d.opcd) vkCmdPushConstants(c, d.pl, d.opcr.stageFlags, d.opcr.offset, d.opcr.size, d.opcd);
-	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
-	vkCmdDrawIndexed(c, d.nv, 1, 0, 0, 0);
+	if (rs.pcdata) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.pushconstantrange.stageFlags, 
+			rs.pipeline.pushconstantrange.offset, 
+			rs.pipeline.pushconstantrange.size, 
+			rs.pcdata);
+	if (rs.objpcdata[rsidx]) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.objpushconstantrange.stageFlags, 
+			rs.pipeline.objpushconstantrange.offset, 
+			rs.pipeline.objpushconstantrange.size, 
+			rs.objpcdata[rsidx]);
+	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
@@ -88,28 +107,6 @@ VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t) {
 void Mesh::ungetVISCI(VkPipelineVertexInputStateCreateInfo v) {
 	delete[] v.pVertexBindingDescriptions;
 	delete[] v.pVertexAttributeDescriptions;
-}
-
-const MeshDrawData Mesh::getDrawData(
-	VkRenderPass r, 
-	const PipelineInfo& p, 
-	VkPushConstantRange pcr, 
-	const void* pcd,
-	VkPushConstantRange opcr,
-	const void* opcd,
-	VkDescriptorSet ds) const {
-	return (MeshDrawData){
-		r,
-		p.pipeline,
-		p.layout,
-		pcr,
-		pcd,
-		opcr,
-		opcd,
-		ds,
-		vertexbuffer.buffer, indexbuffer.buffer,
-		indexbuffer.size / sizeof(MeshIndex)
-	};
 }
 
 void Mesh::setPos(glm::vec3 p) {
@@ -221,10 +218,6 @@ void Mesh::updateModelMatrix() {
 		* glm::scale(glm::mat4(1), scale);
 }
 
-InstancedMesh::InstancedMesh() : Mesh() {
-	drawfunc = InstancedMesh::recordDraw;
-}
-
 InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
 	loadOBJ(fp);
 	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -248,11 +241,16 @@ void InstancedMesh::updateInstanceUB(std::vector<InstancedMeshData> m) {
 	GH::updateWholeBuffer(instanceub, m.data());
 }
 
-void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
+void InstancedMesh::recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
-		d.r, 0,
+		rp, 0,
 		f,
 		VK_FALSE, 0, 0
 	};
@@ -263,20 +261,43 @@ void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer&
 		&cbinherinfo
 	};
 	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
-	vkCmdBindDescriptorSets(
-		c,
-		VK_PIPELINE_BIND_POINT_GRAPHICS,
-		d.pl,
-		0, 1, &d.d,
-		0, nullptr);
-	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
-	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
-	vkCmdDrawIndexed(c, d.nv, 32, 0, 0, 0);
+	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
+		vkCmdBindDescriptorSets(
+			c,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			rs.pipeline.layout,
+			0, 1, &rs.objdss[rsidx],
+			0, nullptr);
+	}
+	if (rs.pcdata) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.pushconstantrange.stageFlags, 
+			rs.pipeline.pushconstantrange.offset, 
+			rs.pipeline.pushconstantrange.size, 
+			rs.pcdata);
+	if (rs.objpcdata[rsidx]) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.objpushconstantrange.stageFlags, 
+			rs.pipeline.objpushconstantrange.offset, 
+			rs.pipeline.objpushconstantrange.size, 
+			rs.objpcdata[rsidx]);
+	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
+	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
-void LODMesh::recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c) {
-
+void LODMesh::recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const {
+	
 }

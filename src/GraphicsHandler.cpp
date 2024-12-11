@@ -679,6 +679,25 @@ void GH::destroyRenderPass(VkRenderPass& rp) {
 void GH::createPipeline (PipelineInfo& pi) {
 	// still some heap allocs left in here and createShader. likely avoidable, but for now if they're not
 	// causing issues we'll just leave them be
+	
+	// this presumes only one and one scene & obj pcrs (but should work if they dont have the same range?)
+	uint32_t numpcrs = 0;
+	VkPushConstantRange pcrtemp[2];
+	if (pi.pushconstantrange.size != 0) {
+		pcrtemp[numpcrs] = pi.pushconstantrange;
+		numpcrs++;
+	}
+	if (pi.objpushconstantrange.size != 0) {
+		if (numpcrs > 0 && pcrtemp[numpcrs - 1].stageFlags == pi.objpushconstantrange.stageFlags) {
+			if (pi.objpushconstantrange.offset != pcrtemp[numpcrs - 1].size)
+				WarningError("Obj PC offset doesn't match scene PC size, but they have the same stage flags").raise();
+			pcrtemp[numpcrs - 1].size += pi.objpushconstantrange.size;
+		}
+		else {
+			pcrtemp[numpcrs] = pi.objpushconstantrange;
+			numpcrs++;
+		}
+	}
 	if (pi.stages & VK_SHADER_STAGE_COMPUTE_BIT) {
 		vkCreateDescriptorSetLayout(
 			logicaldevice,
@@ -690,7 +709,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 			nullptr,
 			0,
 			1, &pi.dsl,
-			pi.pushconstantrange.size == 0 ? 0u : 1u, &pi.pushconstantrange
+			numpcrs, &pcrtemp[0]
 		};
 		vkCreatePipelineLayout(
 			logicaldevice,
@@ -766,7 +785,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		nullptr,
 		0,
 		1, &pi.dsl,
-		pi.pushconstantrange.size == 0 ? 0u : 1u, &pi.pushconstantrange
+		numpcrs, &pcrtemp[0]
 	};
 	vkCreatePipelineLayout(
 		logicaldevice,

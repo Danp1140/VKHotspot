@@ -1,6 +1,10 @@
+#ifndef SCENE_H
+#define SCENE_H
+
 #include <vector>
 #include <map>
 #include "Projection.h"
+struct RenderSet;
 #include "Mesh.h"
 
 // #define VKH_VERBOSE_DRAW_TASKS
@@ -74,3 +78,5 @@ private:
 	BufferInfo lightub;
 	std::vector<RenderPassInfo> renderpasses;
 };
+
+#endif

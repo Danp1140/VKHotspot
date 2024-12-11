@@ -120,7 +120,7 @@ typedef struct PipelineInfo {
 	VkDescriptorSetLayoutCreateInfo descsetlayoutci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
 	};
-	VkPushConstantRange pushconstantrange = {};
+	VkPushConstantRange pushconstantrange = {}, objpushconstantrange = {};
 	VkPipelineVertexInputStateCreateInfo vertexinputstateci = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
 	};
