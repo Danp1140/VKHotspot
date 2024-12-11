@@ -277,3 +277,6 @@ void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer&
 	vkEndCommandBuffer(c);
 }
 
+void LODMesh::recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c) {
+
+}

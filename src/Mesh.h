@@ -119,6 +119,20 @@ private:
 	BufferInfo instanceub;
 };
 
+class LODMesh {
+public:
+	LODMesh() = default;
+	~LODMesh() = default;
+
+	static void recordDraw(VkFramebuffer f, const MeshDrawData d, VkCommandBuffer& c);
+
+private:
+	Mesh* meshes;
+	uint8_t nummeshes;
+	// if multiple should draw, will draw highest LOD
+	std::function<bool ()> shouldload, shoulddraw;
+}
+
 /*
  * Things you may want to draw with Mesh
  *  - simple, static mesh (w/ vertex position, probably requiring uvs and normals as well)
