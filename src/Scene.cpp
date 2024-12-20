@@ -57,22 +57,6 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 				(uint8_t scii, VkCommandBuffer& c) {
 				m->recordDraw(fb[scii], rp, r, counter, c);
 			});
-			/*
-			tasks.emplace_back(
-					[d = m->getDrawData(
-						renderpass, 
-						r.pipeline, 
-						{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)}, 
-						r.pcdata,
-						{VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)},
-						r.objpcdata[counter],
-						r.objdss[counter]), 
-					f = framebuffers,
-					df = m->getDrawFunc()] 
-					(uint8_t scii, VkCommandBuffer& c) {
-				df(f[scii], d, c);
-			});
-			*/
 			counter++;
 		}
 #ifdef VKH_VERBOSE_DRAW_TASKS

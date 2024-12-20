@@ -373,6 +373,7 @@ BufferInfo GH::scratchbuffer = {
 	0
 };
 const char* GH::shaderdir = "../resources/shaders/SPIRV/";
+std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -1113,6 +1114,20 @@ void GH::destroyBuffer(BufferInfo& b) {
 	vkDestroyBuffer(logicaldevice, b.buffer, nullptr);
 }
 
+void GH::createMultiuserBuffer(BufferInfo& b) {
+	createBuffer(b);
+	bufferusers[b.buffer] = 1;
+}
+
+void GH::copyMultiuserBuffer(const BufferInfo& b) {
+	bufferusers[b.buffer]++;
+}
+
+void GH::destroyMultiuserBuffer(BufferInfo& b) {
+	bufferusers[b.buffer]--;
+	if (bufferusers[b.buffer] == 0) destroyBuffer(b);
+}
+
 void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
 	void* dst;
 	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
@@ -1370,33 +1385,6 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 	i.layout = newlayout;
 	vkQueueWaitIdle(genericqueue);
 }
-
-/*
-void GH::recordPushConsts(
-		VkShaderStageFlags stages,
-		uint32_t offset,
-		uint32_t size,
-		const void* pc,
-		cbRecData d, 
-		VkCommandBuffer& c) {
-	VkCommandBufferInheritanceInfo cbinherinfo {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
-		nullptr,
-		d.rp, 0,
-		d.fb,
-		VK_FALSE, 0, 0
-	};
-	VkCommandBufferBeginInfo cbbi {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		nullptr,
-		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
-		&cbinherinfo
-	};
-	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdPushConstants(c, d.p->layout, stages, offset, size, pc);
-	vkEndCommandBuffer(c);
-}
-*/
 
 VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
 		VkDebugUtilsMessageSeverityFlagBitsEXT severity,

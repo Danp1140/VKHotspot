@@ -30,8 +30,15 @@ public:
 		rotation(glm::vec3(0)),
 		model(glm::mat4(1)),
 		vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
+	Mesh(const Mesh& lvalue) = delete;
+	Mesh(Mesh&& rvalue);
 	Mesh(const char* f);
 	~Mesh();
+
+	friend void swap(Mesh& lhs, Mesh& rhs);
+
+	Mesh& operator=(const Mesh& rhs) = delete;
+	Mesh& operator=(Mesh&& rhs);
 
 	virtual void recordDraw(
 		VkFramebuffer f, 
@@ -43,6 +50,7 @@ public:
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
 
+	const glm::vec3& getPos() const {return position;}
 	const glm::mat4& getModelMatrix() const {return model;}
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}
@@ -69,7 +77,7 @@ private:
 	VertexBufferTraits vbtraits;
 
 	size_t getVertexBufferElementSize() const;
-	
+
 	void updateModelMatrix();
 };
 
@@ -106,10 +114,55 @@ private:
 	BufferInfo instanceub;
 };
 
-class LODMesh {
+typedef bool(*LODFunc)(Mesh&, void*);
+
+class LODMeshData {
 public:
-	LODMesh() = default;
-	~LODMesh() = default;
+	LODMeshData() = default;
+	LODMeshData(const LODMeshData& lvalue) = delete;
+	LODMeshData(LODMeshData&& rvalue) :
+		m(std::move(rvalue.m)),
+		shouldload(std::move(rvalue.shouldload)),
+		shoulddraw(std::move(rvalue.shoulddraw)),
+		sldata(std::move(rvalue.sldata)),
+		sddata(std::move(rvalue.sddata)) {}
+	LODMeshData(Mesh&& me, LODFunc sl, LODFunc sd, void* sld, void* sdd) :
+		m(std::move(me)),
+		shouldload(sl),
+		shoulddraw(sd),
+		sldata(sld),
+		sddata(sdd) {}
+	~LODMeshData() = default;
+
+	friend void swap(LODMeshData& lhs, LODMeshData& rhs);
+
+	LODMeshData& operator=(const LODMeshData& rhs) = delete;
+	LODMeshData& operator=(LODMeshData&& rhs);
+
+	bool shouldLoad() {return shouldload(m, sldata);}
+	void load() {} // TODO: actually implement loading system in Mesh class
+	bool shouldDraw() {return shoulddraw(m, sddata);}
+
+	const Mesh& getMesh() {return m;}
+
+private:
+	Mesh m;
+	LODFunc shouldload, shoulddraw;
+	/*
+	bool(*shouldload)(Mesh&, void*);
+	bool(*shoulddraw)(Mesh&, void*);
+	*/
+	void* sldata, * sddata;
+};
+
+// a little janky, Mesh's buffers go unused but this is most intuitive for the user i think
+// consider a BaseMesh class that Mesh & LODMesh inherits from with pure virtual recordDraw,
+// model mat etc., but no buffers
+class LODMesh : public Mesh {
+public:
+	LODMesh() : meshes(nullptr), nummeshes(0) {}
+	LODMesh(std::vector<LODMeshData>& md);
+	~LODMesh();
 
 	void recordDraw(
 		VkFramebuffer f, 
@@ -118,12 +171,11 @@ public:
 		size_t rsidx,
 		VkCommandBuffer& c) const;
 
-
 private:
-	Mesh* meshes;
+	// if multiple should draw, will draw first found. behavior can be implicitly controlled by
+	// order of meshes
+	LODMeshData* meshes;
 	uint8_t nummeshes;
-	// if multiple should draw, will draw highest LOD
-	std::function<bool ()> shouldload, shoulddraw;
 };
 
 /*

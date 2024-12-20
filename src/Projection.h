@@ -14,6 +14,7 @@ public:
 	const glm::vec3& getRight() const {return right;}
 	const glm::vec3& getUp() const {return up;}
 	const glm::vec3& getPos() const {return position;}
+	float getFOVY() const {return fovy;}
 
 	void setPos(glm::vec3 p);
 	/* 

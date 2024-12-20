@@ -6,9 +6,61 @@ Mesh::Mesh(const char* f) : Mesh() {
 	loadOBJ(f);
 }
 
+/*
+Mesh::Mesh(const Mesh& lvalue) {
+	position = lvalue.position;
+	scale = lvalue.scale;
+	rotation = lvalue.rotation;
+	model = lvalue.model;
+	vbtraits = lvalue.vbtraits;
+	GH::copyMultiuserBuffer(lvalue.vertexbuffer);
+	vertexbuffer = lvalue.vertexbuffer;
+	GH::copyMultiuserBuffer(lvalue.indexbuffer);
+	indexbuffer = lvalue.indexbuffer;
+}
+*/
+
+Mesh::Mesh(Mesh&& rvalue) :
+	position(std::move(rvalue.position)),
+	scale(std::move(rvalue.scale)),
+	rotation(std::move(rvalue.rotation)),
+	model(std::move(rvalue.model)),
+	vbtraits(std::move(rvalue.vbtraits)),
+	vertexbuffer(std::move(rvalue.vertexbuffer)),
+	indexbuffer(std::move(rvalue.indexbuffer)) {
+	rvalue.vertexbuffer = {};
+	rvalue.indexbuffer = {};
+}
+
 Mesh::~Mesh() {
 	if (vertexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(vertexbuffer);
 	if (indexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(indexbuffer);
+}
+
+void swap(Mesh& lhs, Mesh& rhs) {
+	std::swap(lhs.position, rhs.position);
+	std::swap(lhs.scale, rhs.scale);
+	std::swap(lhs.rotation, rhs.rotation);
+	std::swap(lhs.model, rhs.model);
+	std::swap(lhs.vbtraits, rhs.vbtraits);
+	std::swap(lhs.vertexbuffer, rhs.vertexbuffer);
+	std::swap(lhs.indexbuffer, rhs.indexbuffer);
+}
+
+Mesh& Mesh::operator=(Mesh&& rhs) {
+	/*
+	position = std::move(rhs.position);
+	scale = std::move(rhs.scale);
+	rotation = std::move(rhs.rotation);
+	model = std::move(rhs.model);
+	vbtraits = std::move(rhs.vbtraits);
+	vertexbuffer = std::move(rhs.vertexbuffer);
+	indexbuffer = std::move(rhs.indexbuffer);
+	rhs.vertexbuffer = {};
+	rhs.indexbuffer = {};
+	*/
+	swap(*this, rhs);
+	return *this;
 }
 
 void Mesh::recordDraw(
@@ -171,10 +223,10 @@ void Mesh::loadOBJ(const char* fp) {
 			for (auto& u: uvidx) uvindices.push_back(u - 1);
 		}
 	}
-
 	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	vertexbuffer.size = getVertexBufferElementSize() * vertexindices.size();
 	GH::createBuffer(vertexbuffer);
+	// what if we did buffer usage tracking in GH???
 	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	indexbuffer.size = sizeof(MeshIndex) * vertexindices.size();
 	GH::createBuffer(indexbuffer);
@@ -293,11 +345,53 @@ void InstancedMesh::recordDraw(
 	vkEndCommandBuffer(c);
 }
 
+LODMesh::LODMesh(std::vector<LODMeshData>& md) : nummeshes(md.size()) {
+	meshes = new LODMeshData[nummeshes];
+	for (uint8_t i = 0; i < nummeshes; i++) {
+		meshes[i] = std::move(md[i]);
+	}
+}
+
+LODMesh::~LODMesh() {
+	delete[] meshes;
+}
+
+void swap(LODMeshData& lhs, LODMeshData& rhs) {
+	swap(lhs.m, rhs.m);
+	std::swap(lhs.shouldload, rhs.shouldload);
+	std::swap(lhs.shoulddraw, rhs.shoulddraw);
+	std::swap(lhs.sldata, rhs.sldata);
+	std::swap(lhs.sddata, rhs.sddata);
+}
+
+LODMeshData& LODMeshData::operator=(LODMeshData&& rhs) {
+	/*
+	m = std::move(rhs.m);
+	shouldload = std::move(rhs.shouldload);
+	shoulddraw = std::move(rhs.shoulddraw);
+	sldata = std::move(rhs.sldata);
+	sddata = std::move(rhs.sddata);
+	*/
+	swap(*this, rhs);
+	return *this;
+}
+
 void LODMesh::recordDraw(
 		VkFramebuffer f, 
 		VkRenderPass rp,
 		RenderSet rs,
 		size_t rsidx,
 		VkCommandBuffer& c) const {
-	
+	uint8_t i;
+	for (i = 0; i < nummeshes; i++) {
+		if (meshes[i].shouldLoad()) {
+			meshes[i].load();
+		}
+	}
+	for (i = 0; i < nummeshes; i++) {
+		if (meshes[i].shouldDraw()) {
+			meshes[i].getMesh().recordDraw(f, rp, rs, rsidx, c);
+			break;
+		}
+	}
 }
