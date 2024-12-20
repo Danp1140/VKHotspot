@@ -4,8 +4,51 @@
 #include <gtc/quaternion.hpp>
 
 #include "GraphicsHandler.h"
+class MeshBase;
 class Mesh;
 #include "Scene.h"
+
+class MeshBase {
+public:
+	MeshBase() : 
+		position(0),
+		scale(1),
+		rotation(1, 0, 0, 0),
+		model(1) {}
+	MeshBase(const MeshBase& lvalue) = delete;
+	MeshBase(MeshBase&& rvalue) :
+		position(std::move(rvalue.position)),
+		scale(std::move(rvalue.scale)),
+		rotation(std::move(rvalue.rotation)),
+		model(std::move(rvalue.model)) {}
+	~MeshBase() = default;
+
+	friend void swap(MeshBase& lhs, MeshBase& rhs);
+
+	MeshBase& operator=(const MeshBase& rhs) = delete;
+	MeshBase& operator=(MeshBase&& rhs);
+
+	virtual void recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const = 0;
+
+	const glm::vec3& getPos() const {return position;}
+	const glm::mat4& getModelMatrix() const {return model;}
+
+	void setPos(glm::vec3 p);
+	void setRot(glm::quat r);
+	void setScale(glm::vec3 s);
+
+private:
+	glm::vec3 position, scale;
+	glm::quat rotation;
+	glm::mat4 model;
+
+	void updateModelMatrix();
+};
 
 typedef uint16_t MeshIndex;
 
@@ -22,13 +65,9 @@ typedef struct MeshPCData {
 	glm::mat4 m;
 } MeshPCData;
 
-class Mesh {
+class Mesh : public MeshBase {
 public:
-	Mesh() : 
-		position(glm::vec3(0)),
-		scale(glm::vec3(1)),
-		rotation(glm::vec3(0)),
-		model(glm::mat4(1)),
+	Mesh() : MeshBase(),
 		vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
 	Mesh(const Mesh& lvalue) = delete;
 	Mesh(Mesh&& rvalue);
@@ -50,14 +89,8 @@ public:
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
 
-	const glm::vec3& getPos() const {return position;}
-	const glm::mat4& getModelMatrix() const {return model;}
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}
-
-	void setPos(glm::vec3 p);
-	void setRot(glm::quat r);
-	void setScale(glm::vec3 s);
 
 protected:
 	BufferInfo vertexbuffer, indexbuffer;
@@ -70,15 +103,9 @@ protected:
 	void loadOBJ(const char* fp);
 
 private:
-	// TODO: make position scale & rotation actually affect model, and send model over to shader
-	glm::vec3 position, scale;
-	glm::quat rotation;
-	glm::mat4 model;
 	VertexBufferTraits vbtraits;
 
 	size_t getVertexBufferElementSize() const;
-
-	void updateModelMatrix();
 };
 
 typedef struct InstancedMeshData {
@@ -158,7 +185,7 @@ private:
 // a little janky, Mesh's buffers go unused but this is most intuitive for the user i think
 // consider a BaseMesh class that Mesh & LODMesh inherits from with pure virtual recordDraw,
 // model mat etc., but no buffers
-class LODMesh : public Mesh {
+class LODMesh : public MeshBase {
 public:
 	LODMesh() : meshes(nullptr), nummeshes(0) {}
 	LODMesh(std::vector<LODMeshData>& md);

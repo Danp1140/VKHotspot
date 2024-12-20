@@ -25,7 +25,7 @@ void RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
 	rendersets.push_back({p, {}, {}, {}, pcd});
 }
 
-void RenderPassInfo::addMesh(const Mesh* m, VkDescriptorSet ds, const void* pc, size_t pidx) {
+void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx) {
 	rendersets[pidx].meshes.push_back(m);
 	rendersets[pidx].objdss.push_back(ds);
 	rendersets[pidx].objpcdata.push_back(pc);
@@ -46,7 +46,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 		// could add a setting that puts entire pipeline & all mesh records in one 2ary cb
 		// this would be more efficient for meshes that aren't swapped in and out frequently
 		counter = 0;
-		for (const Mesh* m : r.meshes) {
+		for (const MeshBase* m : r.meshes) {
 			/* TODO: generalize push constants here */
 			/* may need PCRanges in RenderSet */
 #ifdef VKH_VERBOSE_DRAW_TASKS

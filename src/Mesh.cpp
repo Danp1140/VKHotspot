@@ -2,29 +2,46 @@
 
 VkDeviceSize Mesh::vboffsettemp = 0;
 
+void swap(MeshBase& lhs, MeshBase& rhs) {
+	std::swap(lhs.position, rhs.position);
+	std::swap(lhs.scale, rhs.scale);
+	std::swap(lhs.rotation, rhs.rotation);
+	std::swap(lhs.model, rhs.model);
+}
+
+MeshBase& MeshBase::operator=(MeshBase&& rhs) {
+	swap(*this, rhs);
+	return *this;
+}
+
+void MeshBase::setPos(glm::vec3 p) {
+	position = p;
+	updateModelMatrix();
+}
+
+void MeshBase::setRot(glm::quat r) {
+	rotation = r;
+	updateModelMatrix();
+}
+
+void MeshBase::setScale(glm::vec3 s) {
+	scale = s;
+	updateModelMatrix();
+}
+
+void MeshBase::updateModelMatrix() {
+	// TODO: maximize efficiency, this feels like it could be made way better
+	model = glm::translate(glm::mat4(1), position)
+		* glm::mat4_cast(rotation)
+		* glm::scale(glm::mat4(1), scale);
+}
+
 Mesh::Mesh(const char* f) : Mesh() {
 	loadOBJ(f);
 }
 
-/*
-Mesh::Mesh(const Mesh& lvalue) {
-	position = lvalue.position;
-	scale = lvalue.scale;
-	rotation = lvalue.rotation;
-	model = lvalue.model;
-	vbtraits = lvalue.vbtraits;
-	GH::copyMultiuserBuffer(lvalue.vertexbuffer);
-	vertexbuffer = lvalue.vertexbuffer;
-	GH::copyMultiuserBuffer(lvalue.indexbuffer);
-	indexbuffer = lvalue.indexbuffer;
-}
-*/
-
 Mesh::Mesh(Mesh&& rvalue) :
-	position(std::move(rvalue.position)),
-	scale(std::move(rvalue.scale)),
-	rotation(std::move(rvalue.rotation)),
-	model(std::move(rvalue.model)),
+	MeshBase(std::move(rvalue)),
 	vbtraits(std::move(rvalue.vbtraits)),
 	vertexbuffer(std::move(rvalue.vertexbuffer)),
 	indexbuffer(std::move(rvalue.indexbuffer)) {
@@ -38,27 +55,13 @@ Mesh::~Mesh() {
 }
 
 void swap(Mesh& lhs, Mesh& rhs) {
-	std::swap(lhs.position, rhs.position);
-	std::swap(lhs.scale, rhs.scale);
-	std::swap(lhs.rotation, rhs.rotation);
-	std::swap(lhs.model, rhs.model);
+	swap(static_cast<MeshBase&>(lhs), static_cast<MeshBase&>(rhs));
 	std::swap(lhs.vbtraits, rhs.vbtraits);
 	std::swap(lhs.vertexbuffer, rhs.vertexbuffer);
 	std::swap(lhs.indexbuffer, rhs.indexbuffer);
 }
 
 Mesh& Mesh::operator=(Mesh&& rhs) {
-	/*
-	position = std::move(rhs.position);
-	scale = std::move(rhs.scale);
-	rotation = std::move(rhs.rotation);
-	model = std::move(rhs.model);
-	vbtraits = std::move(rhs.vbtraits);
-	vertexbuffer = std::move(rhs.vertexbuffer);
-	indexbuffer = std::move(rhs.indexbuffer);
-	rhs.vertexbuffer = {};
-	rhs.indexbuffer = {};
-	*/
 	swap(*this, rhs);
 	return *this;
 }
@@ -161,21 +164,6 @@ void Mesh::ungetVISCI(VkPipelineVertexInputStateCreateInfo v) {
 	delete[] v.pVertexAttributeDescriptions;
 }
 
-void Mesh::setPos(glm::vec3 p) {
-	position = p;
-	updateModelMatrix();
-}
-
-void Mesh::setRot(glm::quat r) {
-	rotation = r;
-	updateModelMatrix();
-}
-
-void Mesh::setScale(glm::vec3 s) {
-	scale = s;
-	updateModelMatrix();
-}
-
 // could maybe make this constexpr
 size_t Mesh::getVertexBufferElementSize() const {
 	return getTraitsElementSize(vbtraits);
@@ -261,13 +249,6 @@ void Mesh::loadOBJ(const char* fp) {
 	free(vdst);
 	GH::updateWholeBuffer(indexbuffer, idst);
 	free(idst);
-}
-
-void Mesh::updateModelMatrix() {
-	// TODO: maximize efficiency, this feels like it could be made way better
-	model = glm::translate(glm::mat4(1), position)
-		* glm::mat4_cast(rotation)
-		* glm::scale(glm::mat4(1), scale);
 }
 
 InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {

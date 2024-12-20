@@ -1,7 +1,7 @@
 #include <ext.hpp>
 
-#define CAMERA_DEFAULT_NEAR_CLIP 0.001
-#define CAMERA_DEFAULT_FAR_CLIP 10000
+#define CAMERA_DEFAULT_NEAR_CLIP 0.01f
+#define CAMERA_DEFAULT_FAR_CLIP 1000.f
 
 class Camera {
 public:
