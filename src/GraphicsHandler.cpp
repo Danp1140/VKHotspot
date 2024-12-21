@@ -373,6 +373,7 @@ BufferInfo GH::scratchbuffer = {
 	0
 };
 const char* GH::shaderdir = "../resources/shaders/SPIRV/";
+std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -679,6 +680,25 @@ void GH::destroyRenderPass(VkRenderPass& rp) {
 void GH::createPipeline (PipelineInfo& pi) {
 	// still some heap allocs left in here and createShader. likely avoidable, but for now if they're not
 	// causing issues we'll just leave them be
+	
+	// this presumes only one and one scene & obj pcrs (but should work if they dont have the same range?)
+	uint32_t numpcrs = 0;
+	VkPushConstantRange pcrtemp[2];
+	if (pi.pushconstantrange.size != 0) {
+		pcrtemp[numpcrs] = pi.pushconstantrange;
+		numpcrs++;
+	}
+	if (pi.objpushconstantrange.size != 0) {
+		if (numpcrs > 0 && pcrtemp[numpcrs - 1].stageFlags == pi.objpushconstantrange.stageFlags) {
+			if (pi.objpushconstantrange.offset != pcrtemp[numpcrs - 1].size)
+				WarningError("Obj PC offset doesn't match scene PC size, but they have the same stage flags").raise();
+			pcrtemp[numpcrs - 1].size += pi.objpushconstantrange.size;
+		}
+		else {
+			pcrtemp[numpcrs] = pi.objpushconstantrange;
+			numpcrs++;
+		}
+	}
 	if (pi.stages & VK_SHADER_STAGE_COMPUTE_BIT) {
 		vkCreateDescriptorSetLayout(
 			logicaldevice,
@@ -690,7 +710,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 			nullptr,
 			0,
 			1, &pi.dsl,
-			pi.pushconstantrange.size == 0 ? 0u : 1u, &pi.pushconstantrange
+			numpcrs, &pcrtemp[0]
 		};
 		vkCreatePipelineLayout(
 			logicaldevice,
@@ -766,7 +786,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		nullptr,
 		0,
 		1, &pi.dsl,
-		pi.pushconstantrange.size == 0 ? 0u : 1u, &pi.pushconstantrange
+		numpcrs, &pcrtemp[0]
 	};
 	vkCreatePipelineLayout(
 		logicaldevice,
@@ -1094,6 +1114,20 @@ void GH::destroyBuffer(BufferInfo& b) {
 	vkDestroyBuffer(logicaldevice, b.buffer, nullptr);
 }
 
+void GH::createMultiuserBuffer(BufferInfo& b) {
+	createBuffer(b);
+	bufferusers[b.buffer] = 1;
+}
+
+void GH::copyMultiuserBuffer(const BufferInfo& b) {
+	bufferusers[b.buffer]++;
+}
+
+void GH::destroyMultiuserBuffer(BufferInfo& b) {
+	bufferusers[b.buffer]--;
+	if (bufferusers[b.buffer] == 0) destroyBuffer(b);
+}
+
 void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
 	void* dst;
 	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
@@ -1351,33 +1385,6 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 	i.layout = newlayout;
 	vkQueueWaitIdle(genericqueue);
 }
-
-/*
-void GH::recordPushConsts(
-		VkShaderStageFlags stages,
-		uint32_t offset,
-		uint32_t size,
-		const void* pc,
-		cbRecData d, 
-		VkCommandBuffer& c) {
-	VkCommandBufferInheritanceInfo cbinherinfo {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
-		nullptr,
-		d.rp, 0,
-		d.fb,
-		VK_FALSE, 0, 0
-	};
-	VkCommandBufferBeginInfo cbbi {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		nullptr,
-		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
-		&cbinherinfo
-	};
-	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdPushConstants(c, d.p->layout, stages, offset, size, pc);
-	vkEndCommandBuffer(c);
-}
-*/
 
 VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
 		VkDebugUtilsMessageSeverityFlagBitsEXT severity,

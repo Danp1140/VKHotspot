@@ -11,6 +11,7 @@
 #include <vector>
 #include <queue>
 #include <functional>
+#include <map>
 
 #include "Errors.h"
 
@@ -120,7 +121,7 @@ typedef struct PipelineInfo {
 	VkDescriptorSetLayoutCreateInfo descsetlayoutci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
 	};
-	VkPushConstantRange pushconstantrange = {};
+	VkPushConstantRange pushconstantrange = {}, objpushconstantrange = {};
 	VkPipelineVertexInputStateCreateInfo vertexinputstateci = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
 	};
@@ -399,6 +400,9 @@ public:
 
 	static void createBuffer(BufferInfo& b);
 	static void destroyBuffer(BufferInfo& b);
+	static void createMultiuserBuffer(BufferInfo& b);
+	static void copyMultiuserBuffer(const BufferInfo& b);
+	static void destroyMultiuserBuffer(BufferInfo& b);
 	static void updateWholeBuffer(const BufferInfo& b, void* src);
 
 	/*
@@ -433,6 +437,7 @@ private:
 	static VkSampler nearestsampler; // TODO: consider where samplers should live as we continue to utilize sampling [l]
 	static BufferInfo scratchbuffer;
 	static const char* shaderdir;
+	static std::map<VkBuffer, uint8_t> bufferusers;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively

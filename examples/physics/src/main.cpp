@@ -41,6 +41,7 @@ int main() {
 	tps.getRenderPass(0).addMesh(&floor, VK_NULL_HANDLE, &floor.getModelMatrix(), 0);
 	tps.getRenderPass(0).addMesh(&ramp, VK_NULL_HANDLE, &ramp.getModelMatrix(), 0);
 	tps.getRenderPass(0).addMesh(&povcube, VK_NULL_HANDLE, &povcube.getModelMatrix(), 0);
+	tps.getCamera()->setFOVY(glm::half_pi<float>());
 
 	fpw.addTasks(fps.getDrawTasks());
 	tpw.addTasks(tps.getDrawTasks());
@@ -64,7 +65,8 @@ int main() {
 
 	RectCollider* rampcol = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 1), glm::vec2(5))));
 	rampcol->setMass(std::numeric_limits<float>::infinity());
-	rampcol->setPos(glm::vec3(0, 0, -5));
+	// TODO: figure out why this is inconsistent w/ visual position of collider
+	rampcol->setPos(glm::vec3(0, 5 / glm::root_two<float>(), -5));
 	
 	ph.addColliderPair(ColliderPair(pov, deathplane));
 	ph.addColliderPair(ColliderPair(pov, mainstage));
@@ -76,6 +78,7 @@ int main() {
 		}, pov);
 	ph.getColliderPair(0).setPreventDefault(true);
 
+	// TODO: prevent jump and move in air lol
 	glm::vec3 movementdir;
 	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
 	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= c->getRight(); }));

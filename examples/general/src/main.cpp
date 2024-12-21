@@ -2,6 +2,10 @@
 #include "Scene.h"
 #include "PhysicsHandler.h"
 #include "TextureHandler.h"
+#include "InputHandler.h"
+
+#define MOVEMENT_SENS 0.75f
+#define FOV_SENS 0.05f
 
 void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	VkRenderPass r;
@@ -37,7 +41,8 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "default";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
@@ -64,7 +69,8 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		0,
 		1, &bindings[0]
 	};
-	ip.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
+	ip.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	ip.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
 	ip.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	ip.depthtest = true;
 	ip.extent = w.getSCExtent();
@@ -89,7 +95,8 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		0,
 		1, &dtbindings[0]
 	};
-	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
+	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	tp.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
 	tp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	tp.depthtest = true;
 	tp.extent = w.getSCExtent();
@@ -123,6 +130,30 @@ void throbCubeRing(InstancedMesh& m, std::vector<InstancedMeshData>& d, float fr
 		res[i].m = glm::translate<float>(d[i].m, 5.f * glm::vec3(0, glm::sech(5 * (fmod(theta1 + theta2, glm::two_pi<float>()) - glm::pi<float>())), 0));
 	}
 	m.updateInstanceUB(res);
+}
+
+typedef struct LODFuncData {
+	Camera* c;
+	float min, max;
+} LODFuncData;
+
+bool suzDrawCond(Mesh& m, void* d) {
+	LODFuncData* md = static_cast<LODFuncData*>(d);
+	float dist = glm::distance(m.getPos(), md->c->getPos());
+	return dist < md->max && dist > md->min;
+}
+
+LODMesh createLODSuzanne(Scene& s, std::vector<LODFuncData>& datadst) {
+	std::vector<LODMeshData> datatemp;
+	const float locutoffdist = 10, hicutoffdist = 75;
+	datadst = std::vector<LODFuncData>();
+	datadst.push_back((LODFuncData){s.getCamera(), 0, locutoffdist});
+	datadst.push_back((LODFuncData){s.getCamera(), locutoffdist, hicutoffdist});
+	datadst.push_back((LODFuncData){s.getCamera(), hicutoffdist, std::numeric_limits<float>::infinity()});
+	datatemp.emplace_back(Mesh("../resources/models/suzannehi.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[0]);
+	datatemp.emplace_back(Mesh("../resources/models/suzannemid.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[1]);
+	datatemp.emplace_back(Mesh("../resources/models/suzannelo.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[2]);
+	return LODMesh(datatemp);
 }
 
 int main() {
@@ -162,15 +193,13 @@ int main() {
 	Mesh plane("../resources/models/plane.obj");
 	s.getRenderPass(0).addMesh(&plane, VK_NULL_HANDLE, &plane.getModelMatrix(), 0);
 
-	Mesh suz("../resources/models/suzanne.obj");
-	/*
+	std::vector<LODFuncData> tempfd;
+	LODMesh suz = createLODSuzanne(s, tempfd);
 	TextureSet t("../resources/textures/uvgrid");
 	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
 	GH::createDS(s.getRenderPass(0).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
 	s.getRenderPass(0).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
-	*/
-	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
 
@@ -178,38 +207,43 @@ int main() {
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
 	pc->setPos(glm::vec3(0, 10, 0));
-	pc->applyForce(glm::vec3(0, -9.807, 0));
-
-	/*
-	MeshCollider* mc = static_cast<MeshCollider*>(ph.addCollider(MeshCollider("resources/models/objs/plane.obj")));
-	mc->setMass(std::numeric_limits<float>::infinity());
-	*/
+	// pc->applyForce(glm::vec3(0, -9.807, 0));
 
 	PlaneCollider* plc = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
 	plc->setMass(std::numeric_limits<float>::infinity());
 
 	ph.addColliderPair(ColliderPair(pc, plc));
 
+	InputHandler ih;
+	glm::vec3 movementdir;
+	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getUp()); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getRight()); }));
+	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getUp()); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getRight()); }));
+	ih.addHold(InputHold(SDL_SCANCODE_E, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward()); }));
+	ih.addHold(InputHold(SDL_SCANCODE_Q, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward()); }));
+	ih.addHold(InputHold(SDL_SCANCODE_UP, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() > FOV_SENS) c->setFOVY(c->getFOVY() - FOV_SENS); }));
+	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() < glm::pi<float>() - FOV_SENS) c->setFOVY(c->getFOVY() + FOV_SENS); }));
+
 	ph.start();
 	bool xpressed = false;
 	SDL_Event eventtemp;
-	while (!xpressed) {
+	while (w.frameCallback()) {
+		movementdir = glm::vec3(0);
+		ih.update();
+		SDL_PumpEvents();
+		if (movementdir != glm::vec3(0)) {
+			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
+			s.getCamera()->setForward(-s.getCamera()->getPos());
+		}
+
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
 		plane.setPos(plc->getPos());
 
-		w.frameCallback();
-		
-		SDL_Delay(17);
+		SDL_Delay(17); // TODO: get rid of this delay lol
 		ph.update();
-
-		while (SDL_PollEvent(&eventtemp)) {
-			if (eventtemp.type == SDL_EVENT_QUIT
-				|| eventtemp.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
-				xpressed = true;
-			}
-		}
 	}
 	vkQueueWaitIdle(GH::getGenericQueue());
 

@@ -1,7 +1,7 @@
 #include <ext.hpp>
 
-#define CAMERA_DEFAULT_NEAR_CLIP 0.001
-#define CAMERA_DEFAULT_FAR_CLIP 10000
+#define CAMERA_DEFAULT_NEAR_CLIP 0.01f
+#define CAMERA_DEFAULT_FAR_CLIP 1000.f
 
 class Camera {
 public:
@@ -14,6 +14,7 @@ public:
 	const glm::vec3& getRight() const {return right;}
 	const glm::vec3& getUp() const {return up;}
 	const glm::vec3& getPos() const {return position;}
+	float getFOVY() const {return fovy;}
 
 	void setPos(glm::vec3 p);
 	/* 
@@ -21,6 +22,7 @@ public:
 	 * expects a pre-normalized vector
 	 */
 	void setForward(glm::vec3 f);
+	void setFOVY(float f);
 
 private:
 	glm::vec3 position, forward, right, up;

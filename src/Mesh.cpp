@@ -2,8 +2,51 @@
 
 VkDeviceSize Mesh::vboffsettemp = 0;
 
+void swap(MeshBase& lhs, MeshBase& rhs) {
+	std::swap(lhs.position, rhs.position);
+	std::swap(lhs.scale, rhs.scale);
+	std::swap(lhs.rotation, rhs.rotation);
+	std::swap(lhs.model, rhs.model);
+}
+
+MeshBase& MeshBase::operator=(MeshBase&& rhs) {
+	swap(*this, rhs);
+	return *this;
+}
+
+void MeshBase::setPos(glm::vec3 p) {
+	position = p;
+	updateModelMatrix();
+}
+
+void MeshBase::setRot(glm::quat r) {
+	rotation = r;
+	updateModelMatrix();
+}
+
+void MeshBase::setScale(glm::vec3 s) {
+	scale = s;
+	updateModelMatrix();
+}
+
+void MeshBase::updateModelMatrix() {
+	// TODO: maximize efficiency, this feels like it could be made way better
+	model = glm::translate(glm::mat4(1), position)
+		* glm::mat4_cast(rotation)
+		* glm::scale(glm::mat4(1), scale);
+}
+
 Mesh::Mesh(const char* f) : Mesh() {
 	loadOBJ(f);
+}
+
+Mesh::Mesh(Mesh&& rvalue) :
+	MeshBase(std::move(rvalue)),
+	vbtraits(std::move(rvalue.vbtraits)),
+	vertexbuffer(std::move(rvalue.vertexbuffer)),
+	indexbuffer(std::move(rvalue.indexbuffer)) {
+	rvalue.vertexbuffer = {};
+	rvalue.indexbuffer = {};
 }
 
 Mesh::~Mesh() {
@@ -11,11 +54,28 @@ Mesh::~Mesh() {
 	if (indexbuffer.buffer != VK_NULL_HANDLE) GH::destroyBuffer(indexbuffer);
 }
 
-void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
+void swap(Mesh& lhs, Mesh& rhs) {
+	swap(static_cast<MeshBase&>(lhs), static_cast<MeshBase&>(rhs));
+	std::swap(lhs.vbtraits, rhs.vbtraits);
+	std::swap(lhs.vertexbuffer, rhs.vertexbuffer);
+	std::swap(lhs.indexbuffer, rhs.indexbuffer);
+}
+
+Mesh& Mesh::operator=(Mesh&& rhs) {
+	swap(*this, rhs);
+	return *this;
+}
+
+void Mesh::recordDraw(
+	VkFramebuffer f, 
+	VkRenderPass rp,
+	RenderSet rs,
+	size_t rsidx,
+	VkCommandBuffer& c) const {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
-		d.r, 0,
+		rp, 0,
 		f,
 		VK_FALSE, 0, 0
 	};
@@ -26,20 +86,34 @@ void Mesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
 		&cbinherinfo
 	};
 	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
-	if (d.d != VK_NULL_HANDLE) {
+	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
 		vkCmdBindDescriptorSets(
 			c,
 			VK_PIPELINE_BIND_POINT_GRAPHICS,
-			d.pl,
-			0, 1, &d.d,
+			rs.pipeline.layout,
+			0, 1, &rs.objdss[rsidx],
 			0, nullptr);
 	}
-	if (d.pcd) vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
-	if (d.opcd) vkCmdPushConstants(c, d.pl, d.opcr.stageFlags, d.opcr.offset, d.opcr.size, d.opcd);
-	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
-	vkCmdDrawIndexed(c, d.nv, 1, 0, 0, 0);
+	if (rs.pcdata) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.pushconstantrange.stageFlags, 
+			rs.pipeline.pushconstantrange.offset, 
+			rs.pipeline.pushconstantrange.size, 
+			rs.pcdata);
+	if (rs.objpcdata[rsidx]) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.objpushconstantrange.stageFlags, 
+			rs.pipeline.objpushconstantrange.offset, 
+			rs.pipeline.objpushconstantrange.size, 
+			rs.objpcdata[rsidx]);
+	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
@@ -90,43 +164,6 @@ void Mesh::ungetVISCI(VkPipelineVertexInputStateCreateInfo v) {
 	delete[] v.pVertexAttributeDescriptions;
 }
 
-const MeshDrawData Mesh::getDrawData(
-	VkRenderPass r, 
-	const PipelineInfo& p, 
-	VkPushConstantRange pcr, 
-	const void* pcd,
-	VkPushConstantRange opcr,
-	const void* opcd,
-	VkDescriptorSet ds) const {
-	return (MeshDrawData){
-		r,
-		p.pipeline,
-		p.layout,
-		pcr,
-		pcd,
-		opcr,
-		opcd,
-		ds,
-		vertexbuffer.buffer, indexbuffer.buffer,
-		indexbuffer.size / sizeof(MeshIndex)
-	};
-}
-
-void Mesh::setPos(glm::vec3 p) {
-	position = p;
-	updateModelMatrix();
-}
-
-void Mesh::setRot(glm::quat r) {
-	rotation = r;
-	updateModelMatrix();
-}
-
-void Mesh::setScale(glm::vec3 s) {
-	scale = s;
-	updateModelMatrix();
-}
-
 // could maybe make this constexpr
 size_t Mesh::getVertexBufferElementSize() const {
 	return getTraitsElementSize(vbtraits);
@@ -174,10 +211,10 @@ void Mesh::loadOBJ(const char* fp) {
 			for (auto& u: uvidx) uvindices.push_back(u - 1);
 		}
 	}
-
 	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	vertexbuffer.size = getVertexBufferElementSize() * vertexindices.size();
 	GH::createBuffer(vertexbuffer);
+	// what if we did buffer usage tracking in GH???
 	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	indexbuffer.size = sizeof(MeshIndex) * vertexindices.size();
 	GH::createBuffer(indexbuffer);
@@ -214,17 +251,6 @@ void Mesh::loadOBJ(const char* fp) {
 	free(idst);
 }
 
-void Mesh::updateModelMatrix() {
-	// TODO: maximize efficiency, this feels like it could be made way better
-	model = glm::translate(glm::mat4(1), position)
-		* glm::mat4_cast(rotation)
-		* glm::scale(glm::mat4(1), scale);
-}
-
-InstancedMesh::InstancedMesh() : Mesh() {
-	drawfunc = InstancedMesh::recordDraw;
-}
-
 InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
 	loadOBJ(fp);
 	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -248,11 +274,16 @@ void InstancedMesh::updateInstanceUB(std::vector<InstancedMeshData> m) {
 	GH::updateWholeBuffer(instanceub, m.data());
 }
 
-void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer& c) {
+void InstancedMesh::recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
-		d.r, 0,
+		rp, 0,
 		f,
 		VK_FALSE, 0, 0
 	};
@@ -263,17 +294,85 @@ void InstancedMesh::recordDraw(VkFramebuffer f, MeshDrawData d, VkCommandBuffer&
 		&cbinherinfo
 	};
 	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, d.p);
-	vkCmdBindDescriptorSets(
-		c,
-		VK_PIPELINE_BIND_POINT_GRAPHICS,
-		d.pl,
-		0, 1, &d.d,
-		0, nullptr);
-	vkCmdPushConstants(c, d.pl, d.pcr.stageFlags, d.pcr.offset, d.pcr.size, d.pcd);
-	vkCmdBindVertexBuffers(c, 0, 1, &d.vb, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, d.ib, 0, VK_INDEX_TYPE_UINT16);
-	vkCmdDrawIndexed(c, d.nv, 32, 0, 0, 0);
+	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
+		vkCmdBindDescriptorSets(
+			c,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			rs.pipeline.layout,
+			0, 1, &rs.objdss[rsidx],
+			0, nullptr);
+	}
+	if (rs.pcdata) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.pushconstantrange.stageFlags, 
+			rs.pipeline.pushconstantrange.offset, 
+			rs.pipeline.pushconstantrange.size, 
+			rs.pcdata);
+	if (rs.objpcdata[rsidx]) 
+		vkCmdPushConstants(
+			c, 
+			rs.pipeline.layout, 
+			rs.pipeline.objpushconstantrange.stageFlags, 
+			rs.pipeline.objpushconstantrange.offset, 
+			rs.pipeline.objpushconstantrange.size, 
+			rs.objpcdata[rsidx]);
+	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
+	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
+LODMesh::LODMesh(std::vector<LODMeshData>& md) : nummeshes(md.size()) {
+	meshes = new LODMeshData[nummeshes];
+	for (uint8_t i = 0; i < nummeshes; i++) {
+		meshes[i] = std::move(md[i]);
+	}
+}
+
+LODMesh::~LODMesh() {
+	delete[] meshes;
+}
+
+void swap(LODMeshData& lhs, LODMeshData& rhs) {
+	swap(lhs.m, rhs.m);
+	std::swap(lhs.shouldload, rhs.shouldload);
+	std::swap(lhs.shoulddraw, rhs.shoulddraw);
+	std::swap(lhs.sldata, rhs.sldata);
+	std::swap(lhs.sddata, rhs.sddata);
+}
+
+LODMeshData& LODMeshData::operator=(LODMeshData&& rhs) {
+	/*
+	m = std::move(rhs.m);
+	shouldload = std::move(rhs.shouldload);
+	shoulddraw = std::move(rhs.shoulddraw);
+	sldata = std::move(rhs.sldata);
+	sddata = std::move(rhs.sddata);
+	*/
+	swap(*this, rhs);
+	return *this;
+}
+
+void LODMesh::recordDraw(
+		VkFramebuffer f, 
+		VkRenderPass rp,
+		RenderSet rs,
+		size_t rsidx,
+		VkCommandBuffer& c) const {
+	uint8_t i;
+	for (i = 0; i < nummeshes; i++) {
+		if (meshes[i].shouldLoad()) {
+			meshes[i].load();
+		}
+	}
+	for (i = 0; i < nummeshes; i++) {
+		if (meshes[i].shouldDraw()) {
+			meshes[i].getMesh().recordDraw(f, rp, rs, rsidx, c);
+			break;
+		}
+	}
+}

@@ -211,6 +211,14 @@ typedef void (*PhysicsCallback)(void *);
 	if (!preventdefault) newtonianCollide(dt, cp, n); \
 	if (oncollide) oncollide(collidedata); \
 }
+#define COLLIDER_PAIR_SLIDE_CALL(dt, n) { \
+	if (!preventdefault) newtonianSlide(dt, n); \
+	if (onslide) onslide(slidedata); \
+}
+#define COLLIDER_PAIR_DECOUPLE_CALL(dt) { \
+	if (!preventdefault) newtonianDecouple(dt); \
+	if (ondecouple) ondecouple(decoupledata); \
+}
 
 class ColliderPair {
 public:
@@ -263,7 +271,7 @@ private:
 	void newtonianCollide(float dt, const glm::vec3& p, const glm::vec3& n);
 	void newtonianCouple(float dt, float dt0, const glm::vec3& n);
 	void newtonianDecouple(float dt);
-	void newtonianSlide(float dt);
+	void newtonianSlide(float dt, const glm::vec3& n);
 	void collidePointPlane(float dt);
 	void collidePointRect(float dt);
 	void collidePointMesh(float dt);
