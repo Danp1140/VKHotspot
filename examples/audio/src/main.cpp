@@ -15,7 +15,7 @@ void setupStereoExample(AudioHandler& a);
 
 void updateStereoExample(AudioHandler& a, Scene& s);
 
-void makeAudioMeshes(const AudioHandler& a, InstancedMesh* dst, Scene& s);
+void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& s);
 
 float conicResponseFunction(const glm::vec3& f, const glm::vec3& r) {
 	const float c = 0.5, s = 20, b = 0.5;
@@ -39,7 +39,7 @@ int main() {
 	Mesh soundmesh("../resources/models/sound.obj");
 	s.getRenderPass(0).addMesh(&soundmesh, VK_NULL_HANDLE, &soundmesh.getModelMatrix(), 0);
 	*/
-	InstancedMesh* soundsmesh;
+	InstancedMesh soundsmesh;
 	makeAudioMeshes(ah, soundsmesh, s);
 	w.addTasks(s.getDrawTasks());
 
@@ -90,8 +90,6 @@ int main() {
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());
-
-	delete soundsmesh;
 
 	return 0;
 }
@@ -206,7 +204,7 @@ void updateStereoExample(AudioHandler& a, Scene& s) {
 	a.getListener(1).setForward(s.getCamera()->getForward() + 0.5f * s.getCamera()->getRight());
 }
 
-void makeAudioMeshes(const AudioHandler& a, InstancedMesh* dst, Scene& s) {
+void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& s) {
 	std::vector<InstancedMeshData> imd;
 	glm::vec3 v;
 	for (Sound* s : a.getSounds()) {
@@ -215,12 +213,12 @@ void makeAudioMeshes(const AudioHandler& a, InstancedMesh* dst, Scene& s) {
 			glm::translate(glm::mat4(1), s->getPos()) 
 			 * glm::mat4_cast(glm::normalize(glm::quat(1 + glm::dot(glm::vec3(0, 0, 1), s->getForward()), v)))});
 	}
-	dst = new InstancedMesh("../resources/models/sound.obj", imd);
+	dst = InstancedMesh("../resources/models/sound.obj", imd);
 
 	VkDescriptorSet ds;
 	GH::createDS(s.getRenderPass(0).getRenderSet(0).pipeline, ds);
-	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, dst->getInstanceUB().getDBI());
+	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, dst.getInstanceUB().getDBI());
 
-	s.getRenderPass(0).addMesh(dst, ds, nullptr, 0);
+	s.getRenderPass(0).addMesh(&dst, ds, nullptr, 0);
 }
 
