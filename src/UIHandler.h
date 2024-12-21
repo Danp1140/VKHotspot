@@ -11,7 +11,6 @@ public:
 	UIHandler(VkExtent2D extent);
 	~UIHandler();
 
-	// void addComponent(UIComponent c);
 	/* 
 	 * another hack to get polymorphic functions to work
 	 * (e.g., text needs to regen tex on ds set)
@@ -26,7 +25,7 @@ public:
 	}
 	void setTex(UIImage& i, const ImageInfo& ii);
 
-	void draw(VkCommandBuffer& cb, const VkFramebuffer& f) ;
+	void recordDraw(VkFramebuffer f, VkRenderPass rp, VkCommandBuffer& cb) const;
 
 	static constexpr UIPipelineInfo ghToUIPipelineInfo(const PipelineInfo& p) {
 		return (UIPipelineInfo){
@@ -63,17 +62,11 @@ public:
 		};
 	}
 
-	const VkRenderPass& getRenderPass() const {return renderpass;}
-	const VkClearValue& getColorClear() const {return colorclear;}
-
 // would like to have option for static vs dynamic textures...
 
 private:
-	VkRenderPass renderpass;
-	PipelineInfo graphicspipeline;
 	VkCommandBufferBeginInfo cbbegininfo;
 	VkCommandBufferInheritanceInfo cbinherinfo;
-	const VkClearValue colorclear;
 
 	UIContainer root;
 };

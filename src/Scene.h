@@ -18,6 +18,9 @@ typedef struct RenderSet {
 	std::vector<const MeshBase*> meshes;
 	std::vector<VkDescriptorSet> objdss; // associates with same-index Mesh* in meshes
 	std::vector<const void*> objpcdata;
+	const UIHandler* ui = nullptr; // TODO: consider specializing into Mesh, UI, Compute renderpasses, etc.?
+				       // structure will become clearer as UI becomes more widely used
+				       // certainly should aim for efficiency and ease-of-use
 	const void* pcdata;
 } RenderSet;
 
@@ -37,6 +40,7 @@ public:
 
 	void addPipeline(const PipelineInfo& p, const void* pcd);
 	void addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx);
+	void setUI(const UIHandler* u);
 
 	std::vector<cbRecTaskTemplate> getTasks() const;
 

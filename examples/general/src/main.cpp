@@ -35,7 +35,6 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
 	};
 	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], &attachrefs[1]);
-
 	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 
 	PipelineInfo p;
@@ -104,7 +103,48 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	GH::createPipeline(tp);
 	rpi.addPipeline(tp, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(tp.vertexinputstateci);
+	s.addRenderPass(rpi);
 
+	VkAttachmentDescription uiattachdesc {
+		0,
+		GH_SWAPCHAIN_IMAGE_FORMAT,
+		VK_SAMPLE_COUNT_1_BIT,
+		VK_ATTACHMENT_LOAD_OP_LOAD,
+		VK_ATTACHMENT_STORE_OP_STORE,
+		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+		VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+	};
+	VkAttachmentReference uiattachref {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+	GH::createRenderPass(r, 1, &uiattachdesc, &uiattachref, nullptr);
+	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0, 0, 0, 1}});
+
+	// TODO: look into this more
+	uip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	uip.shaderfilepathprefix = "UI";
+	uip.renderpass = r;
+	uip.extent = w.getSCExtent(); 
+	uip.cullmode = VK_CULL_MODE_NONE;
+	uip.pushconstantrange = {
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		0, sizeof(UIPushConstantData)
+	};
+	VkDescriptorSetLayoutBinding uipbindings[1] {{
+		0,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		1,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
+		nullptr
+	}};
+	uip.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		1, &uipbindings[0]
+	};
+	GH::createPipeline(uip);
+	rpi.addPipeline(uip, nullptr);
 	s.addRenderPass(rpi);
 }
 
@@ -176,12 +216,14 @@ int main() {
 		VK_NULL_HANDLE, VK_NULL_HANDLE,
 		[&ui, &w] (cbRecData d, VkCommandBuffer& cb) { ui.draw(cb, w.getCurrentPresentationFB()); },
 		w.getPresentationFBs())));
-	ui.addComponent(UIText(L"text from main", UICoord(1000, 1000)));
 	*/
 	
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
+
+	ui.addComponent(UIText(L"text from main", UICoord(1000, 1000)));
+	s.getRenderPass(1).setUI(&uihandler);
 
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
