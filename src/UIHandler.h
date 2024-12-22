@@ -8,22 +8,28 @@ public:
 	UIHandler() = delete;
 	UIHandler(const UIHandler& lvalue) = delete;
 	UIHandler(UIHandler&& rvalue) = delete;
-	UIHandler(VkExtent2D extent);
+	UIHandler(const PipelineInfo& p, VkExtent2D extent);
 	~UIHandler();
 
 	/* 
 	 * another hack to get polymorphic functions to work
 	 * (e.g., text needs to regen tex on ds set)
 	 */
+	// TODO: should this be a reference of some sort???
 	template <class T>
 	void addComponent(T c) {
+		// TODO: is all this ds stuff needed for non-tex pipelines?
+		// WHY ARENT DESCSETS MANAGED BY THE COMPONENETS????????
 		VkDescriptorSet dstemp;
-		GH::createDS(graphicspipeline, dstemp);
+		PipelineInfo pitemp;
+		pitemp.pipeline = c.getGraphicsPipeline().pipeline;
+		pitemp.layout = c.getGraphicsPipeline().layout;
+		pitemp.dsl = c.getGraphicsPipeline().dsl;
+		GH::createDS(pitemp, dstemp);
 		c.setDS(dstemp);
-		c.setGraphicsPipeline(root.getGraphicsPipeline());
 		root.addChild(c);
 	}
-	void setTex(UIImage& i, const ImageInfo& ii);
+	void setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p);
 
 	void recordDraw(VkFramebuffer f, VkRenderPass rp, VkCommandBuffer& cb) const;
 

@@ -1,4 +1,3 @@
-#include "UIHandler.h"
 #include "Scene.h"
 #include "PhysicsHandler.h"
 #include "TextureHandler.h"
@@ -18,7 +17,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 		}, {
 			0, 
 			GH_DEPTH_BUFFER_IMAGE_FORMAT,
@@ -113,14 +112,14 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		VK_ATTACHMENT_STORE_OP_STORE,
 		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 		VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 	};
 	VkAttachmentReference uiattachref {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
 	GH::createRenderPass(r, 1, &uiattachdesc, &uiattachref, nullptr);
-	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0, 0, 0, 1}});
+	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, {{0, 0, 0, 1}});
 
-	// TODO: look into this more
+	PipelineInfo uip;
 	uip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	uip.shaderfilepathprefix = "UI";
 	uip.renderpass = r;
@@ -143,6 +142,11 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		0,
 		1, &uipbindings[0]
 	};
+	VkSpecializationMapEntry specmap[2] {
+		{0, 0, sizeof(uint32_t)},
+		{1, sizeof(uint32_t), sizeof(uint32_t)}
+	};
+	uip.specinfo = {2, &specmap[0], sizeof(VkExtent2D), static_cast<void*>(&uip.extent)};
 	GH::createPipeline(uip);
 	rpi.addPipeline(uip, nullptr);
 	s.addRenderPass(rpi);
@@ -199,31 +203,21 @@ LODMesh createLODSuzanne(Scene& s, std::vector<LODFuncData>& datadst) {
 int main() {
 	GH graphicshandler = GH();
 	WindowInfo w;
-	UIHandler ui(w.getSCExtent());
 	TextureHandler th;
 
-	/*
-	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(
-		ui.getRenderPass(),
-		w.getPresentationFBs(),
-		w.getSCImages()[0].extent,
-		1, &ui.getColorClear())));
-	// TODO: fix UIHandler, this is disgusting lol [l] 
-	w.addTask(cbRecTaskTemplate(cbRecFuncTemplate(
-		VK_NULL_HANDLE,
-		nullptr,
-		VK_NULL_HANDLE, VK_NULL_HANDLE,
-		VK_NULL_HANDLE, VK_NULL_HANDLE,
-		[&ui, &w] (cbRecData d, VkCommandBuffer& cb) { ui.draw(cb, w.getCurrentPresentationFB()); },
-		w.getPresentationFBs())));
-	*/
-	
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
-	ui.addComponent(UIText(L"text from main", UICoord(1000, 1000)));
-	s.getRenderPass(1).setUI(&uihandler);
+	UIHandler ui(s.getRenderPass(1).getRenderSet(0).pipeline, w.getSCExtent());
+	UIContainer ct;
+	ct.setPos(UICoord(0, w.getSCExtent().height));
+	ct.setExt(UICoord(1000, -w.getSCExtent().height));
+	// ct.addChild(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", UICoord(0, w.getSCExtent().height)));
+	// ct.addChild(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", UICoord(100, 100)));
+	// ui.addComponent(ct);
+	ui.addComponent(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", UICoord(100, 1000)));
+	s.getRenderPass(1).setUI(&ui, 0);
 
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);

@@ -22,7 +22,7 @@ void RenderPassInfo::destroy() {
 }
 
 void RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
-	rendersets.push_back({p, {}, {}, {}, pcd});
+	rendersets.push_back({p, {}, {}, {}, nullptr, pcd});
 }
 
 void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx) {
@@ -31,8 +31,8 @@ void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* 
 	rendersets[pidx].objpcdata.push_back(pc);
 }
 
-void RenderPassInfo::setUI(const UIHandler* u) {
-	rendersets.ui = u;
+void RenderPassInfo::setUI(const UIHandler* u, size_t pidx) {
+	rendersets[pidx].ui = u;
 }
 
 std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
@@ -61,17 +61,20 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 			});
 			counter++;
 		}
+		if (r.ui) {
 #ifdef VKH_VERBOSE_DRAW_TASKS
-		std::cout << "}" << std::endl;
-		if (ui) {
+			std::cout << "UI " << r.ui << std::endl;
+#endif
 			tasks.emplace_back(
-				[ui, &rp = renderpass, &fb = framebuffers]
+				[ui = r.ui, &rp = renderpass, &fb = framebuffers]
 				(uint8_t scii, VkCommandBuffer& c) {
 				ui->recordDraw(fb[scii], rp, c);
 			});
 		}
+#ifdef VKH_VERBOSE_DRAW_TASKS
+		std::cout << "}" << std::endl;
 #endif
-	}	
+	}
 #ifdef VKH_VERBOSE_DRAW_TASKS
 	std::cout << "}" << std::endl;
 #endif

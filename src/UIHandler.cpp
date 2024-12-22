@@ -1,8 +1,10 @@
 #include "UIHandler.h"
 
-UIHandler::UIHandler(VkExtent2D extent) {
+UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
+	UIComponent::setDefaultGraphicsPipeline(ghToUIPipelineInfo(p));
+
 	VkDescriptorSet ds;
-	GH::createDS(graphicspipeline, ds);
+	GH::createDS(p, ds);
 	UIComponent::setDefaultDS(ds);
 	ImageInfo i;
 	// little bodge to populate default fields like format
@@ -60,53 +62,37 @@ UIHandler::UIHandler(VkExtent2D extent) {
 	});
 
 	root = UIContainer();
-	root.setGraphicsPipeline(ghToUIPipelineInfo(graphicspipeline));
-
-	cbbegininfo = {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		nullptr, 
-		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
-		&cbinherinfo
-	};
-	cbinherinfo = {
-		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
-		nullptr,
-		VK_NULL_HANDLE, // watch out if we ever need a setRenderPass function
-		0, // hard-coded subpass :/
-		VK_NULL_HANDLE,
-		VK_FALSE, 0, 0
-	};
 }
 
 UIHandler::~UIHandler() {
-	vkQueueWaitIdle(GH::getGenericQueue());
 	ImageInfo temp = uiToGHImageInfo(UIComponent::getNoTex());
 	GH::destroyImage(temp);
-	GH::destroyPipeline(graphicspipeline);
-	GH::destroyRenderPass(renderpass);
 }
 
-/*
-void UIHandler::addComponent(UIComponent c) {
+void UIHandler::setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p) {
 	VkDescriptorSet dstemp;
-	GH::createDS(graphicspipeline, dstemp);
-	c.setDS(dstemp);
-	c.setGraphicsPipeline(root.getGraphicsPipeline());
-	root.addChild(c);
-}
-*/
-
-void UIHandler::setTex(UIImage& i, const ImageInfo& ii) {
-	VkDescriptorSet dstemp;
-	GH::createDS(graphicspipeline, dstemp);
+	GH::createDS(p, dstemp);
 	GH::updateDS(dstemp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ii.getDII(), {});
 	i.setTex(ghToUIImageInfo(ii));
 	i.setDS(dstemp);
 }
 
 void UIHandler::recordDraw(VkFramebuffer f, VkRenderPass rp, VkCommandBuffer& cb) const {
-	cbinherinfo.renderpass = rp;
-	cbinherinfo.framebuffer = f;
+	VkCommandBufferInheritanceInfo cbinherinfo = {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		nullptr,
+		rp,
+		0, // hard-coded subpass :/
+		f,
+		VK_FALSE, 0, 0
+	};
+	VkCommandBufferBeginInfo cbbegininfo = {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr, 
+		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
+		&cbinherinfo
+	};
+
 	vkBeginCommandBuffer(cb, &cbbegininfo);
 	root.draw(cb);
 	vkEndCommandBuffer(cb);
