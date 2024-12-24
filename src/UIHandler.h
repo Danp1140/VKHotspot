@@ -17,17 +17,8 @@ public:
 	 */
 	// TODO: should this be a reference of some sort???
 	template <class T>
-	void addComponent(T c) {
-		// TODO: is all this ds stuff needed for non-tex pipelines?
-		// WHY ARENT DESCSETS MANAGED BY THE COMPONENETS????????
-		VkDescriptorSet dstemp;
-		PipelineInfo pitemp;
-		pitemp.pipeline = c.getGraphicsPipeline().pipeline;
-		pitemp.layout = c.getGraphicsPipeline().layout;
-		pitemp.dsl = c.getGraphicsPipeline().dsl;
-		GH::createDS(pitemp, dstemp);
-		c.setDS(dstemp);
-		root.addChild(c);
+	T* addComponent(T c) {
+		return root.addChild(c);
 	}
 	void setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p);
 
@@ -52,7 +43,6 @@ public:
 			i.layout
 		};
 	}
-	// can't be constexpr because it needs to grab the GH sampler
 	static ImageInfo uiToGHImageInfo(const UIImageInfo& i) {
 		return (ImageInfo) {
 			i.image,
@@ -62,7 +52,7 @@ public:
 			i.format,
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, // for now assuming dynamic text
 			VK_IMAGE_LAYOUT_GENERAL,
-			GH::getNearestSampler(),
+			textsampler,
 			// below should probably depend on static vs dynamic tex
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		};
@@ -73,6 +63,7 @@ public:
 private:
 	VkCommandBufferBeginInfo cbbegininfo;
 	VkCommandBufferInheritanceInfo cbinherinfo;
+	static VkSampler textsampler;
 
 	UIContainer root;
 };

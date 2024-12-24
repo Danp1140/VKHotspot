@@ -200,6 +200,30 @@ LODMesh createLODSuzanne(Scene& s, std::vector<LODFuncData>& datadst) {
 	return LODMesh(datatemp);
 }
 
+void prependTwoDigitTime(SDL_Time t, std::wstring& s) {
+	s.insert(0, std::to_wstring(t));
+	if (t < 10) s.insert(0, L"0");
+}
+
+std::wstring getTimestamp() {
+	SDL_Time t;
+	SDL_GetCurrentTime(&t);
+	t = SDL_NS_TO_SECONDS(t);
+	SDL_Time temp = t % 60;
+	std::wstring res;
+	prependTwoDigitTime(temp, res);
+	res.insert(0, L":");
+	t /= 60;
+	temp = t % 60;
+	prependTwoDigitTime(temp, res);
+	res.insert(0, L":");
+	t /= 60;
+	temp = t % 24;
+	prependTwoDigitTime(temp, res);
+	res.append(L" (UTC lol)");
+	return res;
+}
+
 int main() {
 	GH graphicshandler = GH();
 	WindowInfo w;
@@ -209,14 +233,18 @@ int main() {
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
+	std::wstring log = L"";
+	const size_t logmaxlines = 10;
 	UIHandler ui(s.getRenderPass(1).getRenderSet(0).pipeline, w.getSCExtent());
-	UIContainer ct;
-	ct.setPos(UICoord(0, w.getSCExtent().height));
-	ct.setExt(UICoord(1000, -w.getSCExtent().height));
-	// ct.addChild(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", UICoord(0, w.getSCExtent().height)));
-	// ct.addChild(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", UICoord(100, 100)));
-	// ui.addComponent(ct);
-	ui.addComponent(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", UICoord(100, 1000)));
+	UIContainer* leftsidebar = ui.addComponent(UIContainer());
+	leftsidebar->setPos(UICoord(0, 0));
+	leftsidebar->setExt(UICoord(500, w.getSCExtent().height));
+	leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
+	UIText* logtext = leftsidebar->addChild(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\ndo u think they have ligatures???\nfl fi ff tt ft\nweird kerning on te te ttee\nokay what about this: おはよう！ 日本語で書こう！\nd'accord, une example en japonais ne marche pas (au moins avec Times New Roman), mais peut-être quelques mots en français va se passer bien?\nOkay try this one on for size: 😎"));
+	logtext->setPos(UICoord(0, 0));
+	logtext->setBGCol({0, 0, 0, 0});
+	UIText* camtext = ui.addComponent(UIText());
+	camtext->setPos(UICoord(500, 0));
 	s.getRenderPass(1).setUI(&ui, 0);
 
 	std::vector<InstancedMeshData> imdatatemp;
@@ -242,13 +270,17 @@ int main() {
 	PhysicsHandler ph;
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
-	pc->setPos(glm::vec3(0, 10, 0));
-	// pc->applyForce(glm::vec3(0, -9.807, 0));
+	pc->setPos(glm::vec3(-5, 10, -5));
+	pc->applyForce(glm::vec3(0, -9.807, 0));
 
 	PlaneCollider* plc = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
 	plc->setMass(std::numeric_limits<float>::infinity());
 
 	ph.addColliderPair(ColliderPair(pc, plc));
+	ph.getColliderPair(0).setOnCollide([] (void* d) {
+		std::wstring* l = static_cast<std::wstring*>(d);
+		l->insert(0, L"Point collided with plane!\n");
+		}, &log);
 
 	InputHandler ih;
 	glm::vec3 movementdir;
@@ -258,8 +290,16 @@ int main() {
 	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getRight()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_E, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_Q, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward()); }));
+	// TODO: consider using a sigmoid to modulate FOVY input
 	ih.addHold(InputHold(SDL_SCANCODE_UP, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() > FOV_SENS) c->setFOVY(c->getFOVY() - FOV_SENS); }));
 	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() < glm::pi<float>() - FOV_SENS) c->setFOVY(c->getFOVY() + FOV_SENS); }));
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log] (const SDL_Event& e) { 
+		if (e.key.scancode == SDL_SCANCODE_H) {
+			log.insert(0, L"Hello World! @ " + getTimestamp() + L"\n");
+			return true;
+		}
+		return false;
+	}));
 
 	ph.start();
 	bool xpressed = false;
@@ -272,13 +312,18 @@ int main() {
 			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
 			s.getCamera()->setForward(-s.getCamera()->getPos());
 		}
+		size_t numlines = 0;
+		for (wchar_t c : log) if (c == L'\n') numlines++;
+		if (numlines > logmaxlines) log = log.substr(0, log.find_last_of(L'\n'));
+		if (logtext->getText() != log) logtext->setText(log);
+		camtext->setText(L"[" + std::to_wstring(s.getCamera()->getPos().x) + L", " + std::to_wstring(s.getCamera()->getPos().y) + L", " + std::to_wstring(s.getCamera()->getPos().z) + L"], FOV = " 
+				+ std::to_wstring(s.getCamera()->getFOVY()) + L"º");
 
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
 		plane.setPos(plc->getPos());
 
-		SDL_Delay(17); // TODO: get rid of this delay lol
 		ph.update();
 	}
 	vkQueueWaitIdle(GH::getGenericQueue());

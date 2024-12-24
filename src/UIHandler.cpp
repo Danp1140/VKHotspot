@@ -1,8 +1,30 @@
 #include "UIHandler.h"
 
+VkSampler UIHandler::textsampler = VK_NULL_HANDLE;
+
 UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 	UIComponent::setDefaultGraphicsPipeline(ghToUIPipelineInfo(p));
 
+	// --- Text Sampler Setup ---
+	VkSamplerCreateInfo ci {
+		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		nullptr,
+		0,
+		VK_FILTER_LINEAR, VK_FILTER_LINEAR,
+		VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		0, 
+		VK_FALSE, 0, 
+		VK_FALSE, VK_COMPARE_OP_NEVER,
+		0, 1,
+		VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+		VK_FALSE
+	};
+	vkCreateSampler(GH::getLD(), &ci, nullptr, &textsampler);
+
+	// --- Blank Tex & DS Setup ---
 	VkDescriptorSet ds;
 	GH::createDS(p, ds);
 	UIComponent::setDefaultDS(ds);
@@ -14,8 +36,19 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 	UIComponent::setNoTex(ghToUIImageInfo(i));
 	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i.getDII(), {});
 
+
 	UIImage::setTexLoadFunc([] (UIImage* t, void* d) {
-		if (t->getDS() == VK_NULL_HANDLE || t->getDS() == UIComponent::getDefaultDS()) return;
+		if (t->getDS() == VK_NULL_HANDLE || t->getDS() == UIComponent::getDefaultDS()) {
+			PipelineInfo pitemp {
+				t->getGraphicsPipeline().layout,
+				t->getGraphicsPipeline().pipeline,
+				t->getGraphicsPipeline().dsl
+			};
+			VkDescriptorSet temp;
+			// TODO: consider making some copy functions that take just relevant struct members as args...
+			GH::createDS(pitemp, temp);
+			t->setDS(temp);
+		}
 		ImageInfo i = uiToGHImageInfo(t->getTex());
 		if (i.image != VK_NULL_HANDLE) {
 			vkQueueWaitIdle(GH::getGenericQueue());
@@ -67,6 +100,7 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 UIHandler::~UIHandler() {
 	ImageInfo temp = uiToGHImageInfo(UIComponent::getNoTex());
 	GH::destroyImage(temp);
+	vkDestroySampler(GH::getLD(), textsampler, nullptr);
 }
 
 void UIHandler::setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p) {

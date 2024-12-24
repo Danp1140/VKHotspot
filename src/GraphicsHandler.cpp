@@ -19,8 +19,7 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo() : WindowInfo(glm::vec2(0), glm::vec2(1)) {
-}
+WindowInfo::WindowInfo() : WindowInfo(glm::vec2(0), glm::vec2(1)) {}
 
 WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	int ndisplays;
@@ -35,7 +34,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	sdlwindow = SDL_CreateWindow(
 		"Vulkan Project", 
 		displaymode->w * s.x, displaymode->h * s.y, 
-		SDL_WINDOW_VULKAN);
+		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 	SDL_SetWindowPosition(
 		sdlwindow,
 		displaymode->w * p.x, displaymode->h * (1 - s.y));
@@ -597,6 +596,7 @@ void GH::terminateCommandPools() {
 	vkDestroyCommandPool(logicaldevice, commandpool, nullptr);
 }
 
+// TODO: phase this out, samplers should be managed elsewhere i believe
 void GH::initSamplers() {
 	VkSamplerCreateInfo samplerci {
 		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
