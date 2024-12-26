@@ -2,7 +2,8 @@
 
 layout (constant_id = 0) const uint SCREEN_WIDTH = 1920;
 layout (constant_id = 1) const uint SCREEN_HEIGHT = 1080;
-vec2 SCREEN_VEC = vec2(SCREEN_WIDTH, SCREEN_HEIGHT); // cant make this const???
+// multiplying by two here fixed some range issues but im unsure why...
+vec2 SCREEN_VEC = 2 * vec2(SCREEN_WIDTH, SCREEN_HEIGHT); // cant make this const???
 
 layout(push_constant) uniform Constants {
 	vec4 bgcolor;

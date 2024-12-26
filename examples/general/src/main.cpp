@@ -234,17 +234,24 @@ int main() {
 	createScene(s, w, m);
 
 	std::wstring log = L"";
-	const size_t logmaxlines = 10;
+	const size_t logmaxlines = 20;
+	uint64_t lastfpstime = SDL_GetTicks();
+	const uint64_t maxfpstime = 1000;
+	float fpstot = 0, framevar, frameavg;
+	std::vector<float> frametimes;
+	size_t numf = 0;
 	UIHandler ui(s.getRenderPass(1).getRenderSet(0).pipeline, w.getSCExtent());
 	UIContainer* leftsidebar = ui.addComponent(UIContainer());
 	leftsidebar->setPos(UICoord(0, 0));
-	leftsidebar->setExt(UICoord(500, w.getSCExtent().height));
+	leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
 	leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
-	UIText* logtext = leftsidebar->addChild(UIText(L"text from main AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\ndo u think they have ligatures???\nfl fi ff tt ft\nweird kerning on te te ttee\nokay what about this: おはよう！ 日本語で書こう！\nd'accord, une example en japonais ne marche pas (au moins avec Times New Roman), mais peut-être quelques mots en français va se passer bien?\nOkay try this one on for size: 😎"));
+	UIText* logtext = leftsidebar->addChild(UIText());
 	logtext->setPos(UICoord(0, 0));
 	logtext->setBGCol({0, 0, 0, 0});
 	UIText* camtext = ui.addComponent(UIText());
-	camtext->setPos(UICoord(500, 0));
+	camtext->setPos(UICoord(1000, 0));
+	UIText* fpstext = ui.addComponent(UIText());
+	fpstext->setPos(UICoord(w.getSCExtent().width - 200, 0));
 	s.getRenderPass(1).setUI(&ui, 0);
 
 	std::vector<InstancedMeshData> imdatatemp;
@@ -302,7 +309,6 @@ int main() {
 	}));
 
 	ph.start();
-	bool xpressed = false;
 	SDL_Event eventtemp;
 	while (w.frameCallback()) {
 		movementdir = glm::vec3(0);
@@ -316,8 +322,27 @@ int main() {
 		for (wchar_t c : log) if (c == L'\n') numlines++;
 		if (numlines > logmaxlines) log = log.substr(0, log.find_last_of(L'\n'));
 		if (logtext->getText() != log) logtext->setText(log);
-		camtext->setText(L"[" + std::to_wstring(s.getCamera()->getPos().x) + L", " + std::to_wstring(s.getCamera()->getPos().y) + L", " + std::to_wstring(s.getCamera()->getPos().z) + L"], FOV = " 
-				+ std::to_wstring(s.getCamera()->getFOVY()) + L"º");
+		std::wstring camtextstring = L"[" + std::to_wstring(s.getCamera()->getPos().x) + L", " + std::to_wstring(s.getCamera()->getPos().y) + L", " + std::to_wstring(s.getCamera()->getPos().z) + L"], FOV = " 
+			 + std::to_wstring(s.getCamera()->getFOVY()) + L"º";
+		if (camtext->getText() != camtextstring) camtext->setText(camtextstring);
+		frametimes.push_back(1.f / ph.getDT());
+		fpstot += frametimes.back();
+		numf++;
+		if (SDL_GetTicks() - lastfpstime > maxfpstime) {
+			framevar = 0;
+			frameavg = fpstot / (float)numf;
+			// frametimes name is a bit misleading...
+			for (float t : frametimes) framevar += pow(t - frameavg, 2);
+			framevar /= (float)(numf - 1);
+			fpstext->setText(std::to_wstring(frameavg) + L" fps"
+					 + L"\nn = " + std::to_wstring(numf)
+					 + L"\nvar = " + std::to_wstring(framevar));
+			fpstot = 0;
+			numf = 0;
+			lastfpstime = SDL_GetTicks();
+			frametimes.clear();
+		}
+
 
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 

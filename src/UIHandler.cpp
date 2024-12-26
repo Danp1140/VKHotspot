@@ -36,8 +36,16 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 	UIComponent::setNoTex(ghToUIImageInfo(i));
 	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i.getDII(), {});
 
-
 	UIImage::setTexLoadFunc([] (UIImage* t, void* d) {
+		ImageInfo i = uiToGHImageInfo(t->getTex());
+		// if given no data, set to static blank image
+		if (!d) i = uiToGHImageInfo(UIComponent::getNoTex());
+		// otherwise, make a new one and fill it
+		else {
+			GH::createImage(i);
+			GH::updateImage(i, d);
+		}
+		// if this a DS we can't or shouldn't touch, make a new one to update to
 		if (t->getDS() == VK_NULL_HANDLE || t->getDS() == UIComponent::getDefaultDS()) {
 			PipelineInfo pitemp {
 				t->getGraphicsPipeline().layout,
@@ -46,31 +54,27 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 			};
 			VkDescriptorSet temp;
 			// TODO: consider making some copy functions that take just relevant struct members as args...
+			// also, be careful not to create too many DS's; we don't ever free them, only update them...
+			// if we want to ensure that, we should destroy the default DS completely...
 			GH::createDS(pitemp, temp);
 			t->setDS(temp);
 		}
-		ImageInfo i = uiToGHImageInfo(t->getTex());
-		if (i.image != VK_NULL_HANDLE) {
-			vkQueueWaitIdle(GH::getGenericQueue());
-			GH::destroyImage(i);
-		}
-		GH::createImage(i);
-		GH::updateImage(i, d);
+		vkQueueWaitIdle(GH::getGenericQueue());
 		GH::updateDS(t->getDS(), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i.getDII(), {});
-		
-		t->setTex(ghToUIImageInfo(i));
-
 #ifdef VERBOSE_UI_CALLBACKS
 		std::cout << "created image " << i.image << " with view " << i.view << std::endl;
 #endif
+		t->setTex(ghToUIImageInfo(i));
 	});
 	UIImage::setTexDestroyFunc([] (UIImage* t) {
 		ImageInfo i = uiToGHImageInfo(t->getTex());
 #ifdef VERBOSE_UI_CALLBACKS 
 		std::cout << "destroyed image " << i.image << " with view " << i.view << std::endl;
 #endif
+		// should we wait for queue idle???
 		GH::destroyImage(i);
-		t->setTex(ghToUIImageInfo(i));
+		// is this second set really warranted?
+		// t->setTex(ghToUIImageInfo(i));
 	});
 
 	// should just set draw func of our root object
