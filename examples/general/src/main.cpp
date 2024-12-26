@@ -1,4 +1,3 @@
-#include "UIHandler.h"
 #include "Scene.h"
 #include "PhysicsHandler.h"
 #include "TextureHandler.h"
@@ -18,7 +17,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 		}, {
 			0, 
 			GH_DEPTH_BUFFER_IMAGE_FORMAT,
@@ -35,7 +34,6 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
 	};
 	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], &attachrefs[1]);
-
 	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 
 	PipelineInfo p;
@@ -104,7 +102,53 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	GH::createPipeline(tp);
 	rpi.addPipeline(tp, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(tp.vertexinputstateci);
+	s.addRenderPass(rpi);
 
+	VkAttachmentDescription uiattachdesc {
+		0,
+		GH_SWAPCHAIN_IMAGE_FORMAT,
+		VK_SAMPLE_COUNT_1_BIT,
+		VK_ATTACHMENT_LOAD_OP_LOAD,
+		VK_ATTACHMENT_STORE_OP_STORE,
+		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+		VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+	};
+	VkAttachmentReference uiattachref {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+	GH::createRenderPass(r, 1, &uiattachdesc, &uiattachref, nullptr);
+	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, {{0, 0, 0, 1}});
+
+	PipelineInfo uip;
+	uip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	uip.shaderfilepathprefix = "UI";
+	uip.renderpass = r;
+	uip.extent = w.getSCExtent(); 
+	uip.cullmode = VK_CULL_MODE_NONE;
+	uip.pushconstantrange = {
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		0, sizeof(UIPushConstantData)
+	};
+	VkDescriptorSetLayoutBinding uipbindings[1] {{
+		0,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		1,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
+		nullptr
+	}};
+	uip.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		1, &uipbindings[0]
+	};
+	VkSpecializationMapEntry specmap[2] {
+		{0, 0, sizeof(uint32_t)},
+		{1, sizeof(uint32_t), sizeof(uint32_t)}
+	};
+	uip.specinfo = {2, &specmap[0], sizeof(VkExtent2D), static_cast<void*>(&uip.extent)};
+	GH::createPipeline(uip);
+	rpi.addPipeline(uip, nullptr);
 	s.addRenderPass(rpi);
 }
 
@@ -156,32 +200,59 @@ LODMesh createLODSuzanne(Scene& s, std::vector<LODFuncData>& datadst) {
 	return LODMesh(datatemp);
 }
 
+void prependTwoDigitTime(SDL_Time t, std::wstring& s) {
+	s.insert(0, std::to_wstring(t));
+	if (t < 10) s.insert(0, L"0");
+}
+
+std::wstring getTimestamp() {
+	SDL_Time t;
+	SDL_GetCurrentTime(&t);
+	t = SDL_NS_TO_SECONDS(t);
+	SDL_Time temp = t % 60;
+	std::wstring res;
+	prependTwoDigitTime(temp, res);
+	res.insert(0, L":");
+	t /= 60;
+	temp = t % 60;
+	prependTwoDigitTime(temp, res);
+	res.insert(0, L":");
+	t /= 60;
+	temp = t % 24;
+	prependTwoDigitTime(temp, res);
+	res.append(L" (UTC lol)");
+	return res;
+}
+
 int main() {
 	GH graphicshandler = GH();
 	WindowInfo w;
-	UIHandler ui(w.getSCExtent());
 	TextureHandler th;
 
-	/*
-	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(
-		ui.getRenderPass(),
-		w.getPresentationFBs(),
-		w.getSCImages()[0].extent,
-		1, &ui.getColorClear())));
-	// TODO: fix UIHandler, this is disgusting lol [l] 
-	w.addTask(cbRecTaskTemplate(cbRecFuncTemplate(
-		VK_NULL_HANDLE,
-		nullptr,
-		VK_NULL_HANDLE, VK_NULL_HANDLE,
-		VK_NULL_HANDLE, VK_NULL_HANDLE,
-		[&ui, &w] (cbRecData d, VkCommandBuffer& cb) { ui.draw(cb, w.getCurrentPresentationFB()); },
-		w.getPresentationFBs())));
-	ui.addComponent(UIText(L"text from main", UICoord(1000, 1000)));
-	*/
-	
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
+
+	std::wstring log = L"";
+	const size_t logmaxlines = 20;
+	uint64_t lastfpstime = SDL_GetTicks();
+	const uint64_t maxfpstime = 1000;
+	float fpstot = 0, framevar, frameavg;
+	std::vector<float> frametimes;
+	size_t numf = 0;
+	UIHandler ui(s.getRenderPass(1).getRenderSet(0).pipeline, w.getSCExtent());
+	UIContainer* leftsidebar = ui.addComponent(UIContainer());
+	leftsidebar->setPos(UICoord(0, 0));
+	leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
+	leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
+	UIText* logtext = leftsidebar->addChild(UIText());
+	logtext->setPos(UICoord(0, 0));
+	logtext->setBGCol({0, 0, 0, 0});
+	UIText* camtext = ui.addComponent(UIText());
+	camtext->setPos(UICoord(1000, 0));
+	UIText* fpstext = ui.addComponent(UIText());
+	fpstext->setPos(UICoord(w.getSCExtent().width - 200, 0));
+	s.getRenderPass(1).setUI(&ui, 0);
 
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
@@ -206,13 +277,17 @@ int main() {
 	PhysicsHandler ph;
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
-	pc->setPos(glm::vec3(0, 10, 0));
-	// pc->applyForce(glm::vec3(0, -9.807, 0));
+	pc->setPos(glm::vec3(-5, 10, -5));
+	pc->applyForce(glm::vec3(0, -9.807, 0));
 
 	PlaneCollider* plc = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
 	plc->setMass(std::numeric_limits<float>::infinity());
 
 	ph.addColliderPair(ColliderPair(pc, plc));
+	ph.getColliderPair(0).setOnCollide([] (void* d) {
+		std::wstring* l = static_cast<std::wstring*>(d);
+		l->insert(0, L"Point collided with plane!\n");
+		}, &log);
 
 	InputHandler ih;
 	glm::vec3 movementdir;
@@ -222,11 +297,18 @@ int main() {
 	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getRight()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_E, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_Q, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward()); }));
+	// TODO: consider using a sigmoid to modulate FOVY input
 	ih.addHold(InputHold(SDL_SCANCODE_UP, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() > FOV_SENS) c->setFOVY(c->getFOVY() - FOV_SENS); }));
 	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() < glm::pi<float>() - FOV_SENS) c->setFOVY(c->getFOVY() + FOV_SENS); }));
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log] (const SDL_Event& e) { 
+		if (e.key.scancode == SDL_SCANCODE_H) {
+			log.insert(0, L"Hello World! @ " + getTimestamp() + L"\n");
+			return true;
+		}
+		return false;
+	}));
 
 	ph.start();
-	bool xpressed = false;
 	SDL_Event eventtemp;
 	while (w.frameCallback()) {
 		movementdir = glm::vec3(0);
@@ -236,13 +318,37 @@ int main() {
 			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
 			s.getCamera()->setForward(-s.getCamera()->getPos());
 		}
+		size_t numlines = 0;
+		for (wchar_t c : log) if (c == L'\n') numlines++;
+		if (numlines > logmaxlines) log = log.substr(0, log.find_last_of(L'\n'));
+		if (logtext->getText() != log) logtext->setText(log);
+		std::wstring camtextstring = L"[" + std::to_wstring(s.getCamera()->getPos().x) + L", " + std::to_wstring(s.getCamera()->getPos().y) + L", " + std::to_wstring(s.getCamera()->getPos().z) + L"], FOV = " 
+			 + std::to_wstring(s.getCamera()->getFOVY()) + L"º";
+		if (camtext->getText() != camtextstring) camtext->setText(camtextstring);
+		frametimes.push_back(1.f / ph.getDT());
+		fpstot += frametimes.back();
+		numf++;
+		if (SDL_GetTicks() - lastfpstime > maxfpstime) {
+			framevar = 0;
+			frameavg = fpstot / (float)numf;
+			// frametimes name is a bit misleading...
+			for (float t : frametimes) framevar += pow(t - frameavg, 2);
+			framevar /= (float)(numf - 1);
+			fpstext->setText(std::to_wstring(frameavg) + L" fps"
+					 + L"\nn = " + std::to_wstring(numf)
+					 + L"\nvar = " + std::to_wstring(framevar));
+			fpstot = 0;
+			numf = 0;
+			lastfpstime = SDL_GetTicks();
+			frametimes.clear();
+		}
+
 
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
 		plane.setPos(plc->getPos());
 
-		SDL_Delay(17); // TODO: get rid of this delay lol
 		ph.update();
 	}
 	vkQueueWaitIdle(GH::getGenericQueue());

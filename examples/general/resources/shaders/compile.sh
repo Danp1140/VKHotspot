@@ -2,6 +2,10 @@ echo "Compiling UI Shaders"
 glslc -fshader-stage=vert GLSL/UIVertex.glsl -o SPIRV/UIvert.spv
 glslc -fshader-stage=frag GLSL/UIFragment.glsl -o SPIRV/UIfrag.spv
 
+echo "Compiling UI Texture Shaders"
+glslc -fshader-stage=vert GLSL/UITextureVertex.glsl -o SPIRV/UItexturevert.spv
+glslc -fshader-stage=frag GLSL/UITextureFragment.glsl -o SPIRV/UItexturefrag.spv
+
 echo "Compiling Default Shaders"
 glslc -fshader-stage=vert GLSL/DefaultVertex.glsl -o SPIRV/defaultvert.spv
 glslc -fshader-stage=frag GLSL/DefaultFragment.glsl -o SPIRV/defaultfrag.spv

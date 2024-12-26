@@ -315,6 +315,7 @@ public:
 	void addTimedMomentum(TimedValue&& t); 
 	void addTimedForce(TimedValue&& t); 
 
+	float getDT() {return dt;}
 	// TODO: add system to get by collider pointers too
 	ColliderPair& getColliderPair(size_t i) {return pairs[i];}
 
