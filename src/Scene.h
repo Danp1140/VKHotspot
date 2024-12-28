@@ -10,6 +10,8 @@ struct RenderSet;
 
 // #define VKH_VERBOSE_DRAW_TASKS
 
+#define SCENE_MAX_LIGHTS 8
+
 typedef struct ScenePCData {
 	glm::mat4 vp;
 } ScenePCData;
@@ -63,6 +65,10 @@ private:
 	cbRecTaskRenderPassTemplate getRPT() const;
 };
 
+typedef struct LUBEntry {
+	glm::mat4 vp;
+} LUBEntry;
+
 class Scene {
 public:
 	Scene(float a);
@@ -71,13 +77,17 @@ public:
 	std::vector<cbRecTaskTemplate> getDrawTasks();
 
 	void addRenderPass(const RenderPassInfo& r);
+	void addLight(DirectionalLight* l);
 
 	Camera* getCamera() {return camera;}
+	const BufferInfo& getLUB() {return lightub;}
 	RenderPassInfo& getRenderPass(size_t i) {return renderpasses[i];}
 
 private:
 	Camera* camera;
-	std::vector<Light*> lights;
+	// for now just directional, point lights will require their own buffers
+	// TODO: see if we can make not pointers
+	std::vector<DirectionalLight*> lights;
 	VkDescriptorSetLayout dsl;
 	VkDescriptorSet ds;
 	BufferInfo lightub;

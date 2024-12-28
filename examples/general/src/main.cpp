@@ -6,6 +6,60 @@
 #define MOVEMENT_SENS 0.75f
 #define FOV_SENS 0.05f
 
+void createShadowCastPipeline(RenderPassInfo& rpi, Light& l) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "shadowmap";
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(MeshPCData)};
+	// TODO: we only actually need POSITION!!!
+	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	p.depthtest = true;
+	p.extent = l.getShadowMap().extent;
+	p.cullmode = VK_CULL_MODE_NONE;
+	p.renderpass = rpi.getRenderPass();
+	GH::createPipeline(p);
+	l.setSMPipeline(p);
+	Mesh::ungetVISCI(p.vertexinputstateci);
+}
+
+void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "shadowtest";
+	VkDescriptorSetLayoutBinding bindings[2] {{
+			0,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT,
+			nullptr
+		}, {
+			1,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			1, // TODO: make array
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+	}};
+	p.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		2, &bindings[0]
+	};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
+	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	p.depthtest = true;
+	p.extent = w.getSCExtent();
+	p.renderpass = rpi.getRenderPass();
+	VkSpecializationMapEntry specmap {0, 0, sizeof(uint32_t)};
+	const uint32_t mltemp = SCENE_MAX_LIGHTS;
+	p.specinfo = {1, &specmap, sizeof(uint32_t), static_cast<const void*>(&mltemp)};
+	GH::createPipeline(p);
+	rpi.addPipeline(p, &s.getCamera()->getVP());
+	Mesh::ungetVISCI(p.vertexinputstateci);
+}
+
 void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	VkRenderPass r;
 	VkAttachmentDescription attachdescs[2] {{
@@ -233,6 +287,10 @@ int main() {
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
+	/*
+	 * UI Setup
+	 */
+
 	std::wstring log = L"";
 	const size_t logmaxlines = 20;
 	uint64_t lastfpstime = SDL_GetTicks();
@@ -254,25 +312,57 @@ int main() {
 	fpstext->setPos(UICoord(w.getSCExtent().width - 200, 0));
 	s.getRenderPass(1).setUI(&ui, 0);
 
+	/*
+	 * Lighting
+	 */
+	SunLight sl(glm::vec3(-10, 10, -10), glm::vec3(1, -1, 1), glm::vec3(1, 1, 0.8));
+	s.addLight(&sl);
+	createShadowCastPipeline(s.getRenderPass(0), sl);
+	s.getRenderPass(0).addPipeline(sl.getSMPipeline(), sl.getPCData());
+	// let the cube cast a shadow!
+	s.getRenderPass(0).addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
+
+	/*
+	const float tssmwidth = 1000;
+	UIImage* troubleshootingsm = ui.addComponent(UIImage(UICoord(500, 500)));
+	troubleshootingsm->setExt(UICoord(tssmwidth, tssmwidth));
+	ui.setTex(*troubleshootingsm, sl.getShadowMap(), s.getRenderPass(2).getRenderSet(0).pipeline);
+	troubleshootingsm->setBGCol({0, 1, 0, 1});
+	*/
+
+	createShadowReceivePipeline(s.getRenderPass(1), s, w);
+
+	/*
+	 * Misc Mesh Instantiation
+	 */
+
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
 	VkDescriptorSet temp;
-	GH::createDS(s.getRenderPass(0).getRenderSet(1).pipeline, temp);
+	GH::createDS(s.getRenderPass(1).getRenderSet(1).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
-	s.getRenderPass(0).addMesh(&im, temp, nullptr, 1);
+	s.getRenderPass(1).addMesh(&im, temp, nullptr, 1);
 
 	Mesh plane("../resources/models/plane.obj");
-	s.getRenderPass(0).addMesh(&plane, VK_NULL_HANDLE, &plane.getModelMatrix(), 0);
+	GH::createDS(s.getRenderPass(1).getRenderSet(3).pipeline, temp);
+	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, s.getLUB().getDBI());
+	GH::updateDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sl.getShadowMap().getDII(), {});
+	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 3); // plane receives shadows
 
 	std::vector<LODFuncData> tempfd;
 	LODMesh suz = createLODSuzanne(s, tempfd);
 	TextureSet t("../resources/textures/uvgrid");
 	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
-	GH::createDS(s.getRenderPass(0).getRenderSet(2).pipeline, temp);
+	GH::createDS(s.getRenderPass(1).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
-	s.getRenderPass(0).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
+	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
+	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
+
+	/*
+	 * Physics Scene Setup
+	 */
 
 	PhysicsHandler ph;
 
@@ -288,6 +378,10 @@ int main() {
 		std::wstring* l = static_cast<std::wstring*>(d);
 		l->insert(0, L"Point collided with plane!\n");
 		}, &log);
+
+	/*
+	 * Input Scripting
+	 */
 
 	InputHandler ih;
 	glm::vec3 movementdir;
@@ -309,8 +403,10 @@ int main() {
 	}));
 
 	ph.start();
-	SDL_Event eventtemp;
 	while (w.frameCallback()) {
+		/*
+		 * Input Update
+		 */
 		movementdir = glm::vec3(0);
 		ih.update();
 		SDL_PumpEvents();
@@ -318,6 +414,10 @@ int main() {
 			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
 			s.getCamera()->setForward(-s.getCamera()->getPos());
 		}
+
+		/*
+		 * UI Update
+		 */
 		size_t numlines = 0;
 		for (wchar_t c : log) if (c == L'\n') numlines++;
 		if (numlines > logmaxlines) log = log.substr(0, log.find_last_of(L'\n'));
@@ -342,7 +442,6 @@ int main() {
 			lastfpstime = SDL_GetTicks();
 			frametimes.clear();
 		}
-
 
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 

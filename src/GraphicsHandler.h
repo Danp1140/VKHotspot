@@ -1,6 +1,9 @@
 #ifndef GRAPHICS_HANDLER_H
 #define GRAPHICS_HANDLER_H
 
+// TODO: do we need this??? should p be up to user, as with selectively enabled exts
+#define VK_ENABLE_BETA_EXTENSIONS
+
 #include <vulkan/vulkan.h>
 #include <ext.hpp>
 #include <SDL3/SDL.h>
@@ -220,6 +223,7 @@ typedef std::function<void (uint8_t, VkCommandBuffer&)> cbRecFuncTemplate;
 typedef struct cbRecTaskRenderPassTemplate {
 	VkRenderPass rp;
 	const VkFramebuffer* fbs;
+	uint32_t numscis;
 	VkExtent2D ext;
 	uint32_t nclears;
 	const VkClearValue* clears;
@@ -228,11 +232,13 @@ typedef struct cbRecTaskRenderPassTemplate {
 	cbRecTaskRenderPassTemplate(
 		const VkRenderPass r,
 		const VkFramebuffer* const f,
+		uint32_t ns,
 		const VkExtent2D e,
 		uint32_t nc,
 		const VkClearValue* const c) :
 		rp(r),
 		fbs(f),
+		numscis(ns),
 		ext(e),
 		nclears(nc),
 		clears(c) {}

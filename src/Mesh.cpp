@@ -36,10 +36,6 @@ void MeshBase::updateModelMatrix() {
 		* glm::scale(glm::mat4(1), scale);
 }
 
-Mesh::Mesh(const char* f) : Mesh() {
-	loadOBJ(f);
-}
-
 Mesh::Mesh(Mesh&& rvalue) :
 	MeshBase(std::move(rvalue)),
 	vbtraits(std::move(rvalue.vbtraits)),
@@ -47,6 +43,19 @@ Mesh::Mesh(Mesh&& rvalue) :
 	indexbuffer(std::move(rvalue.indexbuffer)) {
 	rvalue.vertexbuffer = {};
 	rvalue.indexbuffer = {};
+}
+
+Mesh::Mesh(const char* f) : Mesh() {
+	loadOBJ(f);
+}
+
+Mesh::Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu) : vbtraits(vbt) {
+	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | abu;
+	vertexbuffer.size = getVertexBufferElementSize() * vbs;
+	GH::createBuffer(vertexbuffer);
+	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | abu;
+	indexbuffer.size = sizeof(MeshIndex) * ibs;
+	GH::createBuffer(indexbuffer);
 }
 
 Mesh::~Mesh() {
@@ -126,25 +135,31 @@ size_t Mesh::getTraitsElementSize(VertexBufferTraits t) {
 	return result;
 }
 
-VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t) {
+VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t, VertexBufferTraits o) {
 	uint32_t numtraits = 0, offset = 0;
 	VkVertexInputBindingDescription* bindingdesc = new VkVertexInputBindingDescription[1] {
 		{0, static_cast<uint32_t>(getTraitsElementSize(t)), VK_VERTEX_INPUT_RATE_VERTEX}
 	};
 	VkVertexInputAttributeDescription* attribdesc = new VkVertexInputAttributeDescription[MAX_VERTEX_BUFFER_NUM_TRAITS];
 	if (t & VERTEX_BUFFER_TRAIT_POSITION) {
-		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
-		numtraits++;
+		if (!(o & VERTEX_BUFFER_TRAIT_POSITION)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
 		offset += sizeof(glm::vec3);
 	}
 	if (t & VERTEX_BUFFER_TRAIT_UV) {
-		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32_SFLOAT, offset};
-		numtraits++;
+		if (!(o & VERTEX_BUFFER_TRAIT_UV)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32_SFLOAT, offset};
+			numtraits++;
+		}
 		offset += sizeof(glm::vec2);
 	}
 	if (t & VERTEX_BUFFER_TRAIT_NORMAL) {
-		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
-		numtraits++;
+		if (!(o & VERTEX_BUFFER_TRAIT_NORMAL)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
 		offset += sizeof(glm::vec3);
 	}
 	if (t & VERTEX_BUFFER_TRAIT_WEIGHT) {

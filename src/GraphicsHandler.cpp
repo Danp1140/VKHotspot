@@ -190,11 +190,12 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	}
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
+			// TODO: can this rpbi be supplied by RPI?
 			rectaskvec[scii].push_back(cbRecTask((VkRenderPassBeginInfo){
 				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 				nullptr,
 				t.data.rpi.rp,
-				t.data.rpi.fbs[scii],
+				t.data.rpi.fbs[scii % t.data.rpi.numscis],
 				{{0, 0}, t.data.rpi.ext},
 				t.data.rpi.nclears, t.data.rpi.clears
 			}));
@@ -540,9 +541,12 @@ void GH::initDevicesAndQueues() {
 	}
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
 	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
+	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
+	VkPhysicalDevicePortabilitySubsetFeaturesKHR portpdf {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
+	portpdf.mutableComparisonSamplers = VK_TRUE;
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		nullptr,
+		&portpdf,
 		0,
 		1, &queuecreateinfo,
 		0, nullptr,
@@ -622,16 +626,17 @@ void GH::terminateSamplers() {
 }
 
 void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
-	VkDescriptorPoolSize poolsizes[2] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5},
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
+	VkDescriptorPoolSize poolsizes[3] {
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 7},
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2},
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		6,
-		2, &poolsizes[0] 
+		11,
+		3, &poolsizes[0] 
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
 }
@@ -1348,6 +1353,10 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 			imgmembarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | 
 							VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			dstmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_GENERAL:
 			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
