@@ -112,37 +112,38 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 Scene::Scene(float a) {
 	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
 	lightub.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-	lightub.size = SCENE_MAX_LIGHTS * sizeof(LUBEntry);
+	lightub.size = sizeof(LUBData);
 	GH::createBuffer(lightub);
+	updateLUB();
 }
 
 Scene::~Scene() {
 	if (lightub.buffer != VK_NULL_HANDLE) GH::destroyBuffer(lightub);
 	delete camera;
-	for (RenderPassInfo& r : renderpasses) r.destroy();
+	for (RenderPassInfo* r : renderpasses) {
+		r->destroy();
+		delete r;
+	}
 }
 
 std::vector<cbRecTaskTemplate> Scene::getDrawTasks() {
 	std::vector<cbRecTaskTemplate> result;
 	std::vector<cbRecTaskTemplate> temp;
-	for (const RenderPassInfo& r : renderpasses) {
-		temp = r.getTasks();
+	for (const RenderPassInfo* r : renderpasses) {
+		temp = r->getTasks();
 		result.insert(result.end(), temp.begin(), temp.end());
 	}
 	return result;
 }
 
 void Scene::addRenderPass(const RenderPassInfo& r) {
-	renderpasses.push_back(r);
+	renderpasses.push_back(new RenderPassInfo(r));
 }
 
 void Scene::addLight(DirectionalLight* l) {
 	lights.push_back(l);
 
-	// TODO: incremental buffer update function in GH
-	LUBEntry entries[SCENE_MAX_LIGHTS];
-	for (size_t i = 0; i < lights.size(); i++) entries[i] = {lights[i]->getVP()};
-	GH::updateWholeBuffer(lightub, &entries[0]);
+	updateLUB();
 
 	const ImageInfo& sm = lights.back()->getShadowMap();
 	if (sm.image != VK_NULL_HANDLE) {
@@ -161,8 +162,23 @@ void Scene::addLight(DirectionalLight* l) {
 		VkAttachmentReference attachref {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 		GH::createRenderPass(r, 1, &attachdesc, nullptr, &attachref);
 
-		RenderPassInfo rpi(r, 1, nullptr, &sm, {{1, 0}}); // TODO: does taking the address of this ref work??
+		RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, &sm, {{1, 0}});
 
 		renderpasses.insert(renderpasses.begin(), rpi); 
 	}
+}
+
+void Scene::updateLUB() {
+	// incremental buffer update p not worth it
+	// we pack data tightly here to reduce buffer size
+	// lights should not be added/removed frequently enough for it to matter
+	// if they are, that can be someone's custom impl
+	LUBData data;
+	for (size_t i = 0; i < lights.size(); i++) {
+		data.e[i].vp = lights[i]->getVP();
+		data.e[i].p = lights[i]->getPos();
+		data.e[i].c = lights[i]->getCol();
+	}
+	data.n = lights.size();
+	GH::updateWholeBuffer(lightub, &data);
 }

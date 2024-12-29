@@ -25,6 +25,12 @@ typedef struct RenderSet {
 				       // structure will become clearer as UI becomes more widely used
 				       // certainly should aim for efficiency and ease-of-use
 	const void* pcdata;
+
+	inline size_t findMesh(const MeshBase* m) const {
+		for (size_t i = 0; i < meshes.size(); i++) if (meshes[i] == m) return i;
+		FatalError("Did not find mesh in renderset").raise();
+		return -1u;
+	}
 } RenderSet;
 
 class RenderPassInfo {
@@ -67,7 +73,13 @@ private:
 
 typedef struct LUBEntry {
 	glm::mat4 vp;
+	alignas(16) glm::vec3 p, c;
 } LUBEntry;
+
+typedef struct LUBData {
+	LUBEntry e[SCENE_MAX_LIGHTS];
+	alignas(16) uint32_t n;
+} LUBData;
 
 class Scene {
 public:
@@ -80,8 +92,9 @@ public:
 	void addLight(DirectionalLight* l);
 
 	Camera* getCamera() {return camera;}
+	const std::vector<DirectionalLight*> getLights() const {return lights;}
 	const BufferInfo& getLUB() {return lightub;}
-	RenderPassInfo& getRenderPass(size_t i) {return renderpasses[i];}
+	RenderPassInfo& getRenderPass(size_t i) {return *renderpasses[i];}
 
 private:
 	Camera* camera;
@@ -91,7 +104,9 @@ private:
 	VkDescriptorSetLayout dsl;
 	VkDescriptorSet ds;
 	BufferInfo lightub;
-	std::vector<RenderPassInfo> renderpasses;
+	std::vector<RenderPassInfo*> renderpasses;
+
+	void updateLUB();
 };
 
 #endif

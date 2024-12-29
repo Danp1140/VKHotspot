@@ -165,7 +165,9 @@ bool WindowInfo::frameCallback() {
 		VK_NULL_HANDLE,
 		&sciindex);
 
+	// TODO TODO TODO this is a big efficiency TODO lol
 	// TODO: changeflag to determine if re-enqueuing & re-recording is needed [l]
+	vkQueueWaitIdle(GH::getGenericQueue());
 	for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
 
 	// TODO: better timeout logic [l]
@@ -180,10 +182,10 @@ bool WindowInfo::frameCallback() {
 	return !close;
 }
 
-void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
+void WindowInfo::addTask(const cbRecTaskTemplate& t, size_t i) {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			rectaskvec[scii].push_back(cbRecTask(
+			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask(
 				[scii, f = t.data.ft] (VkCommandBuffer& c) {f(scii, c);})
 			);
 		}
@@ -191,7 +193,7 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
 			// TODO: can this rpbi be supplied by RPI?
-			rectaskvec[scii].push_back(cbRecTask((VkRenderPassBeginInfo){
+			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask((VkRenderPassBeginInfo){
 				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 				nullptr,
 				t.data.rpi.rp,
@@ -203,8 +205,16 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	}
 }
 
+void WindowInfo::addTask(const cbRecTaskTemplate& t) {
+	addTask(t, rectaskvec[0].size());
+}
+
 void WindowInfo::addTasks(std::vector<cbRecTaskTemplate>&& t) {
 	for (const cbRecTaskTemplate& ts : t) addTask(ts);
+}
+
+void WindowInfo::clearTasks() {
+	for (uint8_t scii = 0; scii < numscis; scii++) rectaskvec[scii].clear();
 }
 
 void WindowInfo::createSyncObjects() {
@@ -627,7 +637,7 @@ void GH::terminateSamplers() {
 
 void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
 	VkDescriptorPoolSize poolsizes[3] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 7},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 15},
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2},
 	};
@@ -635,7 +645,7 @@ void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		11,
+		19,
 		3, &poolsizes[0] 
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
@@ -733,7 +743,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 			&filepath,
 			&shadermodule,
 			&shaderstagecreateinfo,
-			nullptr);
+			pi.specinfo);
 		VkComputePipelineCreateInfo pipelinecreateinfo {
 			VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 			nullptr,
@@ -780,7 +790,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		const_cast<const char**>(&shaderfilepaths[0]),
 		&shadermodules[0],
 		&shaderstagecreateinfos[0],
-		nullptr);
+		pi.specinfo);
 	vkCreateDescriptorSetLayout(
 		logicaldevice,
 		&pi.descsetlayoutci,
@@ -991,9 +1001,10 @@ void GH::createShader(
 			createinfos[stagecounter].stage = supportedshaderstages[x];
 			createinfos[stagecounter].module = modules[stagecounter];
 			createinfos[stagecounter].pName = "main";
-			createinfos[stagecounter].pSpecializationInfo = specializationinfos ? 
-										&specializationinfos[stagecounter] :
-										nullptr;
+			createinfos[stagecounter].pSpecializationInfo = 
+				(specializationinfos && specializationinfos[stagecounter].dataSize) ? 
+				&specializationinfos[stagecounter] :
+				nullptr;
 			delete[] shadersrc;
 			stagecounter++;
 		}
@@ -1057,6 +1068,7 @@ void GH::createDS(const PipelineInfo& p, VkDescriptorSet& ds) {
 	vkAllocateDescriptorSets(logicaldevice, &allocinfo, &ds);
 }
 
+// TODO: consolidate below functions to call one another and remove redundant code
 void GH::updateDS(
 	const VkDescriptorSet& ds, 
 	uint32_t i,
@@ -1075,6 +1087,25 @@ void GH::updateDS(
 	};
 	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
 }
+
+void GH::updateArrayDS(
+	const VkDescriptorSet& ds,
+	uint32_t i,
+	VkDescriptorType t,
+	std::vector<VkDescriptorImageInfo>&& ii) {
+	VkWriteDescriptorSet write {
+		VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		nullptr,
+		ds,
+		i,
+		0,
+		static_cast<uint32_t>(ii.size()),
+		t,
+		&ii[0], nullptr, nullptr
+	};
+	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
+}
+
 
 void GH::updateWholeDS(
 	const VkDescriptorSet& ds, 

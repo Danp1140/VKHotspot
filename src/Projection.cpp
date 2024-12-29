@@ -69,6 +69,7 @@ Light::Light() {
 	shadowmap.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	shadowmap.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 	// ^^^ transitioned to DEPTH_STENCIL_READ_ONLY_OPTIMAL after renderpass
+	// TODO: reuse one sampler
 	vkCreateSampler(GH::getLD(), &defaultshadowsamplerci, nullptr, &shadowmap.sampler);
 	GH::createImage(shadowmap);
 }
@@ -99,7 +100,7 @@ SunLight::SunLight(glm::vec3 p, glm::vec3 f, glm::vec3 c) : DirectionalLight(p, 
 }
 
 void SunLight::updateProj() {
-	projection = glm::ortho<float>(-10, 10, -10, 10, 0, 20); 
+	projection = glm::ortho<float>(-10, 10, -10, 10, -100, 100); 
 	projection[1][1] *= -1;
 	vp = projection * view;
 }

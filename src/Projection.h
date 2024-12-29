@@ -41,6 +41,8 @@ public:
 	Light(glm::vec3 p, glm::vec3 c);
 	~Light();
 
+	const glm::vec3& getPos() const {return position;}
+	const glm::vec3& getCol() const {return color;}
 	const ImageInfo& getShadowMap() const {return shadowmap;}
 	const PipelineInfo& getSMPipeline() const {return smpipeline;}
 	virtual const void* getPCData() const = 0;

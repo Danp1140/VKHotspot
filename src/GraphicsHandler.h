@@ -129,7 +129,8 @@ typedef struct PipelineInfo {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
 	};
 	bool depthtest = false;
-	VkSpecializationInfo specinfo = {};
+	// specinfo array in order of shader stages
+	VkSpecializationInfo* specinfo = nullptr;
 	VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	VkExtent2D extent = {0, 0}; 
 	VkCullModeFlags cullmode = VK_CULL_MODE_BACK_BIT;
@@ -322,8 +323,12 @@ public:
 	 * Returns false if the window should close (SDL_EVENT_QUIT or _WINDOW_CLOSE REQUESTED), true otherwise
 	 */
 	bool frameCallback();
+	void addTask(const cbRecTaskTemplate& t, size_t i);
+	// presumes to add to end
 	void addTask(const cbRecTaskTemplate& t);
 	void addTasks(std::vector<cbRecTaskTemplate>&& t);
+	// use sparingly, only if all window tasks truly change, e.g. scene change
+	void clearTasks();
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
@@ -398,6 +403,11 @@ public:
 		VkDescriptorType t,
 		VkDescriptorImageInfo ii,
 		VkDescriptorBufferInfo bi);
+	static void updateArrayDS(
+		const VkDescriptorSet& ds,
+		uint32_t i,
+		VkDescriptorType t,
+		std::vector<VkDescriptorImageInfo>&& ii);
 	static void updateWholeDS(
 		const VkDescriptorSet& ds, 
 		std::vector<VkDescriptorType>&& t,
