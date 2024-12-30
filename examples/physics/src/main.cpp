@@ -11,6 +11,9 @@ RenderPassInfo createRenderPass(const WindowInfo& w);
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r);
 
 int main() {
+	// TODO: more GH customization
+	//  - request additional device exts
+	//  - request specific descriptor pool characteristics
 	GH gh;
 	WindowInfo fpw(glm::vec2(0, 0), glm::vec2(0.5, 1)), 
 		tpw(glm::vec2(0.5, 0), glm::vec2(0.5, 1));
@@ -162,7 +165,8 @@ PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r) 
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "viewport";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData) + sizeof(MeshPCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = e;

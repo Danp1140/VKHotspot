@@ -53,6 +53,7 @@ private:
 typedef uint16_t MeshIndex;
 
 typedef enum VertexBufferTraitBits {
+	VERTEX_BUFFER_TRAIT_NONE = 0x00,
 	VERTEX_BUFFER_TRAIT_POSITION = 0x01,
 	VERTEX_BUFFER_TRAIT_UV = 0x02,
 	VERTEX_BUFFER_TRAIT_NORMAL = 0x04,
@@ -72,6 +73,7 @@ public:
 	Mesh(const Mesh& lvalue) = delete;
 	Mesh(Mesh&& rvalue);
 	Mesh(const char* f);
+	Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu);
 	~Mesh();
 
 	friend void swap(Mesh& lhs, Mesh& rhs);
@@ -86,7 +88,9 @@ public:
 		size_t rsidx,
 		VkCommandBuffer& c) const;
 	static size_t getTraitsElementSize(VertexBufferTraits t);
-	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
+	// t is the mask of all data in buffer;
+	// o is the mask of data in buffer but unused
+	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t, VertexBufferTraits o = VERTEX_BUFFER_TRAIT_NONE);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
 
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}

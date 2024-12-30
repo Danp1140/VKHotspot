@@ -128,6 +128,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	}
 	sciindex = 0;
 
+
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
 	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -139,6 +140,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 
 	rectaskvec = new std::vector<cbRecTask>[numscis];
 	cballocinfo.commandPool = GH::getCommandPool();
+	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) flags[fifi] = WINDOW_INFO_FLAG_CB_CHANGE;
 }
 
 WindowInfo::~WindowInfo() {
@@ -166,35 +168,49 @@ bool WindowInfo::frameCallback() {
 		&sciindex);
 
 	// TODO: changeflag to determine if re-enqueuing & re-recording is needed [l]
-	for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
+	// this is only necessary when it becomes a bottleneck (prob with more objects and lights in
+	// scene)
+	// made a change flag system that I won't remove because it will become useful when we do do this
+	// this will require keeping collectinfos around and just re-recording and replacing those that changed
+	// for that, may want to make collectinfos into a vector, esp because it ops in one thread
+	// if (flags[fifindex] & WINDOW_INFO_FLAG_CB_CHANGE) {
+		// TODO: pre-reserve queue space
+		for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
 
-	// TODO: better timeout logic [l]
-	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+		// TODO: better timeout logic [l]
+		// TODO: how do these flags reconcile with conditional rerecord???
+		vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+		processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
+
+		// TODO: move this to a separate function to put at the bottom of the loop [l]
+		// that way if we multithread the user can do other stuff while we record
+		collectPrimaryCB();
+		// not setting for now
+		// flags[fifindex] &= ~WINDOW_INFO_FLAG_CB_CHANGE;
+	// }
 	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
-	processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
-
-	collectPrimaryCB();
 
 	submitAndPresent();
 
 	return !close;
 }
 
-void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
+void WindowInfo::addTask(const cbRecTaskTemplate& t, size_t i) {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			rectaskvec[scii].push_back(cbRecTask(
+			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask(
 				[scii, f = t.data.ft] (VkCommandBuffer& c) {f(scii, c);})
 			);
 		}
 	}
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			rectaskvec[scii].push_back(cbRecTask((VkRenderPassBeginInfo){
+			// TODO: can this rpbi be supplied by RPI?
+			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask((VkRenderPassBeginInfo){
 				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 				nullptr,
 				t.data.rpi.rp,
-				t.data.rpi.fbs[scii],
+				t.data.rpi.fbs[scii % t.data.rpi.numscis],
 				{{0, 0}, t.data.rpi.ext},
 				t.data.rpi.nclears, t.data.rpi.clears
 			}));
@@ -202,8 +218,16 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	}
 }
 
+void WindowInfo::addTask(const cbRecTaskTemplate& t) {
+	addTask(t, rectaskvec[0].size());
+}
+
 void WindowInfo::addTasks(std::vector<cbRecTaskTemplate>&& t) {
 	for (const cbRecTaskTemplate& ts : t) addTask(ts);
+}
+
+void WindowInfo::clearTasks() {
+	for (uint8_t scii = 0; scii < numscis; scii++) rectaskvec[scii].clear();
 }
 
 void WindowInfo::createSyncObjects() {
@@ -540,9 +564,12 @@ void GH::initDevicesAndQueues() {
 	}
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
 	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
+	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
+	VkPhysicalDevicePortabilitySubsetFeaturesKHR portpdf {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
+	portpdf.mutableComparisonSamplers = VK_TRUE;
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		nullptr,
+		&portpdf,
 		0,
 		1, &queuecreateinfo,
 		0, nullptr,
@@ -622,16 +649,17 @@ void GH::terminateSamplers() {
 }
 
 void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
-	VkDescriptorPoolSize poolsizes[2] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5},
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
+	VkDescriptorPoolSize poolsizes[3] {
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2},
 	};
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		6,
-		2, &poolsizes[0] 
+		38,
+		3, &poolsizes[0] 
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
 }
@@ -728,7 +756,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 			&filepath,
 			&shadermodule,
 			&shaderstagecreateinfo,
-			nullptr);
+			pi.specinfo);
 		VkComputePipelineCreateInfo pipelinecreateinfo {
 			VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 			nullptr,
@@ -775,7 +803,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		const_cast<const char**>(&shaderfilepaths[0]),
 		&shadermodules[0],
 		&shaderstagecreateinfos[0],
-		nullptr);
+		pi.specinfo);
 	vkCreateDescriptorSetLayout(
 		logicaldevice,
 		&pi.descsetlayoutci,
@@ -986,9 +1014,10 @@ void GH::createShader(
 			createinfos[stagecounter].stage = supportedshaderstages[x];
 			createinfos[stagecounter].module = modules[stagecounter];
 			createinfos[stagecounter].pName = "main";
-			createinfos[stagecounter].pSpecializationInfo = specializationinfos ? 
-										&specializationinfos[stagecounter] :
-										nullptr;
+			createinfos[stagecounter].pSpecializationInfo = 
+				(specializationinfos && specializationinfos[stagecounter].dataSize) ? 
+				&specializationinfos[stagecounter] :
+				nullptr;
 			delete[] shadersrc;
 			stagecounter++;
 		}
@@ -1052,6 +1081,7 @@ void GH::createDS(const PipelineInfo& p, VkDescriptorSet& ds) {
 	vkAllocateDescriptorSets(logicaldevice, &allocinfo, &ds);
 }
 
+// TODO: consolidate below functions to call one another and remove redundant code
 void GH::updateDS(
 	const VkDescriptorSet& ds, 
 	uint32_t i,
@@ -1070,6 +1100,25 @@ void GH::updateDS(
 	};
 	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
 }
+
+void GH::updateArrayDS(
+	const VkDescriptorSet& ds,
+	uint32_t i,
+	VkDescriptorType t,
+	std::vector<VkDescriptorImageInfo>&& ii) {
+	VkWriteDescriptorSet write {
+		VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		nullptr,
+		ds,
+		i,
+		0,
+		static_cast<uint32_t>(ii.size()),
+		t,
+		&ii[0], nullptr, nullptr
+	};
+	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
+}
+
 
 void GH::updateWholeDS(
 	const VkDescriptorSet& ds, 
@@ -1348,6 +1397,10 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 			imgmembarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | 
 							VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			dstmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_GENERAL:
 			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;

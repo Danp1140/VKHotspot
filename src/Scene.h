@@ -10,6 +10,9 @@ struct RenderSet;
 
 // #define VKH_VERBOSE_DRAW_TASKS
 
+#define SCENE_MAX_DIR_LIGHTS 8
+#define SCENE_MAX_DIR_SHADOWCASTING_LIGHTS 8
+
 typedef struct ScenePCData {
 	glm::mat4 vp;
 } ScenePCData;
@@ -23,6 +26,12 @@ typedef struct RenderSet {
 				       // structure will become clearer as UI becomes more widely used
 				       // certainly should aim for efficiency and ease-of-use
 	const void* pcdata;
+
+	inline size_t findMesh(const MeshBase* m) const {
+		for (size_t i = 0; i < meshes.size(); i++) if (meshes[i] == m) return i;
+		FatalError("Did not find mesh in renderset").raise();
+		return -1u;
+	}
 } RenderSet;
 
 class RenderPassInfo {
@@ -63,6 +72,16 @@ private:
 	cbRecTaskRenderPassTemplate getRPT() const;
 };
 
+typedef struct LUBEntry {
+	glm::mat4 vp;
+	alignas(16) glm::vec3 p, c;
+} LUBEntry;
+
+typedef struct LUBData {
+	LUBEntry e[SCENE_MAX_DIR_LIGHTS];
+	alignas(16) uint32_t n;
+} LUBData;
+
 class Scene {
 public:
 	Scene(float a);
@@ -70,18 +89,30 @@ public:
 
 	std::vector<cbRecTaskTemplate> getDrawTasks();
 
-	void addRenderPass(const RenderPassInfo& r);
+	RenderPassInfo* addRenderPass(const RenderPassInfo& r);
+	// leaving updateLUB public ties into giving out a non-const DL ptr;
+	// if we wanted to make updateLUB priv, we'd need some sort of check-out,
+	// check-in func, but even then its still up to the user to check the ptr back in
+	DirectionalLight* addDirectionalLight(DirectionalLight&& l);
+	void updateLUB();
 
 	Camera* getCamera() {return camera;}
-	RenderPassInfo& getRenderPass(size_t i) {return renderpasses[i];}
+	const DirectionalLight* getDirLights() const {return dirlights;}
+	size_t getNumDirLights() const {return numdirlights;}
+	const BufferInfo& getLUB() {return lightub;}
+	RenderPassInfo& getRenderPass(size_t i) {return *renderpasses[i];}
 
 private:
 	Camera* camera;
-	std::vector<Light*> lights;
+	// for now just directional, point lights will require their own buffers
+	// TODO: must we heap alloc the main array???
+	DirectionalLight dirlights[SCENE_MAX_DIR_LIGHTS],
+		* dirsclights[SCENE_MAX_DIR_SHADOWCASTING_LIGHTS];
+	size_t numdirlights, numdirsclights;
 	VkDescriptorSetLayout dsl;
 	VkDescriptorSet ds;
 	BufferInfo lightub;
-	std::vector<RenderPassInfo> renderpasses;
+	std::vector<RenderPassInfo*> renderpasses;
 };
 
 #endif

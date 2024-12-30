@@ -108,11 +108,14 @@ UIHandler::~UIHandler() {
 }
 
 void UIHandler::setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p) {
-	VkDescriptorSet dstemp;
-	GH::createDS(p, dstemp);
+	// TODO: see if we can make this reusable in texture callback
+	VkDescriptorSet dstemp = i.getDS();
+	if (dstemp == VK_NULL_HANDLE || dstemp == UIComponent::getDefaultDS()) {
+		GH::createDS(p, dstemp);
+		i.setDS(dstemp);
+	}
 	GH::updateDS(dstemp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ii.getDII(), {});
 	i.setTex(ghToUIImageInfo(ii));
-	i.setDS(dstemp);
 }
 
 void UIHandler::recordDraw(VkFramebuffer f, VkRenderPass rp, VkCommandBuffer& cb) const {
