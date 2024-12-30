@@ -109,7 +109,7 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 	return cbRecTaskRenderPassTemplate(renderpass, framebuffers, numscis, extent, clears.size(), clears.data());
 }
 
-Scene::Scene(float a) {
+Scene::Scene(float a) : numdirlights(0), numdirsclights(0) {
 	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
 	lightub.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	lightub.size = sizeof(LUBData);
@@ -140,13 +140,25 @@ void Scene::addRenderPass(const RenderPassInfo& r) {
 	renderpasses.push_back(new RenderPassInfo(r));
 }
 
-void Scene::addLight(DirectionalLight* l) {
-	lights.push_back(l);
+DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
+	if (numdirlights == SCENE_MAX_DIR_LIGHTS) {
+		WarningError("Maximum directional lights exceeded, not adding\n").raise();
+		return nullptr;
+	}
+	dirlights[numdirlights] = std::move(l);
+	numdirlights++;
 
 	updateLUB();
 
-	const ImageInfo& sm = lights.back()->getShadowMap();
+	const ImageInfo& sm = dirlights[numdirlights - 1].getShadowMap();
 	if (sm.image != VK_NULL_HANDLE) {
+		if (numdirsclights + 1 > SCENE_MAX_DIR_SHADOWCASTING_LIGHTS) {
+			WarningError("Maximum directional shadowcasters exceeded, not adding rp\n").raise();
+			return &dirlights[numdirlights - 1];
+		}
+		dirsclights[numdirsclights] = &dirlights[numdirlights - 1];
+		numdirsclights++;
+
 		VkRenderPass r;
 		VkAttachmentDescription attachdesc {
 			0, 
@@ -166,6 +178,8 @@ void Scene::addLight(DirectionalLight* l) {
 
 		renderpasses.insert(renderpasses.begin(), rpi); 
 	}
+
+	return &dirlights[numdirlights - 1];
 }
 
 void Scene::updateLUB() {
@@ -173,12 +187,13 @@ void Scene::updateLUB() {
 	// we pack data tightly here to reduce buffer size
 	// lights should not be added/removed frequently enough for it to matter
 	// if they are, that can be someone's custom impl
+	// unless a light is moving...
 	LUBData data;
-	for (size_t i = 0; i < lights.size(); i++) {
-		data.e[i].vp = lights[i]->getVP();
-		data.e[i].p = lights[i]->getPos();
-		data.e[i].c = lights[i]->getCol();
+	for (size_t i = 0; i < numdirlights; i++) {
+		data.e[i].vp = dirlights[i].getVP();
+		data.e[i].p = dirlights[i].getPos();
+		data.e[i].c = dirlights[i].getCol();
 	}
-	data.n = lights.size();
+	data.n = numdirlights;
 	GH::updateWholeBuffer(lightub, &data);
 }

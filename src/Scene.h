@@ -10,7 +10,8 @@ struct RenderSet;
 
 // #define VKH_VERBOSE_DRAW_TASKS
 
-#define SCENE_MAX_LIGHTS 8
+#define SCENE_MAX_DIR_LIGHTS 8
+#define SCENE_MAX_DIR_SHADOWCASTING_LIGHTS 8
 
 typedef struct ScenePCData {
 	glm::mat4 vp;
@@ -77,7 +78,7 @@ typedef struct LUBEntry {
 } LUBEntry;
 
 typedef struct LUBData {
-	LUBEntry e[SCENE_MAX_LIGHTS];
+	LUBEntry e[SCENE_MAX_DIR_LIGHTS];
 	alignas(16) uint32_t n;
 } LUBData;
 
@@ -89,24 +90,29 @@ public:
 	std::vector<cbRecTaskTemplate> getDrawTasks();
 
 	void addRenderPass(const RenderPassInfo& r);
-	void addLight(DirectionalLight* l);
+	// leaving updateLUB public ties into giving out a non-const DL ptr;
+	// if we wanted to make updateLUB priv, we'd need some sort of check-out,
+	// check-in func, but even then its still up to the user to check the ptr back in
+	DirectionalLight* addDirectionalLight(DirectionalLight&& l);
+	void updateLUB();
 
 	Camera* getCamera() {return camera;}
-	const std::vector<DirectionalLight*> getLights() const {return lights;}
+	const DirectionalLight* getDirLights() const {return dirlights;}
+	size_t getNumDirLights() const {return numdirlights;}
 	const BufferInfo& getLUB() {return lightub;}
 	RenderPassInfo& getRenderPass(size_t i) {return *renderpasses[i];}
 
 private:
 	Camera* camera;
 	// for now just directional, point lights will require their own buffers
-	// TODO: see if we can make not pointers
-	std::vector<DirectionalLight*> lights;
+	// TODO: must we heap alloc the main array???
+	DirectionalLight dirlights[SCENE_MAX_DIR_LIGHTS],
+		* dirsclights[SCENE_MAX_DIR_SHADOWCASTING_LIGHTS];
+	size_t numdirlights, numdirsclights;
 	VkDescriptorSetLayout dsl;
 	VkDescriptorSet ds;
 	BufferInfo lightub;
 	std::vector<RenderPassInfo*> renderpasses;
-
-	void updateLUB();
 };
 
 #endif

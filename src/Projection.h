@@ -35,19 +35,31 @@ private:
 
 #define LIGHT_SHADOW_MAP_FORMAT VK_FORMAT_D32_SFLOAT // consider more efficient formats...
 
+typedef struct LightInitInfo {
+	glm::vec3 p = glm::vec3(1), c = glm::vec3(1);
+	VkExtent2D sme = {0, 0};
+} LightInitInfo;
+
 class Light {
 public:
-	Light();
+	Light() : Light((LightInitInfo){}) {}
 	Light(glm::vec3 p, glm::vec3 c);
+	Light(LightInitInfo&& i);
 	~Light();
+
+	Light& operator=(const Light& rhs) = delete;
+	Light& operator=(Light&& rhs);
+
+	friend void swap(Light& lhs, Light& rhs);
+
+	virtual void setPos(glm::vec3 p) {position = p;}
+	void setCol(glm::vec3 c) {color = c;}
 
 	const glm::vec3& getPos() const {return position;}
 	const glm::vec3& getCol() const {return color;}
 	const ImageInfo& getShadowMap() const {return shadowmap;}
 	const PipelineInfo& getSMPipeline() const {return smpipeline;}
-	virtual const void* getPCData() const = 0;
 
-	// void setSMExtent(
 	void setSMPipeline(PipelineInfo p) {smpipeline = p;}
 
 protected:
@@ -74,34 +86,46 @@ protected:
 
 private:
 	glm::vec3 color; // intensity baked-in to color, this is not normalized in the shader
-	PipelineInfo smpipeline;
+	PipelineInfo smpipeline; // TODO: why do we even store this?????????
 };
+
+typedef enum DirectionalLightType {
+	DIRECTIONAL_LIGHT_TYPE_ORTHO,
+	DIRECTIONAL_LIGHT_TYPE_PERSP
+} DirectionalLightType;
+
+typedef struct DirectionalLightInitInfo {
+	LightInitInfo super = {};
+	DirectionalLightType t = DIRECTIONAL_LIGHT_TYPE_ORTHO;
+	glm::vec3 f = glm::vec3(-1);
+} DirectionalLightInitInfo;
 
 class DirectionalLight : public Light {
 public:
-	DirectionalLight() : Light() {}
+	DirectionalLight() : DirectionalLight((DirectionalLightInitInfo){}) {}
+	DirectionalLight(DirectionalLightInitInfo&& i);
 	DirectionalLight(glm::vec3 p, glm::vec3 f, glm::vec3 c);
 	~DirectionalLight() = default;
 
+	DirectionalLight& operator=(const DirectionalLight& rhs) = delete;
+	DirectionalLight& operator=(DirectionalLight&& rhs);
+
+	friend void swap(DirectionalLight& lhs, DirectionalLight& rhs);
+
+
+	void setPos(glm::vec3 p);
+	void setForward(glm::vec3 f);
+
 	const glm::mat4& getVP() const {return vp;}
-	const void* getPCData() const {return &vp;}
 
 protected:
+	DirectionalLightType type;
 	glm::vec3 forward;
 	glm::mat4 view, projection, vp;
 
 private:
 	void updateView();
-	virtual void updateProj() = 0;
-};
-
-class SunLight : public DirectionalLight {
-public:
-	SunLight() : DirectionalLight() {}
-	SunLight(glm::vec3 p, glm::vec3 f, glm::vec3 c);
-	~SunLight() = default;
-private:
-	void updateProj();
+	virtual void updateProj();
 };
 
 /*

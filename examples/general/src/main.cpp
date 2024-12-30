@@ -16,7 +16,7 @@ void createShadowCastPipeline(RenderPassInfo& rpi, Light& l) {
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = l.getShadowMap().extent;
-	p.cullmode = VK_CULL_MODE_NONE;
+	p.cullmode = VK_CULL_MODE_FRONT_BIT;
 	p.renderpass = rpi.getRenderPass();
 	GH::createPipeline(p);
 	l.setSMPipeline(p);
@@ -36,7 +36,7 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 		}, {
 			1,
 			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			SCENE_MAX_LIGHTS,
+			SCENE_MAX_DIR_LIGHTS,
 			VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
 	}};
@@ -53,7 +53,7 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
 	VkSpecializationMapEntry specmap {0, 0, sizeof(uint32_t)};
-	const uint32_t mltemp = SCENE_MAX_LIGHTS;
+	const uint32_t mltemp = SCENE_MAX_DIR_LIGHTS;
 	VkSpecializationInfo spi[2];
 	spi[0] = {1, &specmap, sizeof(uint32_t), static_cast<const void*>(&mltemp)};
 	spi[1] = {.dataSize = 0};
@@ -290,36 +290,32 @@ void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
 	std::uniform_real_distribution<float> posdist(-3, 3),
 		coldist(0, 0.25);
 	glm::vec3 pos(posdist(gen), abs(posdist(gen)), posdist(gen));
-	// just gonna leak this resource for now lol
-	SunLight* l = new SunLight(pos, -pos, glm::vec3(coldist(gen), coldist(gen), coldist(gen)));
-	s.addLight(l);
+	// TODO: if they want a shadowmap, require a pipeline to be passed in with the constructor
+	// SM resolution can be ripped right from that!
+	DirectionalLight* l = s.addDirectionalLight(DirectionalLight({{pos,  glm::vec3(coldist(gen), coldist(gen), coldist(gen)), {256, 256}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, -pos}));
 	createShadowCastPipeline(s.getRenderPass(0), *l);
-	s.getRenderPass(0).addPipeline(l->getSMPipeline(), l->getPCData());
+	s.getRenderPass(0).addPipeline(l->getSMPipeline(), &l->getVP());
 	s.getRenderPass(0).addMesh(&suzanne, VK_NULL_HANDLE, &suzanne.getModelMatrix(), 0);
 
 	std::vector<VkDescriptorImageInfo> ii;
-	for (const DirectionalLight* dl : s.getLights()) ii.push_back(dl->getShadowMap().getDII());
+	for (size_t i = 0; i < s.getNumDirLights(); i++) ii.push_back(s.getDirLights()[i].getShadowMap().getDII());
 	// TODO: move no tex to gh and give that to the ui system
 	// TODO: we only actually have to update one array element, not all of them lol
-	for (uint32_t i = s.getLights().size(); i < SCENE_MAX_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
-	const RenderSet& rs = s.getRenderPass(s.getLights().size()).getRenderSet(3);
+	for (uint32_t i = s.getNumDirLights(); i < SCENE_MAX_DIR_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
+	const RenderSet& rs = s.getRenderPass(s.getNumDirLights()).getRenderSet(3);
 	GH::updateArrayDS(rs.objdss[rs.findMesh(&plane)], 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
 
-	w.clearTasks();
-	w.addTasks(s.getDrawTasks());
-	/*
 	for (int32_t i = s.getRenderPass(0).getTasks().size() - 1; i >= 0; i--) {
 		w.addTask(s.getRenderPass(0).getTasks()[i], 0);
 	}
-	*/
 }
 
 int main() {
 	GH graphicshandler = GH();
 	WindowInfo w;
 	TextureHandler th;
-
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
+
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
@@ -345,23 +341,24 @@ int main() {
 	UIText* camtext = ui.addComponent(UIText());
 	camtext->setPos(UICoord(1000, 0));
 	UIText* fpstext = ui.addComponent(UIText());
-	fpstext->setPos(UICoord(w.getSCExtent().width - 200, 0));
+	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
 	s.getRenderPass(1).setUI(&ui, 0);
-	UIImage* mon = ui.addComponent(UIImage(UICoord(500, 500)));
-	mon->setExt(UICoord(500, 500));
 
 	/*
 	 * Lighting
 	 */
 
-	SunLight sl(glm::vec3(-20, 20, -20), glm::vec3(1, -1, 1), glm::vec3(1, 1, 0.8));
-	s.addLight(&sl);
+	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight({{glm::vec3(-20, 20, -20), glm::vec3(2, 2, 1), {256, 256}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(1, -1, 1)}));
 
-	createShadowCastPipeline(s.getRenderPass(0), sl);
-	s.getRenderPass(0).addPipeline(sl.getSMPipeline(), sl.getPCData());
+	createShadowCastPipeline(s.getRenderPass(0), *sl);
+	s.getRenderPass(0).addPipeline(sl->getSMPipeline(), &sl->getVP());
 	s.getRenderPass(0).addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
 	createShadowReceivePipeline(s.getRenderPass(1), s, w);
-	// ui.setTex(*mon, sl.getShadowMap(), s.getRenderPass(2).getRenderSet(0).pipeline);
+	/*
+	UIImage* mon = ui.addComponent(UIImage(UICoord(500, 500)));
+	mon->setExt(UICoord(500, 500));
+	ui.setTex(*mon, sl->getShadowMap(), s.getRenderPass(2).getRenderSet(0).pipeline);
+	*/
 
 	/*
 	 * Misc Mesh Instantiation
@@ -377,18 +374,20 @@ int main() {
 	Mesh plane("../resources/models/plane.obj");
 	GH::createDS(s.getRenderPass(1).getRenderSet(3).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, s.getLUB().getDBI());
-	std::vector<VkDescriptorImageInfo> ii = {sl.getShadowMap().getDII()};
-	for (uint32_t i = 1; i < SCENE_MAX_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
+	std::vector<VkDescriptorImageInfo> ii = {sl->getShadowMap().getDII()};
+	for (uint32_t i = 1; i < SCENE_MAX_DIR_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
 	GH::updateArrayDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
 	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 3); // plane receives shadows
 
 	std::vector<LODFuncData> tempfd;
 	LODMesh suz = createLODSuzanne(s, tempfd);
+	/*
 	TextureSet t("../resources/textures/uvgrid");
 	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
 	GH::createDS(s.getRenderPass(1).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
-	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
+	*/
+	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 3);
 	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
@@ -433,9 +432,12 @@ int main() {
 			return true;
 		}
 		if (e.key.scancode == SDL_SCANCODE_L) {
-			if (s.getLights().size() < SCENE_MAX_LIGHTS) {
+			if (s.getNumDirLights() < SCENE_MAX_DIR_LIGHTS) {
 				addLight(w, s, suz, plane);
-				log.insert(0, L"Added Light [" + std::to_wstring(s.getLights().back()->getPos().x) + L", " + std::to_wstring(s.getLights().back()->getPos().y) + L", " + std::to_wstring(s.getLights().back()->getPos().z) + L"]\n");
+				log.insert(0, L"Added Light ["
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getPos().x) + L", " 
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getPos().y) + L", " 
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getPos().z) + L"]\n");
 			}
 			else log.insert(0, L"Too many lights to add another!\n");
 			return true;
@@ -445,6 +447,7 @@ int main() {
 
 
 	ph.start();
+	float theta = 0;
 	while (w.frameCallback()) {
 		/*
 		 * Input Update
@@ -456,6 +459,15 @@ int main() {
 			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
 			s.getCamera()->setForward(-s.getCamera()->getPos());
 		}
+
+		/*
+		theta += 0.01;
+		sl.setPos(glm::vec3(5 * cos(theta), 3, 5 * sin(theta)));
+		sl.setCol(glm::vec3(0.5) + 0.2f * glm::vec3(sin(theta), sin(theta + 6.28 / 3), sin(theta + 2 * 6.28 / 3)));
+		// sl.setPos(s.getCamera()->getPos() + 5.f * s.getCamera()->getRight());
+		sl.setForward(-sl.getPos());
+		s.updateLUB();
+		*/
 
 		/*
 		 * UI Update
