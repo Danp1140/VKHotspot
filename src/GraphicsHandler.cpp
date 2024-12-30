@@ -128,6 +128,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	}
 	sciindex = 0;
 
+
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
 	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -139,6 +140,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 
 	rectaskvec = new std::vector<cbRecTask>[numscis];
 	cballocinfo.commandPool = GH::getCommandPool();
+	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) flags[fifi] = WINDOW_INFO_FLAG_CB_CHANGE;
 }
 
 WindowInfo::~WindowInfo() {
@@ -165,17 +167,28 @@ bool WindowInfo::frameCallback() {
 		VK_NULL_HANDLE,
 		&sciindex);
 
-	// TODO TODO TODO this is a big efficiency TODO lol
 	// TODO: changeflag to determine if re-enqueuing & re-recording is needed [l]
-	vkQueueWaitIdle(GH::getGenericQueue());
-	for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
+	// this is only necessary when it becomes a bottleneck (prob with more objects and lights in
+	// scene)
+	// made a change flag system that I won't remove because it will become useful when we do do this
+	// this will require keeping collectinfos around and just re-recording and replacing those that changed
+	// for that, may want to make collectinfos into a vector, esp because it ops in one thread
+	// if (flags[fifindex] & WINDOW_INFO_FLAG_CB_CHANGE) {
+		// TODO: pre-reserve queue space
+		for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
 
-	// TODO: better timeout logic [l]
-	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+		// TODO: better timeout logic [l]
+		// TODO: how do these flags reconcile with conditional rerecord???
+		vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+		processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
+
+		// TODO: move this to a separate function to put at the bottom of the loop [l]
+		// that way if we multithread the user can do other stuff while we record
+		collectPrimaryCB();
+		// not setting for now
+		// flags[fifindex] &= ~WINDOW_INFO_FLAG_CB_CHANGE;
+	// }
 	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
-	processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
-
-	collectPrimaryCB();
 
 	submitAndPresent();
 

@@ -89,7 +89,7 @@ public:
 
 	std::vector<cbRecTaskTemplate> getDrawTasks();
 
-	void addRenderPass(const RenderPassInfo& r);
+	RenderPassInfo* addRenderPass(const RenderPassInfo& r);
 	// leaving updateLUB public ties into giving out a non-const DL ptr;
 	// if we wanted to make updateLUB priv, we'd need some sort of check-out,
 	// check-in func, but even then its still up to the user to check the ptr back in

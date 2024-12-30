@@ -461,15 +461,6 @@ int main() {
 		}
 
 		/*
-		theta += 0.01;
-		sl.setPos(glm::vec3(5 * cos(theta), 3, 5 * sin(theta)));
-		sl.setCol(glm::vec3(0.5) + 0.2f * glm::vec3(sin(theta), sin(theta + 6.28 / 3), sin(theta + 2 * 6.28 / 3)));
-		// sl.setPos(s.getCamera()->getPos() + 5.f * s.getCamera()->getRight());
-		sl.setForward(-sl.getPos());
-		s.updateLUB();
-		*/
-
-		/*
 		 * UI Update
 		 */
 		size_t numlines = 0;

@@ -136,8 +136,9 @@ std::vector<cbRecTaskTemplate> Scene::getDrawTasks() {
 	return result;
 }
 
-void Scene::addRenderPass(const RenderPassInfo& r) {
+RenderPassInfo* Scene::addRenderPass(const RenderPassInfo& r) {
 	renderpasses.push_back(new RenderPassInfo(r));
+	return renderpasses.back();
 }
 
 DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {

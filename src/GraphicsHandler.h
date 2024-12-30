@@ -295,6 +295,12 @@ typedef struct cbRecTaskTemplate {
 	} data;
 } cbRecTaskTemplate;
 
+typedef enum WindowInfoFlagBits {
+	WINDOW_INFO_FLAG_NONE = 0x00,
+	WINDOW_INFO_FLAG_CB_CHANGE = 0x01
+} WindowInfoFlagBits;
+typedef uint8_t WindowInfoFlags;
+
 class GH;
 
 class WindowInfo {
@@ -340,7 +346,7 @@ public:
 private:
 	SDL_Window* sdlwindow;
 	uint32_t sdlwindowid;
-	bool close;
+	bool close; // TODO: move to flags???
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
 	ImageInfo* scimages, depthbuffer;
@@ -352,6 +358,7 @@ private:
 	std::queue<cbRecTask> rectaskqueue;
 	std::queue<cbCollectInfo> collectinfos;
 	std::vector<VkCommandBuffer> secondarycbset[GH_MAX_FRAMES_IN_FLIGHT];
+	WindowInfoFlags flags[GH_MAX_FRAMES_IN_FLIGHT];
 
 	// below members are temp to make ops done every frame faster
 	// these are used directly after they're set, and should not be read elsewhere
