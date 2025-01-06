@@ -50,7 +50,8 @@ private:
 	void updateModelMatrix();
 };
 
-typedef uint16_t MeshIndex;
+// TODO: way to edit this and param in draw call
+typedef uint32_t MeshIndex;
 
 typedef enum VertexBufferTraitBits {
 	VERTEX_BUFFER_TRAIT_NONE = 0x00,

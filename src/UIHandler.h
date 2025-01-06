@@ -1,3 +1,6 @@
+#ifndef UI_HANDLER_H
+#define UI_HANDLER_H
+
 #include "GraphicsHandler.h"
 #include "UI.h"
 
@@ -10,6 +13,8 @@ public:
 	UIHandler(UIHandler&& rvalue) = delete;
 	UIHandler(const PipelineInfo& p, VkExtent2D extent);
 	~UIHandler();
+
+	const UIContainer& getRoot() const {return root;}
 
 	/* 
 	 * another hack to get polymorphic functions to work
@@ -67,3 +72,5 @@ private:
 
 	UIContainer root;
 };
+
+#endif
