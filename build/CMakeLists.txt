@@ -45,7 +45,8 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Projection.cpp ../src/Projection.h
 	../src/Mesh.cpp ../src/Mesh.h
 	../src/TextureHandler.cpp ../src/TextureHandler.h
-	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h)
+	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
+	../src/InputHandler.cpp ../src/InputHandler.h)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE})
 
@@ -68,6 +69,7 @@ install(
 	../src/Mesh.h
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
+	../src/InputHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
 
 install(
@@ -80,6 +82,7 @@ install(
 	../src/Mesh.h
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
+	../src/InputHandler.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Package Config Hell

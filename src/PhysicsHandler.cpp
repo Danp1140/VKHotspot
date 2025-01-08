@@ -1,15 +1,19 @@
 #include "PhysicsHandler.h"
 
+void swap(Collider& lhs, Collider& rhs) {
+	std::swap(lhs.p, rhs.p);
+	std::swap(lhs.dp, rhs.dp);
+	std::swap(lhs.ddp, rhs.ddp);
+	std::swap(lhs.lp, rhs.lp);
+	std::swap(lhs.m, rhs.m);
+	std::swap(lhs.type, rhs.type);
+}
+
 Collider& Collider::operator=(Collider rhs) {
-	std::swap(p, rhs.p);
-	std::swap(dp, rhs.dp);
-	std::swap(ddp, rhs.ddp);
-	std::swap(lp, rhs.lp);
-	std::swap(r, rhs.r);
-	std::swap(dr, rhs.dr);
-	std::swap(ddr, rhs.ddr);
-	std::swap(m, rhs.m);
-	std::swap(type, rhs.type);
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": Collider::=" << std::endl;
+#endif
+	swap(*this, rhs);
 	return *this;
 }
 
@@ -17,8 +21,6 @@ void Collider::update(float dt) {
 	lp = p;
 	dp += ddp * dt;
 	p += dp * dt;
-	dr += ddr * dt;
-	r += dr * dt;
 }
 
 void Collider::updateCollision(float dt0, float dt1, glm::vec3 mom) {
@@ -31,6 +33,7 @@ void Collider::updateCollision(float dt0, float dt1, glm::vec3 mom) {
 }
 
 void Collider::updateContact(glm::vec3 nf, float dt0, float dt1) {
+	// TODO: efficiency; redundant normalization of nf
 	glm::vec3 dp0 = (p - lp) / (dt0 + dt1);
 	p = lp + dp0 * dt0;
 	dp = dp0 + ddp * dt0;
@@ -63,11 +66,128 @@ glm::vec3 Collider::getForce() const {
 }
 
 PointCollider::PointCollider() : Collider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PointCollider()" << std::endl;
+#endif
 	type = COLLIDER_TYPE_POINT;
 }
 
-PlaneCollider::PlaneCollider(glm::vec3 norm) : Collider(), n(norm) {
+OrientedCollider::OrientedCollider() : Collider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": OrientedCollider()" << std::endl;
+#endif
+	r = glm::quat(1, 0, 0, 0);
+	dr = glm::quat(1, 0, 0, 0);
+	ddr = glm::quat(1, 0, 0, 0);
+}
+
+void swap(OrientedCollider& lhs, OrientedCollider& rhs) {
+	swap(static_cast<Collider&>(lhs), static_cast<Collider&>(rhs));
+	std::swap(lhs.r, rhs.r);
+	std::swap(lhs.dr, rhs.dr);
+	std::swap(lhs.ddr, rhs.ddr);
+}
+
+OrientedCollider& OrientedCollider::operator=(OrientedCollider rhs) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": OrientedCollider::=" << std::endl;
+#endif
+	std::swap(*this, rhs);
+	return *this;
+}
+
+void OrientedCollider::update(float dt) {
+	Collider::update(dt);
+	// TODO: consider an update that doesn't rely upon TWO SLERPS PER FRAME thats pretty expensive...
+	// see if NLERP is good enough?
+	dr = glm::mix(dr, ddr, dt);
+	r = glm::mix(r, dr, dt);
+	/*
+	dr = dr * (ddr * dt);
+	r = r * (dr * dt);
+	*/
+}
+
+void OrientedCollider::setRot(glm::quat rot) {
+	/*
+	 * TODO: rotation update system
+	 * want it so dr and ddr are adjusted with r
+	 * basically, whatever orientation change needs to happen to make r = rot,
+	 * apply that to dr and ddr too
+	 */
+	r = rot;
+	// dr = dr * (rot - r);
+	/*
+	dr = glm::quat(0, 0, 0, 0);
+	ddr = glm::quat(0, 0, 0, 0);
+	*/
+	dr = r;
+	ddr = r;
+}
+
+PlaneCollider::PlaneCollider() :
+		OrientedCollider(),
+		n(0, 1, 0) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PlaneCollider()" << std::endl;
+#endif
 	type = COLLIDER_TYPE_PLANE;
+}
+
+PlaneCollider::PlaneCollider(glm::vec3 norm) : PlaneCollider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PlaneCollider(vec3)" << std::endl;
+#endif
+	setNorm(norm);
+}
+
+PlaneCollider& PlaneCollider::operator=(PlaneCollider rhs) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": PlaneCollider::=" << std::endl;
+#endif
+	OrientedCollider::operator=(rhs);
+	std::swap(n, rhs.n);
+	return *this;
+}
+
+void PlaneCollider::update(float dt) {
+	OrientedCollider::update(dt);
+	// how many ops does this truly save us?
+	// 4 float comps instead of a few multiplications? probably worth it...
+	if (getAngVel() != glm::quat(1, 0, 0, 0)) n = getRot() * glm::vec3(0, 1, 0);
+}
+
+void PlaneCollider::setNorm(glm::vec3 norm) {
+	n = glm::normalize(norm);
+	std::cout << this << " norm set to [" << n.x << ", " << n.y << ", " << n.z << "]" << std::endl;
+	glm::vec3 v = glm::cross(glm::vec3(0, 1, 0), n);
+	float theta = asin(glm::length(v)) / 2;
+	setRot(glm::quat(cos(theta), sinf(theta) * v));
+}
+
+RectCollider::RectCollider() : PlaneCollider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": RectCollider()" << std::endl;
+#endif
+	type = COLLIDER_TYPE_RECT;
+	len = glm::vec2(2, 2);
+}
+
+RectCollider::RectCollider(glm::vec3 norm, glm::vec2 l) : RectCollider() {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": RectCollider(vec3, vec2)" << std::endl;
+#endif
+	setNorm(norm);
+	len = l;
+}
+
+RectCollider& RectCollider::operator=(RectCollider rhs) {
+#ifdef PH_VERBOSE_COLLIDER_OBJECTS
+	std::cout << this << ": RectCollider::=" << std::endl;
+#endif
+	PlaneCollider::operator=(rhs);
+	std::swap(len, rhs.len);
+	return *this;
 }
 
 MeshCollider::MeshCollider() : Collider(), vertices(nullptr), tris(nullptr), numv(0), numt(0) {
@@ -201,7 +321,9 @@ void MeshCollider::loadOBJ(const char* fp) {
 	}
 }
 
-ColliderPair::ColliderPair(Collider* col1, Collider* col2) : c1(col1), c2(col2), f(COLLIDER_PAIR_FLAG_NONE) {
+ColliderPair::ColliderPair(Collider* col1, Collider* col2) : ColliderPair() {
+	c1 = col1;
+	c2 = col2;
 	setCollisionFunc();
 }
 
@@ -210,6 +332,15 @@ ColliderPair& ColliderPair::operator=(ColliderPair rhs) {
 	std::swap(c2, rhs.c2);
 	std::swap(cf, rhs.cf);
 	std::swap(nearest, rhs.nearest);
+	std::swap(nf, rhs.nf);
+	std::swap(reldp, rhs.reldp);
+	std::swap(lreldp, rhs.lreldp);
+	std::swap(dynf, rhs.dynf);
+	std::swap(oncollide, rhs.oncollide);
+	std::swap(oncouple, rhs.oncouple);
+	std::swap(ondecouple, rhs.ondecouple);
+	std::swap(onslide, rhs.onslide);
+	std::swap(preventdefault, rhs.preventdefault);
 	return *this;
 }
 
@@ -219,15 +350,25 @@ void ColliderPair::setCollisionFunc() {
 		if (c2->getType() == COLLIDER_TYPE_PLANE) {
 			cf = &ColliderPair::collidePointPlane;
 		}
+		else if (c2->getType() == COLLIDER_TYPE_RECT) {
+			cf = &ColliderPair::collidePointRect;
+		}
 		else if (c2->getType() == COLLIDER_TYPE_MESH) {
 			nearest = static_cast<const Tri*>(static_cast<MeshCollider*>(c2)->getTris());
 			cf = &ColliderPair::collidePointMesh;
 		}
 	}
+	// TODO: test this swapping tec
 	else if (c1->getType() == COLLIDER_TYPE_PLANE) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
 			cf = &ColliderPair::collidePointPlane;
+		}
+	}
+	else if (c1->getType() == COLLIDER_TYPE_RECT) {
+		if (c2->getType() == COLLIDER_TYPE_POINT) {
+			std::swap(c1, c2);
+			cf = &ColliderPair::collidePointRect;
 		}
 	}
 	else if (c2->getType() == COLLIDER_TYPE_MESH) {
@@ -244,6 +385,8 @@ void ColliderPair::setCollisionFunc() {
 }
 
 void ColliderPair::check(float dt) {
+	lreldp = reldp;
+	reldp = c1->getVel() - c2->getVel();
 	(this->*cf)(dt);
 }
 
@@ -260,27 +403,10 @@ bool ColliderPair::testPointTri(const PointCollider& p, const Tri& t) {
 	// this technique also assumes a CCW front-face; for CW, swap the inequalities
 	glm::vec3 v;
 	for (uint8_t i = 0; i < 3; i++) {
-		/*
-		std::cout << "n = <" << t.n.x << ", " << t.n.y << ", " << t.n.z << ">" << std::endl;
-		std::cout << "last: " << std::endl;
-		v = p.getLastPos() - t.v[i]->p;
-		std::cout << "<" << t.e[i].x << ", " << t.e[i].y << ", " << t.e[i].z << "> x <"
-			<< v.x << ", " << v.y << ", " << v.z << "> = <";
-		v = glm::cross(t.e[i], v);
-		std::cout << v.x << ", " << v.y << ", " << v.z << ">" << std::endl; 
-		*/
 		v = p.getLastPos() - t.v[i]->p;
 		if (glm::dot(glm::cross(t.e[i], v), t.n) < 0) return false;
 		// std::cout << glm::dot(v, t.n) << std::endl;
 		if (i == 0 && glm::dot(v, t.n) < 0) return false;
-		/*
-		std::cout << "current: " << std::endl;
-		v = p.getPos() - t.v[i]->p;
-		std::cout << "<" << t.e[i].x << ", " << t.e[i].y << ", " << t.e[i].z << "> x <"
-			<< v.x << ", " << v.y << ", " << v.z << "> = <";
-		v = glm::cross(t.e[i], v);
-		std::cout << v.x << ", " << v.y << ", " << v.z << ">" << std::endl; 
-		*/
 		v = p.getPos() - t.v[i]->p;
 		if (glm::dot(glm::cross(t.e[i], (p.getPos() - t.v[i]->p)), t.n) < 0) return false;
 		// std::cout << glm::dot(v, t.n) << std::endl;
@@ -298,7 +424,7 @@ bool ColliderPair::pointTriPossible(const PointCollider& p, const Tri& t) {
 		 || glm::dot(ldp, p.getPos() - t.v[2]->p) >= 0;
 }
 
-void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
+void ColliderPair::newtonianCollide(float dt, const glm::vec3& p, const glm::vec3& n) {
 	glm::vec3 p0top1 = c1->getPos() - c1->getLastPos();
 	float dt0 = dt * glm::length(p - c1->getLastPos()) / glm::length(p0top1);
 	glm::vec3 dp0 = p0top1 / dt;
@@ -308,41 +434,90 @@ void ColliderPair::collide(float dt, const glm::vec3& p, const glm::vec3& n) {
 			glm::dot(((c2->getPos() - c2->getLastPos()) / dt + c2->getAcc() * dt0) * c2->getMass(), n) : 0,
 		po = (po1 * (float)c1->getDamp() + po2 * (float)c2->getDamp()) / 255.f;
 
-		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+	// TODO: investigate this logic lol
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 		if (po > PH_CONTACT_THRESHOLD) {
-			FatalError("Objects no longer in contact").raise();
+			// FatalError("Objects no longer in contact").raise();
 		}
 		else {
 
 		}
 	}
 	else if (po < PH_CONTACT_THRESHOLD) {
-		f |= COLLIDER_PAIR_FLAG_CONTACT;
-		nf = c1->getForce() + c2->getForce();
-		glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
-		glm::vec3 zprime = glm::cross(xprime, n);
-		// could probably avoid storing xprime and doing cross for zprime
-		/*
-		nf = glm::vec3(
-			glm::dot(nf, xprime), 
-			glm::dot(nf, n), 
-			glm::dot(nf, zprime)
-		);
-		*/
-		nf = glm::vec3(0, glm::dot(nf, n), 0);
-		// it seems like there are a lot of simplifications to make here
-		nf = glm::vec3(
-			glm::dot(nf, glm::vec3(xprime.x, 0, 0)),
-			glm::dot(nf, glm::vec3(0, n.y, 0)),
-			glm::dot(nf, glm::vec3(0, 0, zprime.z))
-		);
-		c1->updateContact(-nf, dt0, dt - dt0);
-		c2->updateContact(nf, dt0, dt - dt0);
+		newtonianCouple(dt, dt0, n); // if we're here, preventdefault must be false
+		if (oncouple) oncouple(coupledata); 
 	}
 	else {
+#ifdef PH_VERBOSE_COLLISIONS
+		std::cout << c1 << " and " << c2 << " bounced, ||po|| = " << glm::length(po) << std::endl;
+#endif
 		/* TODO: there are still losses in this system, figure out what they are */
 		c1->updateCollision(dt0, dt - dt0, c1->getMomentum() + (po1 + po) * n);
 		c2->updateCollision(dt0, dt - dt0, c2->getMomentum() + (po2 + po) * -n);
+	}
+}
+
+void ColliderPair::newtonianCouple(float dt, float dt0, const glm::vec3& n) {
+	f |= COLLIDER_PAIR_FLAG_CONTACT;
+	nf = c1->getForce() + c2->getForce();
+	glm::vec3 xprime = glm::normalize(glm::vec3(n.y, -n.x, 0));
+	// TODO: check xprime == vec3(0), then do a different basis
+	glm::vec3 zprime = glm::cross(xprime, n);
+
+	nf = glm::dot(nf, n) * n;
+
+#ifdef PH_VERBOSE_COLLISIONS
+	std::cout << c1 << " and " << c2 << " coupled, ||nf|| = [" << nf.x << ", " << nf.y << ", " << nf.z << "]" << std::endl;
+#endif
+
+	c1->updateContact(-nf, dt0, dt - dt0);
+	c2->updateContact(nf, dt0, dt - dt0);
+}
+
+void ColliderPair::newtonianDecouple(float dt) {
+	/*
+	c1->updateContact(nf, dt0, dt - dt0);
+	c2->updateContact(-nf, dt0, dt - dt0);
+	*/
+	// TODO: this check should be specialized to the collision function
+	// this function should just be the contents of the if check
+	/*
+	 * TODO: this system appears to have issues with small-scale decoupling
+	 * should test edge-cases
+	 *
+	 * also seems to have issue with zero-normal-velocity decoupling (e.g. walking off a plane)
+	 */
+#ifdef PH_VERBOSE_COLLISIONS
+	std::cout << c1 << " and " << c2 << " decoupled" << std::endl;
+#endif
+	c1->applyForce(nf);
+	c2->applyForce(-nf);
+	f &= ~COLLIDER_PAIR_FLAG_CONTACT;
+}
+
+void ColliderPair::newtonianSlide(float dt, const glm::vec3& n) {
+	if (reldp == glm::vec3(0)) return;
+
+	// TODO: avoid redundant calc?
+	glm::vec3 v = -glm::dot(reldp, n) * n;
+	if (glm::dot(reldp, n) < 0) {
+		c1->applyMomentum(c1->getMass() * v);
+		c2->applyMomentum(c2->getMass() * -v);
+
+		reldp = reldp + v;
+	}
+
+	// TODO: early escape for both frictiondyn == 0
+	if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
+		// not technically a force...
+		dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
+			 * -glm::normalize(reldp) * dt;
+		c1->applyMomentum(dynf);
+		c2->applyMomentum(-dynf);
+	}
+	else if (reldp != glm::vec3(0)) {
+		c1->applyMomentum(c1->getMass() * -reldp);
+		c2->applyMomentum(c2->getMass() * reldp);
 	}
 }
 
@@ -356,7 +531,62 @@ void ColliderPair::collidePointPlane(float dt) {
 			 - glm::dot(pl->getPos() - pt->getLastPos(), pl->getNorm()) // TODO: pl->getPos() should actually be a sub-pos at collision time
 			 / glm::dot(pt->getLastPos() - pt->getPos(), pl->getNorm()) 
 			 * (pt->getLastPos() - pt->getPos()); 
-		collide(dt, colpos, pl->getNorm());
+		COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, pl->getNorm())
+	}
+	else {
+		// TODO: try checking contact at top, allowing slide first, then bounds check
+		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+			COLLIDER_PAIR_SLIDE_CALL(dt, pl->getNorm());
+			if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
+				 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
+				COLLIDER_PAIR_DECOUPLE_CALL(dt)
+			}
+		}
+	}
+}
+
+void ColliderPair::collidePointRect(float dt) {
+	PointCollider* pt = static_cast<PointCollider*>(c1);
+	RectCollider* rc = static_cast<RectCollider*>(c2);
+
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		if (!preventdefault) newtonianSlide(dt, rc->getNorm());
+		if (onslide) onslide(slidedata);
+		if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
+			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
+			COLLIDER_PAIR_DECOUPLE_CALL(dt)
+		}
+		else {
+			glm::vec3 testpos = pt->getPos();
+			testpos -= rc->getPos();
+			testpos = rc->getRot() * testpos;
+			if (testpos.x < -rc->getLen().x || testpos.x > rc->getLen().x
+				|| testpos.z < -rc->getLen().y || testpos.z > rc->getLen().y) {
+				COLLIDER_PAIR_DECOUPLE_CALL(dt)
+			}
+		}
+	}
+
+	// TODO: find a way to remove redundant collision and colpos code
+	if (glm::dot(pt->getLastPos() - rc->getLastPos(), rc->getNorm()) > 0
+		 && glm::dot(pt->getPos() - rc->getPos(), rc->getNorm()) < 0) {
+		glm::vec3 colpos = pt->getLastPos()
+			 - glm::dot(rc->getPos() - pt->getLastPos(), rc->getNorm()) // TODO: rc->getPos() should actually be a sub-pos at collision time
+			 / glm::dot(pt->getLastPos() - pt->getPos(), rc->getNorm()) 
+			 * (pt->getLastPos() - pt->getPos());
+		// TODO: same as above, rc->getPos() should be a collision time subpos
+		glm::vec3 testpos = colpos;
+		testpos -= rc->getPos();
+		testpos = rc->getRot() * testpos;
+		if (testpos.x > -rc->getLen().x && testpos.x < rc->getLen().x
+			&& testpos.z > -rc->getLen().y && testpos.z < rc->getLen().y) {
+			COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, rc->getNorm())
+			return;
+		}
+		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+			COLLIDER_PAIR_DECOUPLE_CALL(dt)
+			return;
+		}
 	}
 }
 
@@ -460,9 +690,13 @@ void ColliderPair::collidePointMesh(float dt) {
 	/* is it possible to reach this point? */
 }
 
-PhysicsHandler::PhysicsHandler() : numcolliders(0), dt(0) {
+PhysicsHandler::PhysicsHandler() : dt(0) {
 	ti = (float)SDL_GetTicks() / 1000.f;
 	lastt = ti;
+}
+
+PhysicsHandler::~PhysicsHandler() {
+	for (Collider* c : colliders) delete c;
 }
 
 void PhysicsHandler::start() {
@@ -473,15 +707,38 @@ void PhysicsHandler::update() {
 	// if we reworked this slightly we could multithread/parallelize it...
 	dt = (float)SDL_GetTicks() / 1000.f - lastt;
 	lastt += dt;
-	for (size_t i = 0; i < numcolliders; i++) {
-		colliders[i].update(dt);
+	/*
+	 * TODO: find a way to do this with one loop instead of two??
+	 */
+	for (size_t i = 0; i < tms.size(); i++) {
+		if (tms[i].dt < 0) {
+			tms[i].c->applyMomentum(-tms[i].v);
+			tms.erase(tms.begin() + i);
+		}
 	}
-	for (ColliderPair& p : pairs) {
-		p.check(dt);
+	for (size_t i = 0; i < tms.size(); i++) tms[i].dt -= dt;
+	for (size_t i = 0; i < tfs.size(); i++) {
+		if (tfs[i].dt < 0) {
+			tfs[i].c->applyForce(-tfs[i].v);
+			tfs.erase(tfs.begin() + i);
+		}
 	}
+	for (size_t i = 0; i < tfs.size(); i++) tfs[i].dt -= dt;
+	for (Collider* c : colliders) c->update(dt);
+	for (ColliderPair& p : pairs) p.check(dt);
 }
 
 void PhysicsHandler::addColliderPair(ColliderPair&& p) {
 	pairs.push_back(p);
+}
+
+void PhysicsHandler::addTimedMomentum(TimedValue&& t) {
+	tms.push_back(t);
+	tms.back().c->applyMomentum(tms.back().v);
+}
+
+void PhysicsHandler::addTimedForce(TimedValue&& t) {
+	tfs.push_back(t);
+	tfs.back().c->applyForce(tfs.back().v);
 }
 

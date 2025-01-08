@@ -1,6 +1,9 @@
 #ifndef GRAPHICS_HANDLER_H
 #define GRAPHICS_HANDLER_H
 
+// TODO: do we need this??? should p be up to user, as with selectively enabled exts
+#define VK_ENABLE_BETA_EXTENSIONS
+
 #include <vulkan/vulkan.h>
 #include <ext.hpp>
 #include <SDL3/SDL.h>
@@ -11,6 +14,7 @@
 #include <vector>
 #include <queue>
 #include <functional>
+#include <map>
 
 #include "Errors.h"
 
@@ -120,12 +124,13 @@ typedef struct PipelineInfo {
 	VkDescriptorSetLayoutCreateInfo descsetlayoutci = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
 	};
-	VkPushConstantRange pushconstantrange = {};
+	VkPushConstantRange pushconstantrange = {}, objpushconstantrange = {};
 	VkPipelineVertexInputStateCreateInfo vertexinputstateci = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
 	};
 	bool depthtest = false;
-	VkSpecializationInfo specinfo = {};
+	// specinfo array in order of shader stages
+	VkSpecializationInfo* specinfo = nullptr;
 	VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	VkExtent2D extent = {0, 0}; 
 	VkCullModeFlags cullmode = VK_CULL_MODE_BACK_BIT;
@@ -219,6 +224,7 @@ typedef std::function<void (uint8_t, VkCommandBuffer&)> cbRecFuncTemplate;
 typedef struct cbRecTaskRenderPassTemplate {
 	VkRenderPass rp;
 	const VkFramebuffer* fbs;
+	uint32_t numscis;
 	VkExtent2D ext;
 	uint32_t nclears;
 	const VkClearValue* clears;
@@ -227,11 +233,13 @@ typedef struct cbRecTaskRenderPassTemplate {
 	cbRecTaskRenderPassTemplate(
 		const VkRenderPass r,
 		const VkFramebuffer* const f,
+		uint32_t ns,
 		const VkExtent2D e,
 		uint32_t nc,
 		const VkClearValue* const c) :
 		rp(r),
 		fbs(f),
+		numscis(ns),
 		ext(e),
 		nclears(nc),
 		clears(c) {}
@@ -287,6 +295,12 @@ typedef struct cbRecTaskTemplate {
 	} data;
 } cbRecTaskTemplate;
 
+typedef enum WindowInfoFlagBits {
+	WINDOW_INFO_FLAG_NONE = 0x00,
+	WINDOW_INFO_FLAG_CB_CHANGE = 0x01
+} WindowInfoFlagBits;
+typedef uint8_t WindowInfoFlags;
+
 class GH;
 
 class WindowInfo {
@@ -304,6 +318,8 @@ public:
 	 * - Monitor
 	 */
 	WindowInfo();
+	/* p & s are normalized position & size  */
+	WindowInfo(glm::vec2 p, glm::vec2 s);
 	// explicitly delete these until we can safely implement them
 	WindowInfo(const WindowInfo& lvalue) = delete;
 	WindowInfo(WindowInfo&& rvalue) = delete;
@@ -313,8 +329,12 @@ public:
 	 * Returns false if the window should close (SDL_EVENT_QUIT or _WINDOW_CLOSE REQUESTED), true otherwise
 	 */
 	bool frameCallback();
+	void addTask(const cbRecTaskTemplate& t, size_t i);
+	// presumes to add to end
 	void addTask(const cbRecTaskTemplate& t);
 	void addTasks(std::vector<cbRecTaskTemplate>&& t);
+	// use sparingly, only if all window tasks truly change, e.g. scene change
+	void clearTasks();
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
@@ -326,7 +346,7 @@ public:
 private:
 	SDL_Window* sdlwindow;
 	uint32_t sdlwindowid;
-	SDL_Event eventtemp;
+	bool close; // TODO: move to flags???
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
 	ImageInfo* scimages, depthbuffer;
@@ -338,6 +358,7 @@ private:
 	std::queue<cbRecTask> rectaskqueue;
 	std::queue<cbCollectInfo> collectinfos;
 	std::vector<VkCommandBuffer> secondarycbset[GH_MAX_FRAMES_IN_FLIGHT];
+	WindowInfoFlags flags[GH_MAX_FRAMES_IN_FLIGHT];
 
 	// below members are temp to make ops done every frame faster
 	// these are used directly after they're set, and should not be read elsewhere
@@ -389,6 +410,11 @@ public:
 		VkDescriptorType t,
 		VkDescriptorImageInfo ii,
 		VkDescriptorBufferInfo bi);
+	static void updateArrayDS(
+		const VkDescriptorSet& ds,
+		uint32_t i,
+		VkDescriptorType t,
+		std::vector<VkDescriptorImageInfo>&& ii);
 	static void updateWholeDS(
 		const VkDescriptorSet& ds, 
 		std::vector<VkDescriptorType>&& t,
@@ -397,6 +423,9 @@ public:
 
 	static void createBuffer(BufferInfo& b);
 	static void destroyBuffer(BufferInfo& b);
+	static void createMultiuserBuffer(BufferInfo& b);
+	static void copyMultiuserBuffer(const BufferInfo& b);
+	static void destroyMultiuserBuffer(BufferInfo& b);
 	static void updateWholeBuffer(const BufferInfo& b, void* src);
 
 	/*
@@ -431,6 +460,7 @@ private:
 	static VkSampler nearestsampler; // TODO: consider where samplers should live as we continue to utilize sampling [l]
 	static BufferInfo scratchbuffer;
 	static const char* shaderdir;
+	static std::map<VkBuffer, uint8_t> bufferusers;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively
