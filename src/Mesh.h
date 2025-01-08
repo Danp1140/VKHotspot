@@ -122,8 +122,6 @@ public:
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
 
-	InstancedMesh& operator=(InstancedMesh&& rhs);
-
 	/*
 	 * TODO: should instanced mesh still use other position rotation etc stuff? to just apply to all
 	 * of them?

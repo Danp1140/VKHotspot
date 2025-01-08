@@ -275,7 +275,7 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) :
 }
 
 InstancedMesh::~InstancedMesh() {
-	if (instanceub.buffer != VK_NULL_HANDLE) GH::destroyBuffer(instanceub);
+	GH::destroyBuffer(instanceub);
 }
 
 void InstancedMesh::updateInstanceUB(std::vector<InstancedMeshData> m) {
