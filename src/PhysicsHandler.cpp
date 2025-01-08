@@ -162,7 +162,7 @@ void PlaneCollider::setNorm(glm::vec3 norm) {
 	std::cout << this << " norm set to [" << n.x << ", " << n.y << ", " << n.z << "]" << std::endl;
 	glm::vec3 v = glm::cross(glm::vec3(0, 1, 0), n);
 	float theta = asin(glm::length(v)) / 2;
-	setRot(glm::quat(cos(theta), sin(theta) * v));
+	setRot(glm::quat(cos(theta), sinf(theta) * v));
 }
 
 RectCollider::RectCollider() : PlaneCollider() {
