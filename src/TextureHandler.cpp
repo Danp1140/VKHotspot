@@ -1,11 +1,11 @@
 #include "TextureHandler.h"
 
-TextureSet::TextureSet(TextureSet&& rvalue) {
+TextureSet::TextureSet(TextureSet&& rvalue) :
+	textures(std::move(rhs.textures)) {
 #ifdef VERBOSE_TEXTURESET_OBJECTS
 	std::cout << this << " TextureSet(TextureSet&&)" << std::endl;
 #endif
-	nukeTextures(); // necessary???
-	swap(*this, rvalue);
+	rhs.nukeTextures(); // necessary???
 }
 
 TextureSet::TextureSet(const char* d) {
@@ -103,7 +103,7 @@ TextureHandler::~TextureHandler() {
 
 void TextureHandler::addSet(std::string n, TextureSet&& t) {
 	// TextureSet& newt = sets.insert({n, t}).first->second;
-	sets.emplace({n, t});
+	sets.emplace(n, t);
 	// newt.setDiffuseSampler(defaultsampler); // TODO: update to work with generalized TextureSet
 }
 
