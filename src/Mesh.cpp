@@ -266,6 +266,12 @@ void Mesh::loadOBJ(const char* fp) {
 	free(idst);
 }
 
+InstancedMesh::InstancedMesh(InstancedMesh&& rvalue) :
+	Mesh(std::move(rvalue)),
+	instanceub(std::move(rvalue.instanceub)) {
+	rvalue.instanceub = {};
+}
+
 InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
 	loadOBJ(fp);
 	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -276,6 +282,16 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) :
 
 InstancedMesh::~InstancedMesh() {
 	GH::destroyBuffer(instanceub);
+}
+
+void swap(InstancedMesh& lhs, InstancedMesh& rhs) {
+	swap(static_cast<Mesh&>(lhs), static_cast<Mesh&>(rhs));
+	std::swap(lhs.instanceub, rhs.instanceub);
+}
+
+InstancedMesh& InstancedMesh::operator=(InstancedMesh&& rhs) {
+	swap(*this, rhs);
+	return *this;
 }
 
 void InstancedMesh::updateInstanceUB(std::vector<InstancedMeshData> m) {

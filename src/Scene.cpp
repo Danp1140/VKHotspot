@@ -191,7 +191,7 @@ void Scene::updateLUB() {
 	// unless a light is moving...
 	LUBData data;
 	for (size_t i = 0; i < numdirlights; i++) {
-		data.e[i].vp = dirlights[i].getVP();
+		data.e[i].vp = Light::smadjmat * dirlights[i].getVP();
 		data.e[i].p = dirlights[i].getPos();
 		data.e[i].c = dirlights[i].getCol();
 	}

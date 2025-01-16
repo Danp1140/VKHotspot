@@ -119,8 +119,15 @@ typedef struct InstancedMeshData {
 class InstancedMesh : public Mesh {
 public:
 	InstancedMesh() = default;
+	InstancedMesh(const InstancedMesh& lvalue) = delete;
+	InstancedMesh(InstancedMesh&& rvalue);
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
+
+	friend void swap(InstancedMesh& lhs, InstancedMesh& rhs);
+
+	InstancedMesh& operator=(const InstancedMesh& rhs) = delete;
+	InstancedMesh& operator=(InstancedMesh&& rhs);
 
 	/*
 	 * TODO: should instanced mesh still use other position rotation etc stuff? to just apply to all

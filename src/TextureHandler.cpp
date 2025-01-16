@@ -1,14 +1,14 @@
 #include "TextureHandler.h"
 
 TextureSet::TextureSet(TextureSet&& rvalue) :
-	textures(std::move(rhs.textures)) {
+	textures(std::move(rvalue.textures)) {
 #ifdef VERBOSE_TEXTURESET_OBJECTS
 	std::cout << this << " TextureSet(TextureSet&&)" << std::endl;
 #endif
-	rhs.nukeTextures(); // necessary???
+	rvalue.nukeTextures(); // necessary???
 }
 
-TextureSet::TextureSet(const char* d) {
+TextureSet::TextureSet(const char* d, VkSampler s) {
 #ifdef VERBOSE_TEXTURESET_OBJECTS
 	std::cout << this << " TextureSet(const char*)" << std::endl;
 #endif
@@ -43,7 +43,7 @@ TextureSet::TextureSet(const char* d) {
 						std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4),
 					{}
 				}).first->second;
-				std::cout << setname << "'s " << std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4) << std::endl;
+				// std::cout << setname << "'s " << std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4) << std::endl;
 			}
 
 			i.version = PNG_IMAGE_VERSION;
@@ -59,7 +59,7 @@ TextureSet::TextureSet(const char* d) {
 			dst->format = VK_FORMAT_R8G8B8A8_SRGB;
 			dst->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 			dst->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			dst->sampler = VK_NULL_HANDLE;
+			dst->sampler = s;
 			GH::createImage(*dst);
 			GH::updateImage(*dst, buffer);
 
@@ -82,7 +82,7 @@ void swap(TextureSet& lhs, TextureSet& rhs) {
 	std::swap(lhs.textures, rhs.textures);
 }
 
-TextureSet& TextureSet::operator=(TextureSet rhs) {
+TextureSet& TextureSet::operator=(TextureSet&& rhs) {
 #ifdef VERBOSE_TEXTURESET_OBJECTS
 	std::cout << this << " = TextureSet" << std::endl;
 #endif
@@ -103,7 +103,7 @@ TextureHandler::~TextureHandler() {
 
 void TextureHandler::addSet(std::string n, TextureSet&& t) {
 	// TextureSet& newt = sets.insert({n, t}).first->second;
-	sets.emplace(n, t);
+	sets.emplace(n, std::move(t));
 	// newt.setDiffuseSampler(defaultsampler); // TODO: update to work with generalized TextureSet
 }
 

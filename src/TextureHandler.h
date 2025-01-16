@@ -5,21 +5,24 @@
 
 #include "GraphicsHandler.h"
 
-#define VERBOSE_TEXTURESET_OBJECTS
+// #define VERBOSE_TEXTURESET_OBJECTS
 
 class TextureSet {
 public:
 	TextureSet() = default;
+	TextureSet(const TextureSet& lvalue) = delete;
 	TextureSet(TextureSet&& rvalue);
-	TextureSet(const char* d);
+	// TODO: constructor allowing different sampler for each tex
+	TextureSet(const char* d, VkSampler s);
 	~TextureSet();
 
 	friend void swap(TextureSet& lhs, TextureSet& rhs);
 
-	TextureSet& operator=(TextureSet rhs);
+	TextureSet& operator=(const TextureSet& rhs) = delete;
+	TextureSet& operator=(TextureSet&& rhs);
 
 	// could also make this operator[]
-	const ImageInfo& getTexture(std::string n) const {return textures.at(n);}
+	const ImageInfo& getTexture(std::string n) const {return textures.at(n);}	
 
 private:
 	std::map<std::string, ImageInfo> textures;

@@ -22,6 +22,8 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 WindowInfo::WindowInfo() : WindowInfo(glm::vec2(0), glm::vec2(1)) {}
 
 WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
+	// TODO: decompose into more init funcs
+	// TODO: add WindowInfoInitInfo struct for title, etc. (list in .h file)
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
@@ -79,7 +81,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 		GH::getPD(),
 		surface,
 		&surfacecaps);
-	numscis = surfacecaps.maxImageCount;
+	numscis = std::min<uint32_t>(GH_MAX_SWAPCHAIN_IMAGES, surfacecaps.maxImageCount);
 
 	const VkSwapchainCreateInfoKHR swapchaincreateinfo {
 		VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -161,11 +163,14 @@ WindowInfo::~WindowInfo() {
 bool WindowInfo::frameCallback() {
 	// TODO: add wait for sub finish
 	// this will limit framerate to hardware/monitor's framerate limit, but it's for the best
+	// doing one imgacquiresema per FIF cuz if task queuing is sufficiently quick it runs into itself	
+	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
 	vkAcquireNextImageKHR(
 		GH::getLD(),
 		swapchain,
 		UINT64_MAX,
-		imgacquiresema,
+		imgacquiresemas[fifindex],
 		VK_NULL_HANDLE,
 		&sciindex);
 
@@ -181,7 +186,7 @@ bool WindowInfo::frameCallback() {
 
 		// TODO: better timeout logic [l]
 		// TODO: how do these flags reconcile with conditional rerecord???
-		vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+		
 		processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
 
 		// TODO: move this to a separate function to put at the bottom of the loop [l]
@@ -190,7 +195,7 @@ bool WindowInfo::frameCallback() {
 		// not setting for now
 		// flags[fifindex] &= ~WINDOW_INFO_FLAG_CB_CHANGE;
 	// }
-	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
+	// vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
 
 	submitAndPresent();
 
@@ -234,7 +239,6 @@ void WindowInfo::clearTasks() {
 
 void WindowInfo::createSyncObjects() {
 	VkSemaphoreCreateInfo imgacquiresemacreateinfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0};
-	vkCreateSemaphore(GH::getLD(), &imgacquiresemacreateinfo, nullptr, &imgacquiresema);
 	VkSemaphoreCreateInfo subfinishsemacreateinfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0};
 	VkFenceCreateInfo subfinishfencecreateinfo {
 		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, 
@@ -243,6 +247,7 @@ void WindowInfo::createSyncObjects() {
 	};
 	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
 		vkCreateSemaphore(GH::getLD(), &subfinishsemacreateinfo, nullptr, &subfinishsemas[fifi]);
+		vkCreateSemaphore(GH::getLD(), &imgacquiresemacreateinfo, nullptr, &imgacquiresemas[fifi]);
 		vkCreateFence(GH::getLD(), &subfinishfencecreateinfo, nullptr, &subfinishfences[fifi]);
 	}
 }
@@ -251,8 +256,8 @@ void WindowInfo::destroySyncObjects() {
 	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
 		vkDestroyFence(GH::getLD(), subfinishfences[fifi], nullptr);
 		vkDestroySemaphore(GH::getLD(), subfinishsemas[fifi], nullptr);
+		vkDestroySemaphore(GH::getLD(), imgacquiresemas[fifi], nullptr);
 	}
-	vkDestroySemaphore(GH::getLD(), imgacquiresema, nullptr);
 }
 
 void WindowInfo::createPrimaryCBs() {
@@ -356,7 +361,7 @@ void WindowInfo::submitAndPresent() {
 	submitinfo = {
 		VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		nullptr,
-		1, &imgacquiresema,
+		1, &imgacquiresemas[fifindex],
 		&defaultsubmitwaitstage,
 		1, &primarycbs[fifindex],
 		1, &subfinishsemas[fifindex]
@@ -399,6 +404,7 @@ BufferInfo GH::scratchbuffer = {
 };
 const char* GH::shaderdir = "../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
+ImageInfo GH::blankimage = {};
 
 GH::GH() {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -410,8 +416,16 @@ GH::GH() {
 	initDebug();
 	initDevicesAndQueues();
 	initCommandPools();
+	// TODO: delete initSamplers
 	initSamplers();
 	initDescriptorPoolsAndSetLayouts();
+
+	blankimage.extent = {1, 1};
+	blankimage.format = VK_FORMAT_R8_UNORM;
+	blankimage.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+	blankimage.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	blankimage.sampler = nearestsampler;
+	GH::createImage(blankimage);
 }
 
 GH::~GH() {
@@ -567,11 +581,14 @@ void GH::initDevicesAndQueues() {
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
 	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
 	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
+/*
 	VkPhysicalDevicePortabilitySubsetFeaturesKHR portpdf {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
 	portpdf.mutableComparisonSamplers = VK_TRUE;
+*/
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		&portpdf,
+		// &portpdf,
+		nullptr,
 		0,
 		1, &queuecreateinfo,
 		0, nullptr,

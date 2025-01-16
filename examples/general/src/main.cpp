@@ -322,6 +322,9 @@ int main() {
 	/*
 	 * UI Setup
 	 */
+	/*
+	 * As of yet unresolved issue: UI is strangely offset when rendered on Linux Mint machine w/ Nvidia graphics card, 1080p monitor
+	 */
 
 	std::wstring log = L"";
 	const size_t logmaxlines = 20;
@@ -339,7 +342,7 @@ int main() {
 	logtext->setPos(UICoord(0, 0));
 	logtext->setBGCol({0, 0, 0, 0});
 	UIText* camtext = ui.addComponent(UIText());
-	camtext->setPos(UICoord(1000, 0));
+	camtext->setPos(UICoord(1000, w.getSCExtent().height * 2));
 	UIText* fpstext = ui.addComponent(UIText());
 	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
 	s.getRenderPass(1).setUI(&ui, 0);

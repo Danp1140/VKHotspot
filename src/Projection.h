@@ -62,6 +62,13 @@ public:
 
 	void setSMPipeline(PipelineInfo p) {smpipeline = p;}
 
+	static const glm::mat4 constexpr smadjmat = glm::mat4(
+		0.5f, 0.f,  0.f, 0.f,
+		0.f,  0.5f, 0.f, 0.f,
+		0.f,  0.f,  1.f, 0.f,
+		0.5f, 0.5f, 0.f, 1.f
+	);
+
 protected:
 	glm::vec3 position;
 	ImageInfo shadowmap; // if shadowmap.image == VK_NULL_HANDLE, presumed to not do shadowmapping
@@ -82,7 +89,7 @@ protected:
 		0., 0., 
 		VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
 		VK_FALSE
-	};
+	};	
 
 private:
 	glm::vec3 color; // intensity baked-in to color, this is not normalized in the shader

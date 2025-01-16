@@ -130,7 +130,6 @@ void swap(DirectionalLight& lhs, DirectionalLight& rhs) {
 	std::swap(lhs.projection, rhs.projection);
 }
 
-
 void DirectionalLight::setPos(glm::vec3 p) {
 	position = p;
 	updateView();
