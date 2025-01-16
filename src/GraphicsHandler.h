@@ -133,6 +133,7 @@ typedef struct PipelineInfo {
 	bool depthtest = false;
 	// specinfo array in order of shader stages
 	VkSpecializationInfo* specinfo = nullptr;
+	VkPolygonMode polymode = VK_POLYGON_MODE_FILL;
 	VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	VkExtent2D extent = {0, 0}; 
 	VkCullModeFlags cullmode = VK_CULL_MODE_BACK_BIT;
@@ -389,9 +390,20 @@ private:
 	void submitAndPresent();
 };
 
+typedef struct GHInitInfo {
+	std::vector<const char*> iexts, dexts;
+	std::vector<VkDescriptorPoolSize> dps = {
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}
+	};
+	uint32_t nds = 16;
+} GHInitInfo;
+
 class GH {
 public:
-	GH();
+	GH() : GH((GHInitInfo){}) {}
+	GH(GHInitInfo&& i);
 	~GH();
 
 	static void createRenderPass(
@@ -437,6 +449,10 @@ public:
 	static void createImage(ImageInfo& i);
 	static void destroyImage(ImageInfo& i);
 	static void updateImage(ImageInfo& i, void* src);
+	/* src assumed tightly packed, stride only affects dst */
+	/* cpysize is dist from first cpy to last IN DST */
+	/* presumed stride > elemsize */
+	static void updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize);
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
@@ -444,6 +460,7 @@ public:
 	static const VkQueue& getGenericQueue() {return genericqueue;}
 	static const uint8_t getQueueFamilyIndex() {return queuefamilyindex;}
 	static const VkCommandPool& getCommandPool() {return commandpool;}
+	static const VkCommandBuffer& getInterimCB() {return interimcb;}
 	static const VkSampler& getNearestSampler() {return nearestsampler;}
 	static const ImageInfo& getBlankImage() {return blankimage;}
 
@@ -476,7 +493,7 @@ private:
 
 	// init/terminateVulkanInstance also handle the primary surface & window, as they will always exist for a GH
 	// TODO: Remove hard-coding and enhance initVulkanInstance's ability to dynamically enable needed extensions [l]
-	void initVulkanInstance();
+	void initVulkanInstance(const std::vector<const char*>& e);
 	void terminateVulkanInstance();
 
 	static VkResult createDebugMessenger(
@@ -493,7 +510,7 @@ private:
 
 	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, [l] 
 	// and hardware to use 
-	void initDevicesAndQueues();
+	void initDevicesAndQueues(const std::vector<const char*>& e);
 	void terminateDevicesAndQueues();
 
 	void initCommandPools();
@@ -502,7 +519,7 @@ private:
 	void initSamplers();
 	void terminateSamplers();
 
-	static void initDescriptorPoolsAndSetLayouts();
+	static void initDescriptorPoolsAndSetLayouts(GHInitInfo&& i);
 	static void terminateDescriptorPoolsAndSetLayouts();
 
 	static void transitionImageLayout(ImageInfo& i, VkImageLayout newlayout);

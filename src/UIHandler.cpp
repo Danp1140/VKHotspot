@@ -94,6 +94,8 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 	});
 
 	root = UIContainer();
+	root.setBGCol({0, 0, 0, 0}); // TODO: see if we can actually just make it not draw at all lol
+	root.setExt(UICoord(extent.width, extent.height));
 }
 
 UIHandler::~UIHandler() {

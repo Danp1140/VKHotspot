@@ -406,19 +406,19 @@ const char* GH::shaderdir = "../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 ImageInfo GH::blankimage = {};
 
-GH::GH() {
+GH::GH(GHInitInfo&& i) {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		FatalError(
 			std::string("SDL3 Initialization Failed! From SDL_GetError():\n") 
 			 + SDL_GetError()).raise();
 	}
-	initVulkanInstance();
+	initVulkanInstance(i.iexts);
 	initDebug();
-	initDevicesAndQueues();
+	initDevicesAndQueues(i.dexts);
 	initCommandPools();
 	// TODO: delete initSamplers
 	initSamplers();
-	initDescriptorPoolsAndSetLayouts();
+	initDescriptorPoolsAndSetLayouts(std::move(i));
 
 	blankimage.extent = {1, 1};
 	blankimage.format = VK_FORMAT_R8_UNORM;
@@ -439,13 +439,13 @@ GH::~GH() {
 	SDL_Quit();
 }
 
-void GH::initVulkanInstance() {
+void GH::initVulkanInstance(const std::vector<const char*>& e) {
 	VkApplicationInfo appinfo {
 		VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		nullptr,
-		"WaveBox",
+		"VKHotspot Project",
 		VK_MAKE_VERSION(1, 0, 0),
-		"Jet",
+		"VKH",
 		VK_MAKE_VERSION(1, 0, 0),
 		VK_MAKE_API_VERSION(0, 1, 0, 0)
 	};
@@ -465,7 +465,7 @@ void GH::initVulkanInstance() {
 #ifdef __APPLE__
 		"VK_MVK_macos_surface", 
 #endif
-		"VK_KHR_get_physical_device_properties2", // unclear why this is needeed
+		"VK_KHR_get_physical_device_properties2", // required by portability subset :| 
 		"VK_EXT_debug_utils" // for val layers, not needed in final compilation
 	};
 	bool allowed;
@@ -538,7 +538,7 @@ void GH::terminateDebug() {
 	destroyDebugMessenger(instance, debugmessenger, nullptr);
 }
 
-void GH::initDevicesAndQueues() {
+void GH::initDevicesAndQueues(const std::vector<const char*>& e) {
 	uint32_t numphysicaldevices = -1u,
 			 numqueuefamilies;
 	vkEnumeratePhysicalDevices(instance, &numphysicaldevices, &physicaldevice);
@@ -555,10 +555,11 @@ void GH::initDevicesAndQueues() {
 		1,
 		&priorities[0]
 	};
-	const char* desireddeviceexts[2] {
+	std::vector<const char*> desireddeviceexts {
 		"VK_KHR_swapchain",
 		"VK_KHR_portability_subset"
 	};
+	desireddeviceexts.insert(desireddeviceexts.end(), e.begin(), e.end());
 	uint32_t nprops;
 	vkEnumerateDeviceExtensionProperties(
 		physicaldevice, 
@@ -570,12 +571,21 @@ void GH::initDevicesAndQueues() {
 		NULL,
 		&nprops, &props[0]);
 	std::vector<const char*> deviceexts;
-	for (size_t i = 0; i < 2; i++) {
+	bool found;
+	for (size_t i = 0; i < desireddeviceexts.size(); i++) {
+		found = false;
 		for (uint32_t j = 0; j < nprops; j++) {
 			if (strcmp(desireddeviceexts[i], props[j].extensionName) == 0) {
 				deviceexts.push_back(desireddeviceexts[i]);
+				found = true;
 				break;
 			}
+		}
+		if (!found) {
+			WarningError(
+				std::string("Desired extension ")
+				 + std::string(desireddeviceexts[i])
+				 + std::string(" not supported by physical device")).raise();
 		}
 	}
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
@@ -667,18 +677,13 @@ void GH::terminateSamplers() {
 	vkDestroySampler(logicaldevice, nearestsampler, nullptr);
 }
 
-void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
-	VkDescriptorPoolSize poolsizes[3] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2},
-	};
+void GH::initDescriptorPoolsAndSetLayouts(GHInitInfo&& i) {
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		38,
-		3, &poolsizes[0] 
+		i.nds,
+		static_cast<uint32_t>(i.dps.size()), i.dps.data()
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
 }
@@ -883,7 +888,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		0,
 		VK_FALSE,
 		VK_FALSE,
-		VK_POLYGON_MODE_FILL,
+		pi.polymode,
 		pi.cullmode,
 		VK_FRONT_FACE_COUNTER_CLOCKWISE,
 		VK_FALSE,
@@ -1286,6 +1291,10 @@ void GH::destroyImage(ImageInfo& i) {
 }
 
 void GH::updateImage(ImageInfo& i, void* src) {
+	updateImage(i, src, 0, 1, 0, 0);
+}
+
+void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize) {
 	// TODO: handle device local images using a staging buffer [l]
 	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
 	VkSubresourceLayout subresourcelayout;
@@ -1312,7 +1321,7 @@ void GH::updateImage(ImageInfo& i, void* src) {
 		scratchbuffer.size = pitch * i.extent.height;
 		createBuffer(scratchbuffer);
 		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst);
+		dstscan = static_cast<char*>(dst) + offset;
 		for (uint32_t x = 0; x < i.extent.height; x++) {
 			memcpy(reinterpret_cast<void*>(dstscan), 
 				reinterpret_cast<void*>(srcscan),
@@ -1352,13 +1361,23 @@ void GH::updateImage(ImageInfo& i, void* src) {
 	}
 	else {
 		vkMapMemory(logicaldevice, i.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst);
-		for (uint32_t x = 0; x < i.extent.height; x++) {
-			memcpy(reinterpret_cast<void*>(dstscan), 
-				reinterpret_cast<void*>(srcscan),
-				i.extent.width * i.getPixelSize());
-			dstscan += pitch;
-			srcscan += i.extent.width * i.getPixelSize();
+		dstscan = static_cast<char*>(dst) + offset;
+		// TODO: incorporate this system into dev loc update
+		if (stride == 1 && cpysize == 0) {
+			for (uint32_t x = 0; x < i.extent.height; x++) {
+				memcpy(reinterpret_cast<void*>(dstscan), 
+					reinterpret_cast<void*>(srcscan),
+					i.extent.width * i.getPixelSize());
+				dstscan += pitch;
+				srcscan += i.extent.width * i.getPixelSize();
+			}
+		}
+		else {
+			for (size_t i = 0; i < cpysize; i += stride) {
+				memcpy(dstscan, srcscan, elemsize);
+				srcscan += elemsize;
+				dstscan += stride;
+			}
 		}
 		vkUnmapMemory(logicaldevice, i.memory);
 	}

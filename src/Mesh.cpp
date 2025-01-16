@@ -121,7 +121,7 @@ void Mesh::recordDraw(
 			rs.pipeline.objpushconstantrange.size, 
 			rs.objpcdata[rsidx]);
 	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
@@ -351,7 +351,7 @@ void InstancedMesh::recordDraw(
 			rs.pipeline.objpushconstantrange.size, 
 			rs.objpcdata[rsidx]);
 	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
 	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
