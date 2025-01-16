@@ -138,11 +138,11 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	tp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	tp.shaderfilepathprefix = "diffusetexture";
 	VkDescriptorSetLayoutBinding dtbindings[1] {{
-		0,
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		1,
-		VK_SHADER_STAGE_FRAGMENT_BIT,
-		nullptr
+			0,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			1,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
 	}};
 	tp.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -322,6 +322,9 @@ int main() {
 	/*
 	 * UI Setup
 	 */
+	/*
+	 * As of yet unresolved issue: UI is strangely offset when rendered on Linux Mint machine w/ Nvidia graphics card, 1080p monitor
+	 */
 
 	std::wstring log = L"";
 	const size_t logmaxlines = 20;
@@ -339,7 +342,7 @@ int main() {
 	logtext->setPos(UICoord(0, 0));
 	logtext->setBGCol({0, 0, 0, 0});
 	UIText* camtext = ui.addComponent(UIText());
-	camtext->setPos(UICoord(1000, 0));
+	camtext->setPos(UICoord(1000, w.getSCExtent().height * 2));
 	UIText* fpstext = ui.addComponent(UIText());
 	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
 	s.getRenderPass(1).setUI(&ui, 0);
@@ -363,7 +366,6 @@ int main() {
 	/*
 	 * Misc Mesh Instantiation
 	 */
-
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
 	VkDescriptorSet temp;
@@ -491,7 +493,7 @@ int main() {
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
-		plane.setPos(plc->getPos());
+		// plane.setPos(plc->getPos());
 
 		ph.update();
 	}

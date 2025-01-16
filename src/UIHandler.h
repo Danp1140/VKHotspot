@@ -56,9 +56,9 @@ public:
 			i.extent,
 			i.format,
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, // for now assuming dynamic text
-			VK_IMAGE_LAYOUT_GENERAL,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			textsampler,
-			// below should probably depend on static vs dynamic tex
+			// TODO: below should probably depend on static vs dynamic tex
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		};
 	}

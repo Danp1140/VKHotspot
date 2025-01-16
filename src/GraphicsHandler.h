@@ -15,6 +15,7 @@
 #include <queue>
 #include <functional>
 #include <map>
+// #include <algorithm> // for std::min :/
 
 #include "Errors.h"
 
@@ -23,7 +24,8 @@
 // this intersects with system-dependent format selection with preferential formats, as not all systems
 // may be capable of a D16_UNORM, while most if not all will be able to use a D32_SFLOAT
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
-#define GH_MAX_FRAMES_IN_FLIGHT 6
+#define GH_MAX_SWAPCHAIN_IMAGES 8
+#define GH_MAX_FRAMES_IN_FLIGHT 8
 
 #define NUM_SHADER_STAGES_SUPPORTED 5
 const VkShaderStageFlagBits supportedshaderstages[NUM_SHADER_STAGES_SUPPORTED] = {
@@ -338,7 +340,7 @@ public:
 	void clearTasks();
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
-	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
+	// const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
 	const ImageInfo* const getSCImages() const {return scimages;}
 	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
@@ -352,7 +354,7 @@ private:
 	VkSwapchainKHR swapchain;
 	ImageInfo* scimages, depthbuffer;
 	uint32_t numscis, sciindex, fifindex;
-	VkSemaphore imgacquiresema, subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
+	VkSemaphore imgacquiresemas[GH_MAX_FRAMES_IN_FLIGHT], subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
 	VkFence subfinishfences[GH_MAX_FRAMES_IN_FLIGHT];
 	VkCommandBuffer primarycbs[GH_MAX_FRAMES_IN_FLIGHT];
 	std::vector<cbRecTask>* rectaskvec;
@@ -460,6 +462,7 @@ public:
 	static const VkCommandPool& getCommandPool() {return commandpool;}
 	static const VkCommandBuffer& getInterimCB() {return interimcb;}
 	static const VkSampler& getNearestSampler() {return nearestsampler;}
+	static const ImageInfo& getBlankImage() {return blankimage;}
 
 	static void setShaderDirectory(const char* d) {shaderdir = d;}
 
@@ -478,6 +481,7 @@ private:
 	static BufferInfo scratchbuffer;
 	static const char* shaderdir;
 	static std::map<VkBuffer, uint8_t> bufferusers;
+	static ImageInfo blankimage;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively
