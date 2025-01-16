@@ -18,3 +18,7 @@ echo "Compiling Diffuse Texture Shaders"
 glslc -fshader-stage=vert GLSL/DiffuseTextureVertex.glsl -o SPIRV/diffusetexturevert.spv
 glslc -fshader-stage=frag GLSL/DiffuseTextureFragment.glsl -o SPIRV/diffusetexturefrag.spv
 
+echo "Compiling ND Texture Shaders"
+glslc -fshader-stage=vert GLSL/NDTextureVertex.glsl -o SPIRV/NDtexturevert.spv
+glslc -fshader-stage=frag GLSL/NDTextureFragment.glsl -o SPIRV/NDtexturefrag.spv
+

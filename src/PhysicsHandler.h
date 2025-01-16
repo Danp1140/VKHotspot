@@ -8,8 +8,8 @@
 #include "Errors.h"
 
 #define PH_MAX_NUM_COLLIDERS 64
-#define PH_CONTACT_THRESHOLD 0.3 // if the momentum exchanged during a collision is less than this, the objects are presumed to be in contact
-#define PH_FRICTION_THRESHOLD 0.1
+#define PH_CONTACT_THRESHOLD 0.5 // if the momentum exchanged during a collision is less than this, the objects are presumed to be in contact
+#define PH_FRICTION_THRESHOLD 0.3
 
 #define PH_VERBOSE_COLLISIONS
 // #define PH_VERBOSE_COLLIDER_OBJECTS
@@ -53,6 +53,8 @@ public:
 	virtual void updateContact(glm::vec3 nf, float dt0, float dt1);
 	void setPos(glm::vec3 pos) {p = pos;}
 	void setMass(float ma) {m = ma;}
+	void setFrictionDyn(float f) {frictiondynamic = f;}
+	void setDamp(uint8_t d) {dampening = d;}
 	void applyMomentum(glm::vec3 po);
 	void applyForce(glm::vec3 F);
 
@@ -245,6 +247,9 @@ public:
 	void check(float dt);
 
 	void setOnCollide(PhysicsCallback f, void* d) {oncollide = f; collidedata = d;}
+	void setOnCouple(PhysicsCallback f, void* d) {oncouple = f; coupledata = d;}
+	void setOnDecouple(PhysicsCallback f, void* d) {ondecouple = f; decoupledata = d;}
+	void setOnSlide(PhysicsCallback f, void* d) {onslide = f; slidedata = d;}
 	void setPreventDefault(bool p) {preventdefault = p;}
 
 private:

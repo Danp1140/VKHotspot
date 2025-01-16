@@ -28,13 +28,8 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 	VkDescriptorSet ds;
 	GH::createDS(p, ds);
 	UIComponent::setDefaultDS(ds);
-	ImageInfo i;
-	// little bodge to populate default fields like format
-	i = uiToGHImageInfo(ghToUIImageInfo(i));
-	i.extent = {1, 1};
-	GH::createImage(i);
-	UIComponent::setNoTex(ghToUIImageInfo(i));
-	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i.getDII(), {});
+	UIComponent::setNoTex(ghToUIImageInfo(GH::getBlankImage()));
+	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, GH::getBlankImage().getDII(), {});
 
 	UIImage::setTexLoadFunc([] (UIImage* t, void* d) {
 		ImageInfo i = uiToGHImageInfo(t->getTex());
