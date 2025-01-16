@@ -1272,6 +1272,10 @@ void GH::destroyImage(ImageInfo& i) {
 }
 
 void GH::updateImage(ImageInfo& i, void* src) {
+	updateImage(i, src, 0, 1, 0, 0);
+}
+
+void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize) {
 	// TODO: handle device local images using a staging buffer [l]
 	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
 	VkSubresourceLayout subresourcelayout;
@@ -1298,7 +1302,7 @@ void GH::updateImage(ImageInfo& i, void* src) {
 		scratchbuffer.size = pitch * i.extent.height;
 		createBuffer(scratchbuffer);
 		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst);
+		dstscan = static_cast<char*>(dst) + offset;
 		for (uint32_t x = 0; x < i.extent.height; x++) {
 			memcpy(reinterpret_cast<void*>(dstscan), 
 				reinterpret_cast<void*>(srcscan),
@@ -1338,13 +1342,23 @@ void GH::updateImage(ImageInfo& i, void* src) {
 	}
 	else {
 		vkMapMemory(logicaldevice, i.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst);
-		for (uint32_t x = 0; x < i.extent.height; x++) {
-			memcpy(reinterpret_cast<void*>(dstscan), 
-				reinterpret_cast<void*>(srcscan),
-				i.extent.width * i.getPixelSize());
-			dstscan += pitch;
-			srcscan += i.extent.width * i.getPixelSize();
+		dstscan = static_cast<char*>(dst) + offset;
+		// TODO: incorporate this system into dev loc update
+		if (stride == 1 && cpysize == 0) {
+			for (uint32_t x = 0; x < i.extent.height; x++) {
+				memcpy(reinterpret_cast<void*>(dstscan), 
+					reinterpret_cast<void*>(srcscan),
+					i.extent.width * i.getPixelSize());
+				dstscan += pitch;
+				srcscan += i.extent.width * i.getPixelSize();
+			}
+		}
+		else {
+			for (size_t i = 0; i < cpysize; i += stride) {
+				memcpy(dstscan, srcscan, elemsize);
+				srcscan += elemsize;
+				dstscan += stride;
+			}
 		}
 		vkUnmapMemory(logicaldevice, i.memory);
 	}

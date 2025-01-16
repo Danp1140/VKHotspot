@@ -447,6 +447,10 @@ public:
 	static void createImage(ImageInfo& i);
 	static void destroyImage(ImageInfo& i);
 	static void updateImage(ImageInfo& i, void* src);
+	/* src assumed tightly packed, stride only affects dst */
+	/* cpysize is dist from first cpy to last IN DST */
+	/* presumed stride > elemsize */
+	static void updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize);
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
