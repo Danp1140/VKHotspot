@@ -71,6 +71,7 @@ int main() {
 	RectCollider* mainstage = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 0), glm::vec2(10))));
 	mainstage->setMass(std::numeric_limits<float>::infinity());
 
+	bool onramp = false;
 	RectCollider* rampcol = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 1), glm::vec2(5))));
 	rampcol->setMass(std::numeric_limits<float>::infinity());
 	// TODO: figure out why this is inconsistent w/ visual position of collider
@@ -81,14 +82,14 @@ int main() {
 
 	RectCollider* wall0col = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(1, 0, 0), glm::vec3(5))));
 	wall0col->setMass(std::numeric_limits<float>::infinity());
-	wall0col->setPos(glm::vec3(-10, 5, -5));
+	wall0col->setPos(glm::vec3(-9.9, 5, -5));
 	wall0.setScale(glm::vec3(0.5));
 	wall0.setPos(wall0col->getPos());
 	wall0.setRot(wall0col->getRot());
 
 	RectCollider* wall1col = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 0, 1), glm::vec3(5))));
 	wall1col->setMass(std::numeric_limits<float>::infinity());
-	wall1col->setPos(glm::vec3(-5, 5, -10));
+	wall1col->setPos(glm::vec3(-5, 5, -9.9));
 	wall1.setScale(glm::vec3(0.5));
 	wall1.setPos(wall1col->getPos());
 	wall1.setRot(wall1col->getRot());
@@ -103,8 +104,14 @@ int main() {
 	ph.getColliderPair(0).setOnCollide([] (void* d) {
 			Collider* c = static_cast<Collider*>(d);
 			c->setPos(glm::vec3(0, 5, 0));
+			std::cout << "died" << std::endl;
 		}, pov);
 	ph.getColliderPair(0).setPreventDefault(true);
+	/*
+	ph.getColliderPair(2).setOnCouple([] (void* d) {
+
+			}, &onramp);
+			*/
 
 	// TODO: prevent jump and move in air lol
 	glm::vec3 movementdir;
@@ -126,7 +133,7 @@ int main() {
 		return true;
 	}));
 
-	SDL_Event eventtemp;
+	glm::vec3 povpostemp;
 	ph.start();
 	while (fpw.frameCallback() && tpw.frameCallback()) {
 		movementdir = glm::vec3(0);

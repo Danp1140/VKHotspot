@@ -56,7 +56,9 @@ public:
 	void setFrictionDyn(float f) {frictiondynamic = f;}
 	void setDamp(uint8_t d) {dampening = d;}
 	void applyMomentum(glm::vec3 po);
+	void coerceMomentum(glm::vec3 po, float dt); // use sparingly, right now just in newtonianSlide
 	void applyForce(glm::vec3 F);
+	void coerceForce(glm::vec3 F, float dt); // same as coerceMomentum, use sparingly
 
 	glm::vec3 getPos() const {return p;}
 	glm::vec3 getVel() const {return dp;}
@@ -261,7 +263,7 @@ private:
 	bool preventdefault;
 	
 	const void* nearest;
-	glm::vec3 nf, reldp, lreldp, dynf; 
+	glm::vec3 nf, reldp, lreldp, dynf, netf;  // TODO: i think netf and nf are the same lmaoooo
 	// could eliminate contact flag by checking if nf is nonzero?
 
 	/*

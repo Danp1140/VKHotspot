@@ -49,10 +49,25 @@ void Collider::applyMomentum(glm::vec3 po) {
 	dp += po / m; // should probably have a carve-out for m = 0 or inf
 }
 
+void Collider::coerceMomentum(glm::vec3 po, float dt) {
+	if (m == std::numeric_limits<float>::infinity()) return;
+	if (m == 0) return;
+	p += po / m * dt;
+	dp += po / m;
+}
+
 void Collider::applyForce(glm::vec3 F) {
 	if (m == std::numeric_limits<float>::infinity()) return;
 	if (m == 0) return; // idk what to do here, either infinite acceleration or none
 	ddp += F / m; // should probably have a carve-out for m = 0 or inf
+}
+
+void Collider::coerceForce(glm::vec3 F, float dt) {
+	if (m == std::numeric_limits<float>::infinity()) return;
+	if (m == 0) return;
+	p += F / m * pow(dt, 2.f);
+	dp += F / m * dt;
+	ddp += F / m;
 }
 
 glm::vec3 Collider::getMomentum() const {
@@ -387,6 +402,7 @@ void ColliderPair::setCollisionFunc() {
 void ColliderPair::check(float dt) {
 	lreldp = reldp;
 	reldp = c1->getVel() - c2->getVel();
+	netf = c1->getForce() + c2->getForce();
 	(this->*cf)(dt);
 }
 
@@ -496,16 +512,40 @@ void ColliderPair::newtonianDecouple(float dt) {
 }
 
 void ColliderPair::newtonianSlide(float dt, const glm::vec3& n) {
+	// so, in one frame,
+	// presume pov & rect are already coupled
+	// input applies force to pov
+	// pov & rect are coupled, so they must share the force proportionally to their mass
+	// rect has infinite mass, so it does not move and pov gets no movement in the normal dir
+	// 
+	// okay, seems like the problem now is premature decoupling, allowing through-wall sliding
+	// TODO: lots of cleanup here lol
+	
 	if (reldp == glm::vec3(0)) return;
 
-	// TODO: avoid redundant calc?
 	glm::vec3 v = -glm::dot(reldp, n) * n;
+	glm::vec3 normnetf = -glm::dot(netf, n) * n;
+	float totalmass = c1->getMass() + c2->getMass();
+	glm::vec3 f1, f2;
+	if (c1->getMass() == 0 || c2->getMass() == std::numeric_limits<float>::infinity()) f1 = glm::vec3(0);
+	else f1 = normnetf * c1->getMass() / totalmass;
+	if (c2->getMass() == 0 || c1->getMass() == std::numeric_limits<float>::infinity()) f2 = glm::vec3(0);
+	else f2 = normnetf * c2->getMass() / totalmass;
+
+	c1->coerceForce(f1, dt);
+	c2->coerceForce(f2, dt);
+	
+	// nf = c1->getForce() + c2->getForce();
+
+	/*
 	if (glm::dot(reldp, n) < 0) {
-		c1->applyMomentum(c1->getMass() * v);
-		c2->applyMomentum(c2->getMass() * -v);
+		c1->coerceMomentum(c1->getMass() * v, dt);
+		c2->coerceMomentum(c2->getMass() * -v, dt);
 
 		reldp = reldp + v;
 	}
+*/
+	reldp = reldp + v;
 
 	// TODO: early escape for both frictiondyn == 0
 	if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
@@ -550,10 +590,8 @@ void ColliderPair::collidePointRect(float dt) {
 	RectCollider* rc = static_cast<RectCollider*>(c2);
 
 	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-		if (!preventdefault) newtonianSlide(dt, rc->getNorm());
-		if (onslide) onslide(slidedata);
-		if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
-			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
+		COLLIDER_PAIR_SLIDE_CALL(dt, rc->getNorm())
+		if (glm::dot(c1->getMomentum(), rc->getNorm()) + glm::dot(c2->getMomentum(), -rc->getNorm()) > PH_CONTACT_THRESHOLD) {
 			COLLIDER_PAIR_DECOUPLE_CALL(dt)
 		}
 		else {
