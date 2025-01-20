@@ -429,6 +429,8 @@ public:
 	static void copyMultiuserBuffer(const BufferInfo& b);
 	static void destroyMultiuserBuffer(BufferInfo& b);
 	static void updateWholeBuffer(const BufferInfo& b, void* src);
+	// size and offset in bytes, not elements
+	static void updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset);
 
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set

@@ -1197,20 +1197,24 @@ void GH::destroyMultiuserBuffer(BufferInfo& b) {
 }
 
 void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
+	updateBuffer(b, src, b.size, 0);	
+}
+
+void GH::updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset) {
 	void* dst;
 	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
 		&& b.memprops & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
-		vkMapMemory(logicaldevice, b.memory, 0, b.size, 0, &dst);
-		memcpy(dst, src, b.size);
+		vkMapMemory(logicaldevice, b.memory, offset, size, 0, &dst);
+		memcpy(dst, src, size);
 		vkUnmapMemory(logicaldevice, b.memory);
 	}
 	else {
-		scratchbuffer.size = b.size;
+		scratchbuffer.size = size;
 		createBuffer(scratchbuffer);
-		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		memcpy(dst, src, scratchbuffer.size);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, size, 0, &dst);
+		memcpy(dst, src, size);
 		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
-		VkBufferCopy cpyregion {0, 0, b.size};
+		VkBufferCopy cpyregion {0, offset, size};
 		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
 		vkCmdCopyBuffer(
 			interimcb,

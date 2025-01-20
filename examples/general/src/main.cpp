@@ -27,7 +27,7 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "shadowtest";
-	VkDescriptorSetLayoutBinding bindings[2] {{
+	VkDescriptorSetLayoutBinding bindings[3] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			1,
@@ -39,12 +39,19 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 			SCENE_MAX_DIR_LIGHTS,
 			VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
+		}, {
+			2,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+
 	}};
 	p.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		nullptr,
 		0,
-		2, &bindings[0]
+		3, &bindings[0]
 	};
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
@@ -52,10 +59,14 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
-	VkSpecializationMapEntry specmap {0, 0, sizeof(uint32_t)};
-	const uint32_t mltemp = SCENE_MAX_DIR_LIGHTS;
+	VkSpecializationMapEntry specmaps[3] {
+		{0, 0, sizeof(uint32_t)},
+		{1, sizeof(uint32_t), sizeof(uint32_t)},
+		{2, 2 * sizeof(uint32_t), sizeof(uint32_t)}
+	};
+	const uint32_t temp[3] = {SCENE_MAX_DIR_LIGHTS, SCENE_MAX_DIR_SHADOWCASTING_LIGHTS, SCENE_MAX_SHADOWCATCHERS};
 	VkSpecializationInfo spi[2];
-	spi[0] = {1, &specmap, sizeof(uint32_t), static_cast<const void*>(&mltemp)};
+	spi[0] = {3, &specmaps[0], 3 * sizeof(uint32_t), static_cast<const void*>(&temp[0])};
 	spi[1] = {.dataSize = 0};
 	p.specinfo = &spi[0];
 	GH::createPipeline(p);
@@ -351,7 +362,8 @@ int main() {
 	 * Lighting
 	 */
 
-	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight({{glm::vec3(-20, 20, -20), glm::vec3(2, 2, 1), {256, 256}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(1, -1, 1)}));
+	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight({{glm::vec3(-20, 20, 0), glm::vec3(1, 1, 0), {1024, 1024}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(1, -1, 0)}));
+	DirectionalLight* noshad = s.addDirectionalLight(DirectionalLight({{glm::vec3(0, 20, -20), glm::vec3(0, 0, 1), {0, 0}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(0, -1, 1)}));
 
 	createShadowCastPipeline(s.getRenderPass(0), *sl);
 	s.getRenderPass(0).addPipeline(sl->getSMPipeline(), &sl->getVP());
@@ -375,10 +387,13 @@ int main() {
 
 	Mesh plane("../resources/models/plane.obj");
 	GH::createDS(s.getRenderPass(1).getRenderSet(3).pipeline, temp);
+/*
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, s.getLUB().getDBI());
 	std::vector<VkDescriptorImageInfo> ii = {sl->getShadowMap().getDII()};
 	for (uint32_t i = 1; i < SCENE_MAX_DIR_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
 	GH::updateArrayDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
+*/
+	s.hookupShadowCatcher(&plane, temp, {0}, {0});
 	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 3); // plane receives shadows
 
 	std::vector<LODFuncData> tempfd;

@@ -93,7 +93,9 @@ protected:
 
 private:
 	glm::vec3 color; // intensity baked-in to color, this is not normalized in the shader
-	PipelineInfo smpipeline; // TODO: why do we even store this?????????
+	PipelineInfo smpipeline; // redundant with storage in Scene's RP's RS, here for convenience
+	// TODO: consider making a reference ^^^
+	glm::vec3 focus[2];
 };
 
 typedef enum DirectionalLightType {

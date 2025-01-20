@@ -76,6 +76,8 @@ Light::Light(LightInitInfo&& i) :
 		GH::createImage(shadowmap);
 	}
 	else shadowmap = {};
+	focus[0] = glm::vec3(std::numeric_limits<float>::infinity());
+	focus[1] = glm::vec3(-std::numeric_limits<float>::infinity());
 }
 
 Light::Light(glm::vec3 p, glm::vec3 c) : Light() {
