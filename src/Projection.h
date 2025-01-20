@@ -34,6 +34,7 @@ private:
 };
 
 #define LIGHT_SHADOW_MAP_FORMAT VK_FORMAT_D32_SFLOAT // consider more efficient formats...
+#define LIGHT_SHADOW_AABB_FUDGE 1.f
 
 typedef struct LightInitInfo {
 	glm::vec3 p = glm::vec3(1), c = glm::vec3(1);
@@ -51,6 +52,8 @@ public:
 	Light& operator=(Light&& rhs);
 
 	friend void swap(Light& lhs, Light& rhs);
+
+	virtual void addVecToFocus(const glm::vec3& v);
 
 	virtual void setPos(glm::vec3 p) {position = p;}
 	void setCol(glm::vec3 c) {color = c;}
@@ -72,6 +75,7 @@ public:
 protected:
 	glm::vec3 position;
 	ImageInfo shadowmap; // if shadowmap.image == VK_NULL_HANDLE, presumed to not do shadowmapping
+	glm::vec3 focus[2];
 
 	static constexpr VkSamplerCreateInfo defaultshadowsamplerci {
 		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -95,7 +99,6 @@ private:
 	glm::vec3 color; // intensity baked-in to color, this is not normalized in the shader
 	PipelineInfo smpipeline; // redundant with storage in Scene's RP's RS, here for convenience
 	// TODO: consider making a reference ^^^
-	glm::vec3 focus[2];
 };
 
 typedef enum DirectionalLightType {
@@ -121,6 +124,7 @@ public:
 
 	friend void swap(DirectionalLight& lhs, DirectionalLight& rhs);
 
+	void addVecToFocus(const glm::vec3& v);
 
 	void setPos(glm::vec3 p);
 	void setForward(glm::vec3 f);

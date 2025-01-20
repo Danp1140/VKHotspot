@@ -195,7 +195,26 @@ DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 	return &dirsclights[numdirsclights - 1];
 }
 
-void Scene::hookupShadowCatcher(const Mesh* m, VkDescriptorSet& ds, std::vector<uint32_t> dlidxs, std::vector<uint32_t> scdlidxs) {
+void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs) {
+	glm::vec4 vectemp;
+	LUBLightEntry tempe;
+	for (uint8_t i = 0; i < scdlidxs.size(); i++) {
+		for (uint8_t j = 0; j < 2; j++) {
+			vectemp = m->getModelMatrix() * glm::vec4(m->getAABB()[j], 1);
+			dirsclights[scdlidxs[i]].addVecToFocus(glm::vec3(vectemp.x, vectemp.y, vectemp.z) / vectemp.w);
+		}
+		// pretty inefficient to write this so frequently, but shouldn't be done too frequently
+		// in typical draw loop
+		tempe.vp = Light::smadjmat * dirsclights[scdlidxs[i]].getVP();
+		GH::updateBuffer(
+			lightub, 
+			&tempe.vp, 
+			sizeof(glm::mat4), 
+			offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * scdlidxs[i]);
+	}
+}
+
+void Scene::hookupLightCatcher(const MeshBase* m, VkDescriptorSet& ds, std::vector<uint32_t> dlidxs, std::vector<uint32_t> scdlidxs) {
 	size_t cuboffset = offsetof(LUBData, ce);
 	if (numcatchers + 1 == SCENE_MAX_SHADOWCATCHERS) {
 		WarningError("Max shadowcatchers reached, not adding").raise();
@@ -222,6 +241,5 @@ void Scene::hookupShadowCatcher(const Mesh* m, VkDescriptorSet& ds, std::vector<
 	for (uint8_t i = numdirsclights; i < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS; i++) 
 		ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
 	GH::updateArrayDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
-	GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, cuboffset + sizeof(LUBCatcherEntry) * (numcatchers - 1), sizeof(LUBCatcherEntry)});
-	// TODO: also add mesh's AABB
+	GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, cuboffset + sizeof(LUBCatcherEntry) * (numcatchers - 1), sizeof(LUBCatcherEntry)});	
 }

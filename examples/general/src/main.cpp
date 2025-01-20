@@ -393,7 +393,7 @@ int main() {
 	for (uint32_t i = 1; i < SCENE_MAX_DIR_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
 	GH::updateArrayDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
 */
-	s.hookupShadowCatcher(&plane, temp, {0}, {0});
+	s.hookupLightCatcher(&plane, temp, {0}, {0});
 	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 3); // plane receives shadows
 
 	std::vector<LODFuncData> tempfd;
@@ -406,6 +406,9 @@ int main() {
 	*/
 	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 3);
 	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
+	s.hookupShadowCaster(&suz, {0});
+	m.setPos(glm::vec3(-5, 10, -5));
+	s.hookupShadowCaster(&m, {0});
 
 	w.addTasks(s.getDrawTasks());
 

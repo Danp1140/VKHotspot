@@ -107,9 +107,9 @@ public:
 	// check-in func, but even then its still up to the user to check the ptr back in
 	DirectionalLight* addDirectionalLight(DirectionalLight&& l);
 
-	void hookupShadowCaster(const Mesh* m);
+	void hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs);
 	// gotta update three descriptor sets: LUB, SM array, and CUB
-	void hookupShadowCatcher(const Mesh* m, VkDescriptorSet& ds, std::vector<uint32_t> dlidxs, std::vector<uint32_t> scdlidxs);
+	void hookupLightCatcher(const MeshBase* m, VkDescriptorSet& ds, std::vector<uint32_t> dlidxs, std::vector<uint32_t> scdlidxs);
 	// TODO: func to add light to catcher
 	// really just needs to update that catcher's cub; lub should already be updated
 
