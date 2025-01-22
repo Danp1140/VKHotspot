@@ -117,6 +117,7 @@ Scene::Scene(float a) :
 	lightub.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	lightub.size = sizeof(LUBData);
 	GH::createBuffer(lightub);
+	GH_LOG_RESOURCE_SIZE(lightub, lightub.size)
 }
 
 Scene::~Scene() {
@@ -197,7 +198,7 @@ DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 
 void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs) {
 	glm::vec4 vectemp;
-	LUBLightEntry tempe;
+	glm::mat4 tempm;
 	for (uint8_t i = 0; i < scdlidxs.size(); i++) {
 		for (uint8_t j = 0; j < 2; j++) {
 			vectemp = m->getModelMatrix() * glm::vec4(m->getAABB()[j], 1);
@@ -205,22 +206,36 @@ void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlid
 		}
 		// pretty inefficient to write this so frequently, but shouldn't be done too frequently
 		// in typical draw loop
-		tempe.vp = Light::smadjmat * dirsclights[scdlidxs[i]].getVP();
+		tempm = Light::smadjmat * dirsclights[scdlidxs[i]].getVP();
 		GH::updateBuffer(
 			lightub, 
-			&tempe.vp, 
+			&tempm, 
 			sizeof(glm::mat4), 
 			offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * scdlidxs[i]);
 	}
 }
 
-void Scene::hookupLightCatcher(const MeshBase* m, VkDescriptorSet& ds, std::vector<uint32_t> dlidxs, std::vector<uint32_t> scdlidxs) {
-	size_t cuboffset = offsetof(LUBData, ce);
+void Scene::hookupLightCatcher(
+	const MeshBase* m, 
+	const VkDescriptorSet& ds, 
+	const std::vector<uint32_t>& dlidxs, 
+	const std::vector<uint32_t>& scdlidxs) {
 	if (numcatchers + 1 == SCENE_MAX_SHADOWCATCHERS) {
 		WarningError("Max shadowcatchers reached, not adding").raise();
 		return;
 	}
-	numcatchers++;
+	numcatchers++;	
+
+	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, ce)});
+	updateLightCatcher(m, ds, dlidxs, scdlidxs, numcatchers - 1);
+}
+
+void Scene::updateLightCatcher(
+		const MeshBase* m, 
+		const VkDescriptorSet& ds, 
+		const std::vector<uint32_t>& dlidxs, 
+		const std::vector<uint32_t>& scdlidxs,
+		uint32_t cidx) {
 	LUBCatcherEntry tempe;
 	tempe.nscdls = scdlidxs.size();
 	memcpy(
@@ -232,14 +247,20 @@ void Scene::hookupLightCatcher(const MeshBase* m, VkDescriptorSet& ds, std::vect
 		&tempe.dlidxs[0], 
 		dlidxs.data(), 
 		sizeof(uint32_t) * std::min(tempe.ndls, (uint32_t)SCENE_MAX_DIR_LIGHTS));
-	GH::updateBuffer(lightub, &tempe, sizeof(LUBCatcherEntry), cuboffset + sizeof(LUBCatcherEntry) * (numcatchers - 1));
+	GH::updateBuffer(
+		lightub, 
+		&tempe, 
+		offsetof(LUBCatcherEntry, padding), 
+		offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx);
 
-	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, cuboffset});
+	// TODO: if we make incremental arrayds update func in GH, we only have to update one, theoretically
 	std::vector<VkDescriptorImageInfo> ii;
-	for (uint8_t i = 0; i < numdirsclights; i++) 
-		ii.push_back(dirsclights[i].getShadowMap().getDII());
-	for (uint8_t i = numdirsclights; i < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS; i++) 
+	for (uint8_t i = 0; i < scdlidxs.size(); i++) 
+		ii.push_back(dirsclights[scdlidxs[i]].getShadowMap().getDII());
+	for (uint8_t i = scdlidxs.size(); i < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS; i++) 
 		ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
 	GH::updateArrayDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
-	GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, cuboffset + sizeof(LUBCatcherEntry) * (numcatchers - 1), sizeof(LUBCatcherEntry)});	
+	GH::updateDS(
+		ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
+		{}, {lightub.buffer, offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx, offsetof(LUBCatcherEntry, padding)});
 }

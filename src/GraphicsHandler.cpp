@@ -129,7 +129,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 		vkCreateImageView(GH::getLD(), &imageviewcreateinfo, nullptr, &scimages[sciindex].view);
 	}
 	sciindex = 0;
-
+	GH_LOG_RESOURCE_SIZE(scimages, scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis)
 
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;

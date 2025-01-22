@@ -81,11 +81,19 @@ typedef struct LUBLightEntry {
 	alignas(16) glm::vec3 p, c;
 } LUBEntry;
 
+// TODO: as numcatchers grows, figure out a system that wastes less space on padding
 typedef struct LUBCatcherEntry {
 	uint32_t nscdls, ndls;
 	// could pack four idxs into these
+	// issue is this: in std140, all arrays are in 16-byte segments
+	// solution: to avoid extension dependence, we'll store in vec4s
+	/*
 	alignas(16) uint32_t scdlidxs[SCENE_MAX_DIR_SHADOWCASTING_LIGHTS],
 		dlidxs[SCENE_MAX_DIR_LIGHTS];
+*/
+	alignas(16) glm::uvec4 scdlidxs[SCENE_MAX_DIR_SHADOWCASTING_LIGHTS / 4],
+		dlidxs[SCENE_MAX_DIR_LIGHTS / 4];
+	uint32_t padding[256 / 4 - (4 + SCENE_MAX_DIR_SHADOWCASTING_LIGHTS + SCENE_MAX_DIR_LIGHTS)];
 } LUBCatcherEntry;
 
 typedef struct LUBData {
@@ -109,13 +117,28 @@ public:
 
 	void hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs);
 	// gotta update three descriptor sets: LUB, SM array, and CUB
-	void hookupLightCatcher(const MeshBase* m, VkDescriptorSet& ds, std::vector<uint32_t> dlidxs, std::vector<uint32_t> scdlidxs);
+	// diff btwn below two functions is that hookup increments numcatchers and 
+	// writes LUB DS. both with write SM array and CUB DS
+	void hookupLightCatcher(
+		const MeshBase* m, 
+		const VkDescriptorSet& ds, 
+		const std::vector<uint32_t>& dlidxs, 
+		const std::vector<uint32_t>& scdlidxs);
+	void updateLightCatcher(
+		const MeshBase* m, 
+		const VkDescriptorSet& ds, 
+		const std::vector<uint32_t>& dlidxs, 
+		const std::vector<uint32_t>& scdlidxs,
+		uint32_t cidx);
+
 	// TODO: func to add light to catcher
 	// really just needs to update that catcher's cub; lub should already be updated
 
 	Camera* getCamera() {return camera;}
 	const DirectionalLight* getDirLights() const {return dirlights;}
+	const DirectionalLight* getDirSCLights() const {return dirsclights;}
 	size_t getNumDirLights() const {return numdirlights;}
+	size_t getNumDirSCLights() const {return numdirsclights;}
 	const BufferInfo& getLUB() {return lightub;}
 	RenderPassInfo& getRenderPass(size_t i) {return *renderpasses[i];}
 

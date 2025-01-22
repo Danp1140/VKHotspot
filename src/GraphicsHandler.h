@@ -15,9 +15,21 @@
 #include <queue>
 #include <functional>
 #include <map>
-// #include <algorithm> // for std::min :/
 
 #include "Errors.h"
+
+#define GH_VERBOSE_RESOURCE_SIZES
+#ifdef GH_VERBOSE_RESOURCE_SIZES
+#define GH_LOG_RESOURCE_SIZE(n, s) { \
+	std::cout << #n << " size: " << s << " bytes"; \
+	if (s >= 1000000000) std::cout << " (~" << ceil((float)s / 1000000000.f) << "Gb)"; \
+	else if (s >= 1000000) std::cout << " (~" << ceil((float)s / 1000000.f) << "Mb)"; \
+	else if (s >= 1000) std::cout << " (~" << ceil((float)s / 1000.f) << "kb)"; \
+	std::cout << std::endl; \
+}
+#else
+#define GH_LOG_RESOURCE_SIZE(n, s)
+#endif
 
 #define GH_SWAPCHAIN_IMAGE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 // TODO: constider making this a D16_UNORM [l]
@@ -106,6 +118,8 @@ typedef struct ImageInfo {
 				return 1;
 			case VK_FORMAT_R8G8B8_UNORM:
 				return 3;
+			case VK_FORMAT_B8G8R8A8_SRGB:
+				return 4;
 			case VK_FORMAT_R8G8B8A8_SRGB:
 				return 4;
 			case VK_FORMAT_R8G8B8A8_UNORM:
