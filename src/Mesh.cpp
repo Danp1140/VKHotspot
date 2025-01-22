@@ -2,16 +2,33 @@
 
 VkDeviceSize Mesh::vboffsettemp = 0;
 
+MeshBase::MeshBase() : 
+		position(0),
+		scale(1),
+		rotation(1, 0, 0, 0),
+		model(1) {
+	aabb[0] = glm::vec3(std::numeric_limits<float>::infinity());
+	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
+}
+
 void swap(MeshBase& lhs, MeshBase& rhs) {
 	std::swap(lhs.position, rhs.position);
 	std::swap(lhs.scale, rhs.scale);
 	std::swap(lhs.rotation, rhs.rotation);
 	std::swap(lhs.model, rhs.model);
+	std::swap(lhs.aabb, rhs.aabb);
 }
 
 MeshBase& MeshBase::operator=(MeshBase&& rhs) {
 	swap(*this, rhs);
 	return *this;
+}
+
+void MeshBase::addVecToAABB(const glm::vec3& v) {
+	for (uint8_t i = 0; i < 3; i++) {
+		aabb[0][i] = std::min(aabb[0][i], v[i]);
+		aabb[1][i] = std::max(aabb[1][i], v[i]);
+	}
 }
 
 void MeshBase::setPos(glm::vec3 p) {
@@ -240,6 +257,7 @@ void Mesh::loadOBJ(const char* fp) {
 	MeshIndex itemp;
 	for (uint16_t x = 0; x < vertexindices.size() / 3; x++) {
 		for (uint16_t y = 0; y < 3; y++) {
+			addVecToAABB(vertextemps[vertexindices[3 * x + y]]);
 			if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) {
 				memcpy(vscan, &vertextemps[vertexindices[3 * x + y]], sizeof(glm::vec3));
 				vscan += sizeof(glm::vec3);
@@ -278,6 +296,17 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) :
 	instanceub.size = m.size() * sizeof(InstancedMeshData);
 	GH::createBuffer(instanceub);
 	GH::updateWholeBuffer(instanceub, m.data());
+	glm::vec3 initialaabb[2] = {aabb[0], aabb[1]};
+	aabb[0] = glm::vec3(std::numeric_limits<float>::infinity());
+	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
+	glm::vec4 temp;
+	for (const InstancedMeshData& imd : m) {
+		for (uint8_t i = 0; i < 2; i++) {
+			temp = glm::vec4(initialaabb[i], 1);
+			temp = imd.m * temp;
+			addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
+		}
+	}
 }
 
 InstancedMesh::~InstancedMesh() {
@@ -362,6 +391,8 @@ LODMesh::LODMesh(std::vector<LODMeshData>& md) : nummeshes(md.size()) {
 	for (uint8_t i = 0; i < nummeshes; i++) {
 		meshes[i] = std::move(md[i]);
 	}
+	memcpy(&aabb[0], meshes[nummeshes - 1].getMesh().getAABB(), 2 * sizeof(glm::vec3)); // takes AABB of last LOD,
+	// presumed lowest res
 }
 
 LODMesh::~LODMesh() {

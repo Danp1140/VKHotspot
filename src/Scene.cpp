@@ -109,12 +109,15 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 	return cbRecTaskRenderPassTemplate(renderpass, framebuffers, numscis, extent, clears.size(), clears.data());
 }
 
-Scene::Scene(float a) : numdirlights(0), numdirsclights(0) {
+Scene::Scene(float a) : 
+	numdirlights(0), 
+	numdirsclights(0),
+	numcatchers(0) {
 	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
 	lightub.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	lightub.size = sizeof(LUBData);
 	GH::createBuffer(lightub);
-	updateLUB();
+	GH_LOG_RESOURCE_SIZE(lightub, lightub.size)
 }
 
 Scene::~Scene() {
@@ -142,59 +145,122 @@ RenderPassInfo* Scene::addRenderPass(const RenderPassInfo& r) {
 }
 
 DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
-	if (numdirlights == SCENE_MAX_DIR_LIGHTS) {
-		WarningError("Maximum directional lights exceeded, not adding\n").raise();
+	LUBLightEntry tempe;
+	if (l.getShadowMap().image == VK_NULL_HANDLE) {
+		if (numdirlights == SCENE_MAX_DIR_LIGHTS) {
+			WarningError("Maximum directional lights exceeded, not adding\n").raise();
+			return nullptr;
+		}
+		dirlights[numdirlights] = std::move(l);
+		numdirlights++;
+		
+		tempe.vp = Light::smadjmat * dirlights[numdirlights - 1].getVP();
+		tempe.p = dirlights[numdirlights - 1].getPos();
+		tempe.c = dirlights[numdirlights - 1].getCol();
+		GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), sizeof(LUBLightEntry) * (numdirlights - 1));
+
+		return &dirlights[numdirlights - 1];
+	}
+
+	if (numdirsclights == SCENE_MAX_DIR_SHADOWCASTING_LIGHTS) {
+		WarningError("Maximum directional shadowcasting lights exceeded, not adding\n").raise();
 		return nullptr;
 	}
-	dirlights[numdirlights] = std::move(l);
-	numdirlights++;
+	dirsclights[numdirsclights] = std::move(l);
+	numdirsclights++;
 
-	updateLUB();
+	tempe.vp = Light::smadjmat * dirsclights[numdirsclights - 1].getVP();
+	tempe.p = dirsclights[numdirsclights - 1].getPos();
+	tempe.c = dirsclights[numdirsclights - 1].getCol();
+	GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * (numdirsclights - 1));
 
-	const ImageInfo& sm = dirlights[numdirlights - 1].getShadowMap();
-	if (sm.image != VK_NULL_HANDLE) {
-		if (numdirsclights + 1 > SCENE_MAX_DIR_SHADOWCASTING_LIGHTS) {
-			WarningError("Maximum directional shadowcasters exceeded, not adding rp\n").raise();
-			return &dirlights[numdirlights - 1];
-		}
-		dirsclights[numdirsclights] = &dirlights[numdirlights - 1];
-		numdirsclights++;
+	VkRenderPass r;
+	VkAttachmentDescription attachdesc {
+		0, 
+		LIGHT_SHADOW_MAP_FORMAT,
+		VK_SAMPLE_COUNT_1_BIT,
+		VK_ATTACHMENT_LOAD_OP_CLEAR,
+		VK_ATTACHMENT_STORE_OP_STORE,
+		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+		VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+	};
+	VkAttachmentReference attachref {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+	GH::createRenderPass(r, 1, &attachdesc, nullptr, &attachref);
 
-		VkRenderPass r;
-		VkAttachmentDescription attachdesc {
-			0, 
-			LIGHT_SHADOW_MAP_FORMAT,
-			VK_SAMPLE_COUNT_1_BIT,
-			VK_ATTACHMENT_LOAD_OP_CLEAR,
-			VK_ATTACHMENT_STORE_OP_STORE,
-			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-			VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-		};
-		VkAttachmentReference attachref {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-		GH::createRenderPass(r, 1, &attachdesc, nullptr, &attachref);
+	RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, &dirsclights[numdirsclights - 1].getShadowMap(), {{1, 0}});
 
-		RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, &sm, {{1, 0}});
+	renderpasses.insert(renderpasses.begin(), rpi); 
 
-		renderpasses.insert(renderpasses.begin(), rpi); 
-	}
-
-	return &dirlights[numdirlights - 1];
+	return &dirsclights[numdirsclights - 1];
 }
 
-void Scene::updateLUB() {
-	// incremental buffer update p not worth it
-	// we pack data tightly here to reduce buffer size
-	// lights should not be added/removed frequently enough for it to matter
-	// if they are, that can be someone's custom impl
-	// unless a light is moving...
-	LUBData data;
-	for (size_t i = 0; i < numdirlights; i++) {
-		data.e[i].vp = Light::smadjmat * dirlights[i].getVP();
-		data.e[i].p = dirlights[i].getPos();
-		data.e[i].c = dirlights[i].getCol();
+void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs) {
+	glm::vec4 vectemp;
+	glm::mat4 tempm;
+	for (uint8_t i = 0; i < scdlidxs.size(); i++) {
+		for (uint8_t j = 0; j < 2; j++) {
+			vectemp = m->getModelMatrix() * glm::vec4(m->getAABB()[j], 1);
+			dirsclights[scdlidxs[i]].addVecToFocus(glm::vec3(vectemp.x, vectemp.y, vectemp.z) / vectemp.w);
+		}
+		// pretty inefficient to write this so frequently, but shouldn't be done too frequently
+		// in typical draw loop
+		tempm = Light::smadjmat * dirsclights[scdlidxs[i]].getVP();
+		GH::updateBuffer(
+			lightub, 
+			&tempm, 
+			sizeof(glm::mat4), 
+			offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * scdlidxs[i]);
 	}
-	data.n = numdirlights;
-	GH::updateWholeBuffer(lightub, &data);
+}
+
+void Scene::hookupLightCatcher(
+	const MeshBase* m, 
+	const VkDescriptorSet& ds, 
+	const std::vector<uint32_t>& dlidxs, 
+	const std::vector<uint32_t>& scdlidxs) {
+	if (numcatchers + 1 == SCENE_MAX_SHADOWCATCHERS) {
+		WarningError("Max shadowcatchers reached, not adding").raise();
+		return;
+	}
+	numcatchers++;	
+
+	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, ce)});
+	updateLightCatcher(m, ds, dlidxs, scdlidxs, numcatchers - 1);
+}
+
+void Scene::updateLightCatcher(
+		const MeshBase* m, 
+		const VkDescriptorSet& ds, 
+		const std::vector<uint32_t>& dlidxs, 
+		const std::vector<uint32_t>& scdlidxs,
+		uint32_t cidx) {
+	LUBCatcherEntry tempe;
+	tempe.nscdls = scdlidxs.size();
+	memcpy(
+		&tempe.scdlidxs[0], 
+		scdlidxs.data(), 
+		sizeof(uint32_t) * std::min(tempe.nscdls, (uint32_t)SCENE_MAX_DIR_SHADOWCASTING_LIGHTS));
+	tempe.ndls = dlidxs.size();
+	memcpy(
+		&tempe.dlidxs[0], 
+		dlidxs.data(), 
+		sizeof(uint32_t) * std::min(tempe.ndls, (uint32_t)SCENE_MAX_DIR_LIGHTS));
+	GH::updateBuffer(
+		lightub, 
+		&tempe, 
+		offsetof(LUBCatcherEntry, padding), 
+		offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx);
+
+	// TODO: if we make incremental arrayds update func in GH, we only have to update one, theoretically
+	std::vector<VkDescriptorImageInfo> ii;
+	for (uint8_t i = 0; i < scdlidxs.size(); i++) 
+		ii.push_back(dirsclights[scdlidxs[i]].getShadowMap().getDII());
+	for (uint8_t i = scdlidxs.size(); i < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS; i++) 
+		ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
+	GH::updateArrayDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
+	GH::updateDS(
+		ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
+		{}, {lightub.buffer, offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx, offsetof(LUBCatcherEntry, padding)});
 }

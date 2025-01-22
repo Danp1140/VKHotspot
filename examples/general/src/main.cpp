@@ -27,7 +27,7 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "shadowtest";
-	VkDescriptorSetLayoutBinding bindings[2] {{
+	VkDescriptorSetLayoutBinding bindings[3] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			1,
@@ -39,12 +39,19 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 			SCENE_MAX_DIR_LIGHTS,
 			VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
+		}, {
+			2,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+
 	}};
 	p.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		nullptr,
 		0,
-		2, &bindings[0]
+		3, &bindings[0]
 	};
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
@@ -52,12 +59,18 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
-	VkSpecializationMapEntry specmap {0, 0, sizeof(uint32_t)};
-	const uint32_t mltemp = SCENE_MAX_DIR_LIGHTS;
+/*
+	VkSpecializationMapEntry specmaps[3] {
+		{0, 0, sizeof(uint32_t)},
+		{1, sizeof(uint32_t), sizeof(uint32_t)},
+		{2, 2 * sizeof(uint32_t), sizeof(uint32_t)}
+	};
+	const uint32_t temp[3] = {SCENE_MAX_DIR_LIGHTS, SCENE_MAX_DIR_SHADOWCASTING_LIGHTS, SCENE_MAX_SHADOWCATCHERS};
 	VkSpecializationInfo spi[2];
-	spi[0] = {1, &specmap, sizeof(uint32_t), static_cast<const void*>(&mltemp)};
+	spi[0] = {3, &specmaps[0], 3 * sizeof(uint32_t), static_cast<const void*>(&temp[0])};
 	spi[1] = {.dataSize = 0};
 	p.specinfo = &spi[0];
+*/
 	GH::createPipeline(p);
 	rpi.addPipeline(p, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(p.vertexinputstateci);
@@ -287,9 +300,14 @@ std::wstring getTimestamp() {
 void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
 	std::random_device rdev;
 	std::mt19937 gen(rdev());
-	std::uniform_real_distribution<float> posdist(-3, 3),
-		coldist(0, 0.25);
-	glm::vec3 pos(posdist(gen), abs(posdist(gen)), posdist(gen));
+	std::uniform_real_distribution<float> thetadist(0, glm::two_pi<float>()),
+		phidist(0, glm::half_pi<float>()),
+		rdist(3, 10),
+		coldist(0, 0.75);
+	float theta = thetadist(gen),
+		phi = phidist(gen),
+		r = rdist(gen);
+	glm::vec3 pos(r * glm::vec3(cos(theta) * cos(phi), sin(phi), sin(theta) * cos(phi)));
 	// TODO: if they want a shadowmap, require a pipeline to be passed in with the constructor
 	// SM resolution can be ripped right from that!
 	DirectionalLight* l = s.addDirectionalLight(DirectionalLight({{pos,  glm::vec3(coldist(gen), coldist(gen), coldist(gen)), {256, 256}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, -pos}));
@@ -297,13 +315,18 @@ void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
 	s.getRenderPass(0).addPipeline(l->getSMPipeline(), &l->getVP());
 	s.getRenderPass(0).addMesh(&suzanne, VK_NULL_HANDLE, &suzanne.getModelMatrix(), 0);
 
-	std::vector<VkDescriptorImageInfo> ii;
-	for (size_t i = 0; i < s.getNumDirLights(); i++) ii.push_back(s.getDirLights()[i].getShadowMap().getDII());
-	// TODO: move no tex to gh and give that to the ui system
-	// TODO: we only actually have to update one array element, not all of them lol
-	for (uint32_t i = s.getNumDirLights(); i < SCENE_MAX_DIR_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
-	const RenderSet& rs = s.getRenderPass(s.getNumDirLights()).getRenderSet(3);
-	GH::updateArrayDS(rs.objdss[rs.findMesh(&plane)], 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
+	// technically inefficient to rewrite already written data here, but shouldn't happen often
+	std::vector<uint32_t> idxs;
+	for (uint32_t i = 0; i < s.getNumDirSCLights(); i++) idxs.push_back(i);
+	const RenderSet& rs = s.getRenderPass(s.getNumDirSCLights()).getRenderSet(3);
+	// current state of affairs:
+	// - hooking up just one in the first slot works great
+	// - hooking up multiple works for the first one, the second appears distorted, and the third and rest black out everything
+	// - since one at a time hookup works, it seems like its an issue with the CUB
+	s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], {0}, idxs, 0);
+	// s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], {}, {s.getNumDirSCLights() - 1}, 0);
+	s.hookupShadowCaster(&suzanne, std::move(idxs));
+
 
 	for (int32_t i = s.getRenderPass(0).getTasks().size() - 1; i >= 0; i--) {
 		w.addTask(s.getRenderPass(0).getTasks()[i], 0);
@@ -335,14 +358,17 @@ int main() {
 	size_t numf = 0;
 	UIHandler ui(s.getRenderPass(1).getRenderSet(0).pipeline, w.getSCExtent());
 	UIContainer* leftsidebar = ui.addComponent(UIContainer());
-	leftsidebar->setPos(UICoord(0, 0));
-	leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
-	leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
+	// leftsidebar->setPos(UICoord(0, 0));
+	// leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
+	leftsidebar->setPos(UICoord(0, 2 * w.getSCExtent().height));
+	leftsidebar->setExt(UICoord(1000, -2 * w.getSCExtent().height));
+	// leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
+	leftsidebar->setBGCol({0, 0.8, 0, 1});
 	UIText* logtext = leftsidebar->addChild(UIText());
 	logtext->setPos(UICoord(0, 0));
 	logtext->setBGCol({0, 0, 0, 0});
 	UIText* camtext = ui.addComponent(UIText());
-	camtext->setPos(UICoord(1000, w.getSCExtent().height * 2));
+	camtext->setPos(UICoord(1000, w.getSCExtent().height));
 	UIText* fpstext = ui.addComponent(UIText());
 	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
 	s.getRenderPass(1).setUI(&ui, 0);
@@ -351,17 +377,13 @@ int main() {
 	 * Lighting
 	 */
 
-	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight({{glm::vec3(-20, 20, -20), glm::vec3(2, 2, 1), {256, 256}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(1, -1, 1)}));
+	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight({{glm::vec3(-20, 20, 0), glm::vec3(1, 1, 0), {1024, 1024}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(1, -1, 0)}));
+	DirectionalLight* noshad = s.addDirectionalLight(DirectionalLight({{glm::vec3(0, 20, -20), glm::vec3(0, 0, 1), {0, 0}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(0, -1, 1)}));
 
 	createShadowCastPipeline(s.getRenderPass(0), *sl);
 	s.getRenderPass(0).addPipeline(sl->getSMPipeline(), &sl->getVP());
 	s.getRenderPass(0).addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
 	createShadowReceivePipeline(s.getRenderPass(1), s, w);
-	/*
-	UIImage* mon = ui.addComponent(UIImage(UICoord(500, 500)));
-	mon->setExt(UICoord(500, 500));
-	ui.setTex(*mon, sl->getShadowMap(), s.getRenderPass(2).getRenderSet(0).pipeline);
-	*/
 
 	/*
 	 * Misc Mesh Instantiation
@@ -375,10 +397,7 @@ int main() {
 
 	Mesh plane("../resources/models/plane.obj");
 	GH::createDS(s.getRenderPass(1).getRenderSet(3).pipeline, temp);
-	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, s.getLUB().getDBI());
-	std::vector<VkDescriptorImageInfo> ii = {sl->getShadowMap().getDII()};
-	for (uint32_t i = 1; i < SCENE_MAX_DIR_LIGHTS; i++) ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
-	GH::updateArrayDS(temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
+	s.hookupLightCatcher(&plane, temp, {0}, {0});
 	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 3); // plane receives shadows
 
 	std::vector<LODFuncData> tempfd;
@@ -391,6 +410,9 @@ int main() {
 	*/
 	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 3);
 	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
+	s.hookupShadowCaster(&suz, {0});
+	m.setPos(glm::vec3(-5, 10, -5));
+	s.hookupShadowCaster(&m, {0});
 
 	w.addTasks(s.getDrawTasks());
 
@@ -434,12 +456,15 @@ int main() {
 			return true;
 		}
 		if (e.key.scancode == SDL_SCANCODE_L) {
-			if (s.getNumDirLights() < SCENE_MAX_DIR_LIGHTS) {
+			if (s.getNumDirSCLights() < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS) {
 				addLight(w, s, suz, plane);
-				log.insert(0, L"Added Light ["
-						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getPos().x) + L", " 
-						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getPos().y) + L", " 
-						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getPos().z) + L"]\n");
+				log.insert(0, L"Added Light @ ["
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().x) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().y) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().z) + L"] w/ col ["
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().x) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().y) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().z) + L"] \n");
 			}
 			else log.insert(0, L"Too many lights to add another!\n");
 			return true;

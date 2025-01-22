@@ -10,17 +10,14 @@ class Mesh;
 
 class MeshBase {
 public:
-	MeshBase() : 
-		position(0),
-		scale(1),
-		rotation(1, 0, 0, 0),
-		model(1) {}
+	MeshBase();
 	MeshBase(const MeshBase& lvalue) = delete;
 	MeshBase(MeshBase&& rvalue) :
 		position(std::move(rvalue.position)),
 		scale(std::move(rvalue.scale)),
 		rotation(std::move(rvalue.rotation)),
-		model(std::move(rvalue.model)) {}
+		model(std::move(rvalue.model)),
+		aabb(std::move(rvalue.aabb)) {}
 	~MeshBase() = default;
 
 	friend void swap(MeshBase& lhs, MeshBase& rhs);
@@ -35,12 +32,18 @@ public:
 		size_t rsidx,
 		VkCommandBuffer& c) const = 0;
 
+	void addVecToAABB(const glm::vec3& v);
+
 	const glm::vec3& getPos() const {return position;}
 	const glm::mat4& getModelMatrix() const {return model;}
+	const glm::vec3* getAABB() const {return &aabb[0];}
 
 	void setPos(glm::vec3 p);
 	void setRot(glm::quat r);
 	void setScale(glm::vec3 s);
+
+protected:
+	glm::vec3 aabb[2]; // min, then max, note that this is pre-model matrix
 
 private:
 	glm::vec3 position, scale;
