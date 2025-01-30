@@ -430,6 +430,7 @@ GH::GH(GHInitInfo&& i) {
 
 GH::~GH() {
 	vkQueueWaitIdle(genericqueue);
+	GH::destroyImage(blankimage);
 	terminateDescriptorPoolsAndSetLayouts();
 	terminateSamplers();
 	terminateCommandPools();

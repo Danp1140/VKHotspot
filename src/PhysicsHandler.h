@@ -9,7 +9,13 @@
 
 #define PH_MAX_NUM_COLLIDERS 64
 #define PH_CONTACT_THRESHOLD 0.5 // if the momentum exchanged during a collision is less than this, the objects are presumed to be in contact
-#define PH_FRICTION_THRESHOLD 0.3
+/*
+ * Trying smth different here. Velocity is probably more important than momentum for display,
+ * although for rounding momentum could be important, esp for low-mass colliders.
+ * In the future this macro can just be set equal to another macro
+ */
+#define PH_DECOUPLE_VELOCITY_THRESHOLD 0.5 // m/s
+#define PH_FRICTION_THRESHOLD 0.5
 
 #define PH_VERBOSE_COLLISIONS
 // #define PH_VERBOSE_COLLIDER_OBJECTS
@@ -17,6 +23,7 @@
 typedef enum ColliderType {
 	COLLIDER_TYPE_UNKNOWN,
 	COLLIDER_TYPE_POINT,
+	COLLIDER_TYPE_SPHERE,
 	COLLIDER_TYPE_PLANE,
 	COLLIDER_TYPE_RECT,
 	COLLIDER_TYPE_MESH
@@ -49,12 +56,15 @@ public:
 
 	virtual void update(float dt);
 	// two-step update for both legs before and after collision
+	// TODO: more in-depth descriptions of below
 	virtual void updateCollision(float dt0, float dt1, glm::vec3 mom);
 	virtual void updateContact(glm::vec3 nf, float dt0, float dt1);
+	virtual void updateSlide(glm::vec3 nm, float dt);
 	void setPos(glm::vec3 pos) {p = pos;}
 	void setMass(float ma) {m = ma;}
 	void setFrictionDyn(float f) {frictiondynamic = f;}
 	void setDamp(uint8_t d) {dampening = d;}
+	// TODO: delete coercion functions
 	void applyMomentum(glm::vec3 po);
 	void coerceMomentum(glm::vec3 po, float dt); // use sparingly, right now just in newtonianSlide
 	void applyForce(glm::vec3 F);
@@ -93,6 +103,22 @@ public:
 	PointCollider(const PointCollider& lvalue) = default;
 	PointCollider(PointCollider&& rvalue) : Collider(rvalue) {}
 	~PointCollider() = default;
+};
+
+class SphereCollider : public Collider {
+public:
+	SphereCollider();
+	SphereCollider(float rad);
+	SphereCollider(const SphereCollider& lvalue) = default;
+	SphereCollider(SphereCollider&& rvalue) : 
+		Collider(std::move(rvalue)), 
+		r(std::move(rvalue.r)) {}
+	~SphereCollider() = default;
+
+	float getR() const {return r;}
+
+private:
+	float r;
 };
 
 class OrientedCollider : public Collider {
@@ -135,12 +161,10 @@ public:
 
 	void update(float dt);
 
-	const glm::vec3& getNorm() const {return n;}
-
-protected:
-	// adjusts rotation as appropriate, may cause jumping behavior so should only
-	// really be set in init
+	// adjusts rotation as appropriate
 	void setNorm(glm::vec3 norm);
+
+	const glm::vec3& getNorm() const {return n;}
 
 private:
 	// redundant with rotation and implicit default normal of +y
@@ -205,11 +229,17 @@ private:
 
 typedef enum ColliderPairFlagBits {
 	COLLIDER_PAIR_FLAG_NONE = 0,
-	COLLIDER_PAIR_FLAG_CONTACT = 0x01
+	COLLIDER_PAIR_FLAG_CONTACT = 0x01,
+	COLLIDER_PAIR_FLAG_CLIPPING = 0x02
 } ColliderPairFlagBits;
 typedef uint8_t ColliderPairFlags;
 
-typedef void (*PhysicsCallback)(void *);
+typedef void (*PhysicsCallbackFunc)(void *);
+
+typedef struct PhysicsCallback {
+	PhysicsCallbackFunc f = nullptr;
+	void* d = nullptr;
+} PhysicsCallback;
 
 #define COLLIDER_PAIR_COLLIDE_CALL(dt, cp, n) { \
 	if (!preventdefault) newtonianCollide(dt, cp, n); \
@@ -248,22 +278,26 @@ public:
 
 	void check(float dt);
 
-	void setOnCollide(PhysicsCallback f, void* d) {oncollide = f; collidedata = d;}
-	void setOnCouple(PhysicsCallback f, void* d) {oncouple = f; coupledata = d;}
-	void setOnDecouple(PhysicsCallback f, void* d) {ondecouple = f; decoupledata = d;}
-	void setOnSlide(PhysicsCallback f, void* d) {onslide = f; slidedata = d;}
+	void setOnCollide(PhysicsCallbackFunc f, void* d) {oncollide = f; collidedata = d;}
+	void setOnCouple(PhysicsCallbackFunc f, void* d) {oncouple = f; coupledata = d;}
+	void setOnDecouple(PhysicsCallbackFunc f, void* d) {ondecouple = f; decoupledata = d;}
+	void setOnSlide(PhysicsCallbackFunc f, void* d) {onslide = f; slidedata = d;}
+	void setOnAntiCollide(PhysicsCallback pc) {onanticollide = pc;}
+	void setOnUnclip(PhysicsCallback pc) {onunclip = pc;}
+	void setOnAntiUnclip(PhysicsCallback pc) {onantiunclip = pc;}
 	void setPreventDefault(bool p) {preventdefault = p;}
 
 private:
 	Collider* c1, * c2;
 	ColliderPairFlags f;
 	void (ColliderPair::*cf)(float);
-	PhysicsCallback oncollide, oncouple, ondecouple, onslide; 
+	PhysicsCallbackFunc oncollide, oncouple, ondecouple, onslide; 
 	void* collidedata, * coupledata, * decoupledata, * slidedata;
 	bool preventdefault;
+	PhysicsCallback onunclip, onantiunclip, onanticollide;
 	
 	const void* nearest;
-	glm::vec3 nf, reldp, lreldp, dynf, netf;  // TODO: i think netf and nf are the same lmaoooo
+	glm::vec3 nf, reldp, lreldp, dynf, netf; // nf is normal force, netf is net force 
 	// could eliminate contact flag by checking if nf is nonzero?
 
 	/*
@@ -279,9 +313,24 @@ private:
 	void newtonianCouple(float dt, float dt0, const glm::vec3& n);
 	void newtonianDecouple(float dt);
 	void newtonianSlide(float dt, const glm::vec3& n);
+
+	/* Desired collision function logical guarentees:
+	 *  - No positions can become NaN
+	 *  - Colliders may never pass through one another
+	 *   - Seems vague, but this guarentee is based on underlying geometry
+	 *  - Similarly, coupled objects may not pass through one another; the only way to
+	 *    move is tangent to or antiparallel to the normal
+	 *     - This is mostly based on the slide call
+	 *
+	 */
+
 	void collidePointPlane(float dt);
 	void collidePointRect(float dt);
 	void collidePointMesh(float dt);
+
+	void collideSphereSphere(float dt);
+	void collideSpherePlane(float dt);
+	void collideSphereRect(float dt);
 };
 
 typedef struct TimedValue {
@@ -289,6 +338,22 @@ typedef struct TimedValue {
 	glm::vec3 v;
 	float dt;
 } TimedMomentum;
+
+/*
+ * Prominent bugs:
+ *  - If multiple colliders are intersected, they are handled in-order. Not inheretly bad, but a high-velocity
+ *    object can produce predicatble but perhaps undesirable results.
+ *     - Put things like kill planes last in the order for sure
+ *     - Multiple bounces in a frame will never be handled correctly, as only one bounce can be handled per pair
+ *        - perhaps fixable
+ *  - Certain force combinations while colliding a wall can cause decoupling, allowing clip-through
+ *     - Hard to predict what inputs will couse this
+ *     - Likely an issue in the decoupling criteria, although if newtonianSlide isn't correctly canceling
+ *       force & momentum it could allow valid decoupling criteria to be erroneously satisfied
+ *  - Ramps *really* don't work anymore, after adding the sliding normal-direction cancellation
+ *     - Likely fixable with some modifications to newtonianSlide
+ *     - Should be fine if we *just* cancel force/momentum in the anti-normal dir
+ */
 
 class PhysicsHandler {
 public:

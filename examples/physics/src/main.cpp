@@ -23,7 +23,11 @@ int main() {
 	Mesh ramp("../resources/models/plane.obj");
 	Mesh wall0("../resources/models/plane.obj");
 	Mesh wall1("../resources/models/plane.obj");
-	Mesh povcube("../resources/models/cube.obj");
+	Mesh event("../resources/models/plane.obj");
+	Mesh cube0("../resources/models/cube.obj");
+	Mesh cube1("../resources/models/cube.obj");
+	Mesh povsphere("../resources/models/icosphere.obj");
+	Mesh sphere("../resources/models/icosphere.obj");
 
 	/*
 	 * Setting Up Scene & Graphics Stuff
@@ -41,14 +45,22 @@ int main() {
 	fps.getRenderPass(0).addMesh(&ramp, VK_NULL_HANDLE, &ramp.getModelMatrix(), 0);
 	fps.getRenderPass(0).addMesh(&wall0, VK_NULL_HANDLE, &wall0.getModelMatrix(), 0);
 	fps.getRenderPass(0).addMesh(&wall1, VK_NULL_HANDLE, &wall1.getModelMatrix(), 0);
+	fps.getRenderPass(0).addMesh(&sphere, VK_NULL_HANDLE, &sphere.getModelMatrix(), 0);
+	fps.getRenderPass(0).addMesh(&cube0, VK_NULL_HANDLE, &cube0.getModelMatrix(), 0);
+	fps.getRenderPass(0).addMesh(&cube1, VK_NULL_HANDLE, &cube1.getModelMatrix(), 0);
 
 	tprp.addPipeline(tpp, &tps.getCamera()->getVP());
 	tps.addRenderPass(tprp);
 	tps.getRenderPass(0).addMesh(&floor, VK_NULL_HANDLE, &floor.getModelMatrix(), 0);
 	tps.getRenderPass(0).addMesh(&ramp, VK_NULL_HANDLE, &ramp.getModelMatrix(), 0);
-	tps.getRenderPass(0).addMesh(&povcube, VK_NULL_HANDLE, &povcube.getModelMatrix(), 0);
+	tps.getRenderPass(0).addMesh(&povsphere, VK_NULL_HANDLE, &povsphere.getModelMatrix(), 0);
 	tps.getRenderPass(0).addMesh(&wall0, VK_NULL_HANDLE, &wall0.getModelMatrix(), 0);
 	tps.getRenderPass(0).addMesh(&wall1, VK_NULL_HANDLE, &wall1.getModelMatrix(), 0);
+	// tps.getRenderPass(0).addMesh(&event, VK_NULL_HANDLE, &event.getModelMatrix(), 0);
+	tps.getRenderPass(0).addMesh(&sphere, VK_NULL_HANDLE, &sphere.getModelMatrix(), 0);
+	tps.getRenderPass(0).addMesh(&cube0, VK_NULL_HANDLE, &cube0.getModelMatrix(), 0);
+	tps.getRenderPass(0).addMesh(&cube1, VK_NULL_HANDLE, &cube1.getModelMatrix(), 0);
+
 	tps.getCamera()->setFOVY(glm::half_pi<float>());
 
 	fpw.addTasks(fps.getDrawTasks());
@@ -60,7 +72,7 @@ int main() {
 	
 	/* TODO: error when we swap order of adding pov and deathplane */
 	PhysicsHandler ph;
-	PointCollider* pov = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
+	SphereCollider* pov = static_cast<SphereCollider*>(ph.addCollider(SphereCollider(1.f)));
 	pov->setPos(glm::vec3(0, 5, 0));
 	pov->applyForce(glm::vec3(0, -9.807 * pov->getMass(), 0));
 
@@ -94,12 +106,31 @@ int main() {
 	wall1.setPos(wall1col->getPos());
 	wall1.setRot(wall1col->getRot());
 
+	RectCollider* eventcol = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 0, 1), glm::vec3(5))));
+	eventcol->setMass(std::numeric_limits<float>::infinity());
+	eventcol->setPos(glm::vec3(5, 5, -5));
+	cube0.setPos(eventcol->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 1, 2));
+	cube1.setPos(eventcol->getPos() * glm::vec3(1, 0, 1) - glm::vec3(0, 0, 2));
+	event.setScale(glm::vec3(0.5));
+	event.setPos(eventcol->getPos());
+	event.setRot(eventcol->getRot());
+
+	SphereCollider* spherecol = static_cast<SphereCollider*>(ph.addCollider(SphereCollider(1.f)));
+	spherecol->setMass(1.f);
+	spherecol->setPos(glm::vec3(0, 10, -5));
+	spherecol->applyForce(spherecol->getMass() * glm::vec3(0, -9.807, 0));
+
 
 	ph.addColliderPair(ColliderPair(pov, deathplane));
 	ph.addColliderPair(ColliderPair(pov, mainstage));
 	ph.addColliderPair(ColliderPair(pov, rampcol));
 	ph.addColliderPair(ColliderPair(pov, wall0col));
 	ph.addColliderPair(ColliderPair(pov, wall1col));
+	ph.addColliderPair(ColliderPair(pov, eventcol));
+	// ph.addColliderPair(ColliderPair(pov, spherecol));
+
+	ph.addColliderPair(ColliderPair(spherecol, deathplane));
+	ph.addColliderPair(ColliderPair(spherecol, mainstage));
 
 	ph.getColliderPair(0).setOnCollide([] (void* d) {
 			Collider* c = static_cast<Collider*>(d);
@@ -107,6 +138,30 @@ int main() {
 			std::cout << "died" << std::endl;
 		}, pov);
 	ph.getColliderPair(0).setPreventDefault(true);
+	Mesh* cubes[2] = {&cube0, &cube1};
+	ph.getColliderPair(5).setOnCollide([] (void* d) {
+			Mesh** cubes = static_cast<Mesh**>(d);
+			cubes[1]->setPos(cubes[1]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 1, 0));
+			// c->setNorm(-c->getNorm());
+			// std::cout << "aaaaaaaaaaaaaaaaaaaaaaaaaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" << std::endl;
+		}, &cubes[0]);
+	ph.getColliderPair(5).setOnAntiCollide({[] (void* d) {
+			Mesh** cubes = static_cast<Mesh**>(d);
+			cubes[0]->setPos(cubes[0]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 1, 0));
+		}, &cubes[0]});
+	ph.getColliderPair(5).setOnUnclip({[] (void* d) {
+			Mesh** cubes = static_cast<Mesh**>(d);
+			cubes[1]->setPos(cubes[1]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 0, 0));
+		}, &cubes[0]});
+	ph.getColliderPair(5).setOnAntiUnclip({[] (void* d) {
+			Mesh** cubes = static_cast<Mesh**>(d);
+			cubes[0]->setPos(cubes[0]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 0, 0));
+		}, &cubes[0]});
+
+
+	ph.getColliderPair(5).setPreventDefault(true);
+	// TODO: modify pipeline to have visible but distinct antinormal
+
 	/*
 	ph.getColliderPair(2).setOnCouple([] (void* d) {
 
@@ -145,8 +200,10 @@ int main() {
 		}
 
 		ph.update();
-		fps.getCamera()->setPos(pov->getPos() + glm::vec3(0, 1, 0));
-		povcube.setPos(pov->getPos() + glm::vec3(0, 1, 0));
+		fps.getCamera()->setPos(pov->getPos());
+		povsphere.setPos(pov->getPos());
+		sphere.setPos(spherecol->getPos());
+		event.setRot(eventcol->getRot());
 		/*
 		ramp.setPos(rampcol->getPos());
 		ramp.setRot(rampcol->getRot());
