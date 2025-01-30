@@ -823,7 +823,7 @@ void ColliderPair::collideSphereRect(float dt) {
 			return;
 		}
 		glm::vec3 testpos = p1 - sp->getR() * rc->getNorm();
-		testpos = rc->getRot() * testpos;
+		testpos = inverse(rc->getRot()) * testpos;
 		if (testpos.x < -rc->getLen().x || testpos.x > rc->getLen().x
 			|| testpos.z < -rc->getLen().y || testpos.z > rc->getLen().y) {
 			COLLIDER_PAIR_DECOUPLE_CALL(dt)
@@ -837,7 +837,7 @@ void ColliderPair::collideSphereRect(float dt) {
 		glm::vec3 colpos = sp->getLastPos() + t * (sp->getLastPos() - sp->getPos());
 		glm::vec3 testpos = colpos;
 		testpos -= rc->getPos();
-		testpos = rc->getRot() * testpos;
+		testpos = inverse(rc->getRot()) * testpos;
 		if (testpos.x > -rc->getLen().x && testpos.x < rc->getLen().x
 			&& testpos.z > -rc->getLen().y && testpos.z < rc->getLen().y) {
 			COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, rc->getNorm())

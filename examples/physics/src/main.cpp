@@ -84,10 +84,10 @@ int main() {
 	mainstage->setMass(std::numeric_limits<float>::infinity());
 
 	bool onramp = false;
-	RectCollider* rampcol = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(0, 1, 1), glm::vec2(5))));
+	RectCollider* rampcol = static_cast<RectCollider*>(ph.addCollider(RectCollider(glm::vec3(1, 1, 0), glm::vec2(5))));
 	rampcol->setMass(std::numeric_limits<float>::infinity());
 	// TODO: figure out why this is inconsistent w/ visual position of collider
-	rampcol->setPos(glm::vec3(-5, 5 / glm::root_two<float>(), 5));
+	rampcol->setPos(glm::vec3(-5, 2, 5));
 	ramp.setScale(glm::vec3(0.5));
 	ramp.setPos(rampcol->getPos());
 	ramp.setRot(rampcol->getRot());
@@ -142,8 +142,6 @@ int main() {
 	ph.getColliderPair(5).setOnCollide([] (void* d) {
 			Mesh** cubes = static_cast<Mesh**>(d);
 			cubes[1]->setPos(cubes[1]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 1, 0));
-			// c->setNorm(-c->getNorm());
-			// std::cout << "aaaaaaaaaaaaaaaaaaaaaaaaaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" << std::endl;
 		}, &cubes[0]);
 	ph.getColliderPair(5).setOnAntiCollide({[] (void* d) {
 			Mesh** cubes = static_cast<Mesh**>(d);
