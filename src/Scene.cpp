@@ -258,7 +258,7 @@ void Scene::updateLightCatcher(
 	for (uint8_t i = 0; i < scdlidxs.size(); i++) 
 		ii.push_back(dirsclights[scdlidxs[i]].getShadowMap().getDII());
 	for (uint8_t i = scdlidxs.size(); i < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS; i++) 
-		ii.push_back(UIHandler::uiToGHImageInfo(UIComponent::getNoTex()).getDII());
+		ii.push_back(GH::getBlankImage().getDII());
 	GH::updateArrayDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
 	GH::updateDS(
 		ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
