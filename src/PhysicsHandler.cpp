@@ -53,25 +53,10 @@ void Collider::applyMomentum(glm::vec3 po) {
 	dp += po / m; // should probably have a carve-out for m = 0 or inf
 }
 
-void Collider::coerceMomentum(glm::vec3 po, float dt) {
-	if (m == std::numeric_limits<float>::infinity()) return;
-	if (m == 0) return;
-	p += po / m * dt;
-	dp += po / m;
-}
-
 void Collider::applyForce(glm::vec3 F) {
 	if (m == std::numeric_limits<float>::infinity()) return;
 	if (m == 0) return; // idk what to do here, either infinite acceleration or none
 	ddp += F / m; // should probably have a carve-out for m = 0 or inf
-}
-
-void Collider::coerceForce(glm::vec3 F, float dt) {
-	if (m == std::numeric_limits<float>::infinity()) return;
-	if (m == 0) return;
-	p += F / m * pow(dt, 2.f);
-	dp += F / m * dt;
-	ddp += F / m;
 }
 
 glm::vec3 Collider::getMomentum() const {
