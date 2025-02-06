@@ -89,6 +89,7 @@ typedef struct ImageInfo {
 	VkSampler sampler = VK_NULL_HANDLE;
 	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	VkImageTiling tiling; // set by GH::createImage depending on img props
+	VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 
 	constexpr VkImageSubresource getDefaultSubresource() const {
 		return {
@@ -151,6 +152,8 @@ typedef struct PipelineInfo {
 	VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	VkExtent2D extent = {0, 0}; 
 	VkCullModeFlags cullmode = VK_CULL_MODE_BACK_BIT;
+	VkSampleCountFlagBits msaasamples = VK_SAMPLE_COUNT_1_BIT;
+	// could /consider/ making this a RenderPassInfo ref to avoid redundant data like extent, msaa, etc
 	VkRenderPass renderpass;
 } PipelineInfo;
 
@@ -320,6 +323,13 @@ typedef uint8_t WindowInfoFlags;
 
 class GH;
 
+typedef struct WindowInitInfo {
+	glm::vec2 p = glm::vec2(0),
+		s = glm::vec2(1);
+	const char* name = "";
+	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+} WindowInitInfo;
+
 class WindowInfo {
 public:
 	/*
@@ -334,9 +344,11 @@ public:
 	 * - Resolution (can this vary relative to window size?)
 	 * - Monitor
 	 */
-	WindowInfo();
+	WindowInfo() : WindowInfo((WindowInitInfo){}) {}
+	WindowInfo(WindowInitInfo&& i);
 	/* p & s are normalized position & size  */
-	WindowInfo(glm::vec2 p, glm::vec2 s);
+	// TODO: phase out
+	WindowInfo(glm::vec2 p, glm::vec2 s) : WindowInfo({.p = p, .s = s}) {}
 	// explicitly delete these until we can safely implement them
 	WindowInfo(const WindowInfo& lvalue) = delete;
 	WindowInfo(WindowInfo&& rvalue) = delete;
@@ -354,8 +366,9 @@ public:
 	void clearTasks();
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
-	// const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
+	VkSampleCountFlagBits getMSAASamples() const {return mscolorbuffer.samples;}
 	const ImageInfo* const getSCImages() const {return scimages;}
+	const ImageInfo& getMSAAImage() const {return mscolorbuffer;}
 	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
 	uint32_t getNumSCIs() const {return numscis;}
@@ -366,7 +379,7 @@ private:
 	bool close; // TODO: move to flags???
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
-	ImageInfo* scimages, depthbuffer;
+	ImageInfo* scimages, mscolorbuffer, depthbuffer;
 	uint32_t numscis, sciindex, fifindex;
 	VkSemaphore imgacquiresemas[GH_MAX_FRAMES_IN_FLIGHT], subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
 	VkFence subfinishfences[GH_MAX_FRAMES_IN_FLIGHT];
@@ -425,6 +438,7 @@ public:
 		uint8_t numattachments,
 		VkAttachmentDescription* attachmentdescs,
 		VkAttachmentReference* colorattachmentrefs,
+		VkAttachmentReference* resolveattachmentrefs,
 		VkAttachmentReference* depthattachmentref);
 	static void destroyRenderPass(VkRenderPass& rp);
 

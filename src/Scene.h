@@ -45,6 +45,7 @@ public:
 		VkRenderPass r, 
 		const uint32_t nsci,
 		const ImageInfo* scis,
+		const ImageInfo* ms,
 		const ImageInfo* d,
 		std::vector<VkClearValue>&& c);
 	~RenderPassInfo() = default;
@@ -71,7 +72,8 @@ private:
 	VkExtent2D extent;
 	std::vector<VkClearValue> clears;
 
-	void createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* d);
+	// TODO: see if you can make this interface more intuitive
+	void createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* r, const ImageInfo* d);
 	cbRecTaskRenderPassTemplate getRPT() const;
 };
 

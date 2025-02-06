@@ -19,11 +19,8 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo() : WindowInfo(glm::vec2(0), glm::vec2(1)) {}
-
-WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
+WindowInfo::WindowInfo(WindowInitInfo&& i) {
 	// TODO: decompose into more init funcs
-	// TODO: add WindowInfoInitInfo struct for title, etc. (list in .h file)
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
@@ -34,12 +31,12 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	SDL_free(displays);
 
 	sdlwindow = SDL_CreateWindow(
-		"Vulkan Project", 
-		displaymode->w * s.x, displaymode->h * s.y, 
+		i.name, 
+		displaymode->w * i.s.x, displaymode->h * i.s.y, 
 		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 	SDL_SetWindowPosition(
 		sdlwindow,
-		displaymode->w * p.x, displaymode->h * (1 - s.y));
+		displaymode->w * i.p.x, displaymode->h * (1 - i.s.y));
 
 	sdlwindowid = SDL_GetWindowID(sdlwindow);
 
@@ -131,10 +128,19 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	sciindex = 0;
 	GH_LOG_RESOURCE_SIZE(scimages, scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis)
 
+	// TODO: is it worth the special case of 1-bit msaa (aka no msaa)??
+	mscolorbuffer.extent = scimages[0].extent;
+	mscolorbuffer.format = GH_SWAPCHAIN_IMAGE_FORMAT;
+	mscolorbuffer.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	mscolorbuffer.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	mscolorbuffer.samples = i.msaa;
+	GH::createImage(mscolorbuffer);
+
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
 	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 	depthbuffer.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthbuffer.samples = i.msaa;
 	GH::createImage(depthbuffer);
 
 	createSyncObjects();
@@ -151,6 +157,7 @@ WindowInfo::~WindowInfo() {
 	destroyPrimaryCBs();
 	destroySyncObjects();
 	GH::destroyImage(depthbuffer);
+	GH::destroyImage(mscolorbuffer);
 	for (sciindex = 0; sciindex < numscis; sciindex++) {
 		vkDestroyImageView(GH::getLD(), scimages[sciindex].view, nullptr);
 	}
@@ -425,7 +432,7 @@ GH::GH(GHInitInfo&& i) {
 	blankimage.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
 	blankimage.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	blankimage.sampler = nearestsampler;
-	GH::createImage(blankimage);
+	createImage(blankimage);
 }
 
 GH::~GH() {
@@ -697,13 +704,14 @@ void GH::createRenderPass(
 	uint8_t numattachments,
 	VkAttachmentDescription* attachmentdescs,
 	VkAttachmentReference* colorattachmentrefs,
+	VkAttachmentReference* resolveattachmentrefs,
 	VkAttachmentReference* depthattachmentref) {
 	VkSubpassDescription primarysubpassdescription {
 		0,
 		VK_PIPELINE_BIND_POINT_GRAPHICS,
 		0, nullptr,
-		static_cast<uint32_t>(numattachments - (depthattachmentref ? 1 : 0)), 
-		colorattachmentrefs, nullptr, depthattachmentref,
+		static_cast<uint32_t>(colorattachmentrefs ? 1 : 0), 
+		colorattachmentrefs, resolveattachmentrefs, depthattachmentref,
 		0, nullptr
 	};
 	VkSubpassDependency subpassdependency {
@@ -718,7 +726,7 @@ void GH::createRenderPass(
 		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 		nullptr,
 		0,
-		numattachments, &attachmentdescs[0],
+		static_cast<uint32_t>(numattachments), &attachmentdescs[0],
 		1, &primarysubpassdescription,
 		1, &subpassdependency
 	};
@@ -901,7 +909,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 		nullptr,
 		0,
-		VK_SAMPLE_COUNT_1_BIT,
+		pi.msaasamples,
 		VK_FALSE,
 		1.0f,
 		nullptr,
@@ -1246,7 +1254,8 @@ void GH::updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset
 void GH::createImage(ImageInfo& i) {
 	// stolen from other code i wrote, unsure why tiling should be determined this way
 	// in reality this is likely to be system-dependent requiring some device capability querying
-	i.tiling = i.format != VK_FORMAT_D32_SFLOAT ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
+	// i.tiling = i.format != VK_FORMAT_D32_SFLOAT ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
+	i.tiling = VK_IMAGE_TILING_OPTIMAL;
 	VkImageLayout finallayout = i.layout;
 	i.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 	VkImageCreateInfo imageci {
@@ -1258,7 +1267,7 @@ void GH::createImage(ImageInfo& i) {
 		{i.extent.width, i.extent.height, 1},
 		1,
 		1,
-		VK_SAMPLE_COUNT_1_BIT,
+		i.samples,
 		i.tiling,
 		i.usage,
 		VK_SHARING_MODE_EXCLUSIVE,
@@ -1444,14 +1453,18 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			dstmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 			break;
-		case VK_IMAGE_LAYOUT_GENERAL:
+		case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_GENERAL: // TODO: below is icky
 			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-			dstmask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			dstmask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
 			imgmembarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | 
 							VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		default:
 			WarningError("unknown final layout for img transition").raise();
 	}

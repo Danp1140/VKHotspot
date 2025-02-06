@@ -3,19 +3,25 @@ RenderPassInfo::RenderPassInfo(
 	VkRenderPass r, 
 	const uint32_t nsci,
 	const ImageInfo* scis,
+	const ImageInfo* ms,
 	const ImageInfo* d,
 	std::vector<VkClearValue>&& c) : 
 		renderpass(r), 
 		numscis(nsci),
 		clears(c) {
-	extent = scis ? scis[0].extent : d->extent;
-	createFBs(nsci, scis, d);
+	extent = d ? d->extent : (ms ? ms->extent : scis[0].extent);
+	// TODO: fix up createFBs to make more sense and perhaps be more flexible with attachment order
+	// nsci should really be called something else
+	createFBs(nsci, scis, ms, d);
 }
 
 void RenderPassInfo::destroy() {
 	for (RenderSet r : rendersets) GH::destroyPipeline(r.pipeline);
 	if (framebuffers) {
-		for (uint8_t scii = 0; scii < numscis; scii++) vkDestroyFramebuffer(GH::getLD(), framebuffers[scii], nullptr);
+		if (framebuffers[0] == framebuffers[1]) vkDestroyFramebuffer(GH::getLD(), framebuffers[0], nullptr);
+		else {
+			for (uint8_t scii = 0; scii < numscis; scii++) vkDestroyFramebuffer(GH::getLD(), framebuffers[scii], nullptr);
+		}
 		delete[] framebuffers;
 	}
 	if (renderpass != VK_NULL_HANDLE) GH::destroyRenderPass(renderpass);
@@ -85,11 +91,16 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 	return tasks;
 }
 
-void RenderPassInfo::createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* d) {
+void RenderPassInfo::createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* r, const ImageInfo* d) {
+	// to make msaa easily compatible with non-msaa, we could still have nsci framebuffers,
+	// but just have them all be the same framebuffer in an msaa context
 	framebuffers = new VkFramebuffer[nsci];
-	uint8_t nattach = (scis ? 1 : 0) + (d ? 1 : 0);
+	const uint8_t nattach = (scis ? 1 : 0) + (r ? 1 : 0) + (d ? 1 : 0);
 	VkImageView attachments[nattach];
-	if (d) attachments[nattach - 1] = d->view;
+	const uint8_t scattachidx = r ? 2 : 0;
+	const uint8_t dattachidx = r ? 1 : (scis ? 1 : 0);
+	if (d) attachments[dattachidx] = d->view;
+	if (r) attachments[0] = r->view;
 	VkFramebufferCreateInfo framebufferci {
 		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 		nullptr,
@@ -99,7 +110,7 @@ void RenderPassInfo::createFBs(const uint32_t nsci, const ImageInfo* scis, const
 		extent.width, extent.height, 1
 	};
 	for (uint8_t scii = 0; scii < nsci; scii++) {
-		if (scis) attachments[0] = scis[scii].view;
+		if (scis) attachments[scattachidx] = scis[scii].view;
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &framebuffers[scii]);
 	}
 }
@@ -187,9 +198,9 @@ DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
 	};
 	VkAttachmentReference attachref {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-	GH::createRenderPass(r, 1, &attachdesc, nullptr, &attachref);
+	GH::createRenderPass(r, 1, &attachdesc, nullptr, nullptr, &attachref);
 
-	RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, &dirsclights[numdirsclights - 1].getShadowMap(), {{1, 0}});
+	RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, nullptr, &dirsclights[numdirsclights - 1].getShadowMap(), {{1, 0}});
 
 	renderpasses.insert(renderpasses.begin(), rpi); 
 
