@@ -58,6 +58,7 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
+	p.msaasamples = w.getMSAASamples();
 	p.renderpass = rpi.getRenderPass();
 /*
 	VkSpecializationMapEntry specmaps[3] {
@@ -78,10 +79,10 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 
 void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	VkRenderPass r;
-	VkAttachmentDescription attachdescs[2] {{
+	VkAttachmentDescription attachdescs[3] {{
 			0, 
 			GH_SWAPCHAIN_IMAGE_FORMAT,
-			VK_SAMPLE_COUNT_1_BIT,
+			w.getMSAASamples(),
 			VK_ATTACHMENT_LOAD_OP_CLEAR,
 			VK_ATTACHMENT_STORE_OP_STORE,
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -91,20 +92,31 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		}, {
 			0, 
 			GH_DEPTH_BUFFER_IMAGE_FORMAT,
-			VK_SAMPLE_COUNT_1_BIT,
+			w.getMSAASamples(),
 			VK_ATTACHMENT_LOAD_OP_CLEAR,
 			VK_ATTACHMENT_STORE_OP_STORE,
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+		}, {
+			0, 
+			GH_SWAPCHAIN_IMAGE_FORMAT,
+			VK_SAMPLE_COUNT_1_BIT,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 	}};
-	VkAttachmentReference attachrefs[2] {
+	VkAttachmentReference attachrefs[3] {
 		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
-		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
+		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL},
+		{2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}
 	};
-	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], &attachrefs[1]);
-	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
+	GH::createRenderPass(r, 3, &attachdescs[0], &attachrefs[0], &attachrefs[2], &attachrefs[1]);
+	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), &w.getMSAAImage(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -114,6 +126,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
+	p.msaasamples = w.getMSAASamples();
 	p.renderpass = r;
 	GH::createPipeline(p);
 	rpi.addPipeline(p, &s.getCamera()->getVP());
@@ -142,6 +155,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	ip.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	ip.depthtest = true;
 	ip.extent = w.getSCExtent();
+	ip.msaasamples = w.getMSAASamples();
 	ip.renderpass = r;
 	GH::createPipeline(ip);
 	rpi.addPipeline(ip, &s.getCamera()->getVP());
@@ -169,6 +183,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	tp.depthtest = true;
 	tp.extent = w.getSCExtent();
 	tp.renderpass = r;
+	tp.msaasamples = w.getMSAASamples();
 	GH::createPipeline(tp);
 	rpi.addPipeline(tp, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(tp.vertexinputstateci);
@@ -186,8 +201,8 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 	};
 	VkAttachmentReference uiattachref {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-	GH::createRenderPass(r, 1, &uiattachdesc, &uiattachref, nullptr);
-	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, {{0, 0, 0, 1}});
+	GH::createRenderPass(r, 1, &uiattachdesc, &uiattachref, nullptr, nullptr);
+	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, nullptr, {{0, 0, 0, 1}});
 
 	PipelineInfo uip;
 	uip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -335,7 +350,7 @@ void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
 
 int main() {
 	GH graphicshandler = GH();
-	WindowInfo w;
+	WindowInfo w((WindowInitInfo){.msaa = VK_SAMPLE_COUNT_4_BIT});
 	TextureHandler th;
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
 

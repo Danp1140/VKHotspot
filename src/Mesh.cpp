@@ -11,6 +11,16 @@ MeshBase::MeshBase() :
 	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
 }
 
+MeshBase::MeshBase(MeshBase&& rvalue) :
+		position(std::move(rvalue.position)),
+		scale(std::move(rvalue.scale)),
+		rotation(std::move(rvalue.rotation)),
+		model(std::move(rvalue.model)) {
+	aabb[0] = std::move(rvalue.aabb[0]);
+	aabb[1] = std::move(rvalue.aabb[1]);
+}
+
+
 void swap(MeshBase& lhs, MeshBase& rhs) {
 	std::swap(lhs.position, rhs.position);
 	std::swap(lhs.scale, rhs.scale);

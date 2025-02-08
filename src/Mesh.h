@@ -12,12 +12,7 @@ class MeshBase {
 public:
 	MeshBase();
 	MeshBase(const MeshBase& lvalue) = delete;
-	MeshBase(MeshBase&& rvalue) :
-		position(std::move(rvalue.position)),
-		scale(std::move(rvalue.scale)),
-		rotation(std::move(rvalue.rotation)),
-		model(std::move(rvalue.model)),
-		aabb(std::move(rvalue.aabb)) {}
+	MeshBase(MeshBase&& rvalue);
 	~MeshBase() = default;
 
 	friend void swap(MeshBase& lhs, MeshBase& rhs);
