@@ -128,13 +128,16 @@ WindowInfo::WindowInfo(WindowInitInfo&& i) {
 	sciindex = 0;
 	GH_LOG_RESOURCE_SIZE(scimages, scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis)
 
-	// TODO: is it worth the special case of 1-bit msaa (aka no msaa)??
-	mscolorbuffer.extent = scimages[0].extent;
-	mscolorbuffer.format = GH_SWAPCHAIN_IMAGE_FORMAT;
-	mscolorbuffer.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-	mscolorbuffer.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	mscolorbuffer.samples = i.msaa;
-	GH::createImage(mscolorbuffer);
+	// it is the user's responsibility to not try to access this image if they haven't asked for MSAA
+	if (i.msaa != VK_SAMPLE_COUNT_1_BIT) {
+		mscolorbuffer.extent = scimages[0].extent;
+		mscolorbuffer.format = GH_SWAPCHAIN_IMAGE_FORMAT;
+		mscolorbuffer.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		mscolorbuffer.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		mscolorbuffer.samples = i.msaa;
+		GH::createImage(mscolorbuffer);
+		GH_LOG_RESOURCE_SIZE(mscolorbuffer, mscolorbuffer.getPixelSize() * mscolorbuffer.extent.width * mscolorbuffer.extent.height)
+	}
 
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
@@ -142,6 +145,7 @@ WindowInfo::WindowInfo(WindowInitInfo&& i) {
 	depthbuffer.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthbuffer.samples = i.msaa;
 	GH::createImage(depthbuffer);
+	GH_LOG_RESOURCE_SIZE(depthbuffer, depthbuffer.getPixelSize() * mscolorbuffer.extent.width * depthbuffer.extent.height)
 
 	createSyncObjects();
 	createPrimaryCBs();

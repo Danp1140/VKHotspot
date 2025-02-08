@@ -155,9 +155,9 @@ RenderPassInfo createRenderPass(const WindowInfo& w) {
 		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
 		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
 	};
-	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], &attachrefs[1]);
+	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], nullptr, &attachrefs[1]);
 
-	return RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
+	return RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 }
 
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r) {
