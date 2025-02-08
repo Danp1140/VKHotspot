@@ -43,16 +43,35 @@ void Collider::updateContact(glm::vec3 nf, float dt0, float dt1) {
 	p += dp * dt1;
 }
 
+void Collider::updateSlide(glm::vec3 nm, float dt) {
+	p -= nm * dt;
+}
+
 void Collider::applyMomentum(glm::vec3 po) {
 	if (m == std::numeric_limits<float>::infinity()) return;
 	if (m == 0) return; // idk what to do here, either infinite velocity or none
 	dp += po / m; // should probably have a carve-out for m = 0 or inf
 }
 
+void Collider::coerceMomentum(glm::vec3 po, float dt) {
+	if (m == std::numeric_limits<float>::infinity()) return;
+	if (m == 0) return;
+	p += po / m * dt;
+	dp += po / m;
+}
+
 void Collider::applyForce(glm::vec3 F) {
 	if (m == std::numeric_limits<float>::infinity()) return;
 	if (m == 0) return; // idk what to do here, either infinite acceleration or none
 	ddp += F / m; // should probably have a carve-out for m = 0 or inf
+}
+
+void Collider::coerceForce(glm::vec3 F, float dt) {
+	if (m == std::numeric_limits<float>::infinity()) return;
+	if (m == 0) return;
+	p += F / m * pow(dt, 2.f);
+	dp += F / m * dt;
+	ddp += F / m;
 }
 
 glm::vec3 Collider::getMomentum() const {
@@ -70,6 +89,14 @@ PointCollider::PointCollider() : Collider() {
 	std::cout << this << ": PointCollider()" << std::endl;
 #endif
 	type = COLLIDER_TYPE_POINT;
+}
+
+SphereCollider::SphereCollider() : Collider() {
+	type = COLLIDER_TYPE_SPHERE;
+}
+
+SphereCollider::SphereCollider(float rad) : SphereCollider() {
+	r = rad;
 }
 
 OrientedCollider::OrientedCollider() : Collider() {
@@ -163,7 +190,7 @@ void PlaneCollider::setNorm(glm::vec3 norm) {
 	std::cout << this << " norm set to [" << n.x << ", " << n.y << ", " << n.z << "]" << std::endl;
 	glm::vec3 v = glm::cross(glm::vec3(0, 1, 0), n);
 	float theta = asin(glm::length(v)) / 2;
-	setRot(glm::quat(cos(theta), sin(theta) * v));
+	setRot(glm::quat(cos(theta), sinf(theta) * v));
 }
 
 RectCollider::RectCollider() : PlaneCollider() {
@@ -359,17 +386,36 @@ void ColliderPair::setCollisionFunc() {
 			cf = &ColliderPair::collidePointMesh;
 		}
 	}
+	if (c1->getType() == COLLIDER_TYPE_SPHERE) {
+		if (c2->getType() == COLLIDER_TYPE_SPHERE) {
+			cf = &ColliderPair::collideSphereSphere;
+		}
+		else if (c2->getType() == COLLIDER_TYPE_PLANE) {
+			cf = &ColliderPair::collideSpherePlane;
+		}
+		else if (c2->getType() == COLLIDER_TYPE_RECT) {
+			cf = &ColliderPair::collideSphereRect;
+		}
+	}
 	// TODO: test this swapping tec
 	else if (c1->getType() == COLLIDER_TYPE_PLANE) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
 			cf = &ColliderPair::collidePointPlane;
 		}
+		else if (c2->getType() == COLLIDER_TYPE_SPHERE) {
+			std::swap(c1, c2);
+			cf = &ColliderPair::collideSpherePlane;
+		}
 	}
 	else if (c1->getType() == COLLIDER_TYPE_RECT) {
 		if (c2->getType() == COLLIDER_TYPE_POINT) {
 			std::swap(c1, c2);
 			cf = &ColliderPair::collidePointRect;
+		}
+		else if (c2->getType() == COLLIDER_TYPE_SPHERE) {
+			std::swap(c1, c2);
+			cf = &ColliderPair::collideSphereRect;
 		}
 	}
 	else if (c2->getType() == COLLIDER_TYPE_MESH) {
@@ -388,6 +434,7 @@ void ColliderPair::setCollisionFunc() {
 void ColliderPair::check(float dt) {
 	lreldp = reldp;
 	reldp = c1->getVel() - c2->getVel();
+	netf = c1->getForce() + c2->getForce();
 	(this->*cf)(dt);
 }
 
@@ -497,26 +544,35 @@ void ColliderPair::newtonianDecouple(float dt) {
 }
 
 void ColliderPair::newtonianSlide(float dt, const glm::vec3& n) {
-	if (reldp == glm::vec3(0)) return;
+	float extranormforce = glm::dot(c1->getForce() + c2->getForce(), n),
+	      normmom = glm::dot(c1->getMomentum() - c2->getMomentum(), n); // plus or minus???
+	/*
+	 * RAPID DIRECTION CHANGES ARE NOW CAUSING THE ERRONEOUS DECOUPLING
+	 * f1 builds as does m1
+	 * indicates that c1->getForce is building, as is c1->getMomentum
+	 */
 
-	// TODO: avoid redundant calc?
-	glm::vec3 v = -glm::dot(reldp, n) * n;
-	if (glm::dot(reldp, n) < 0) {
-		c1->applyMomentum(c1->getMass() * v);
-		c2->applyMomentum(c2->getMass() * -v);
-
-		reldp = reldp + v;
+	float f1 = extranormforce * c1->getMass() / (c1->getMass() + c2->getMass()),
+	      m1 = normmom * c1->getMass() / (c1->getMass() + c2->getMass());
+	if (c2->getMass() == std::numeric_limits<float>::infinity()) {
+		f1 = extranormforce;
+		m1 = normmom;
 	}
+	// std::cout << c1 << " and " << c2 << " sliding f1 = " << f1 << ", m1 = " << m1 << ", ˆn = [" << n.x << ", " << n.y << ", " << n.z << "]" << std::endl;
+	c1->updateSlide(m1 * n, dt);
+	reldp = c1->getVel() - c2->getVel();
 
 	// TODO: early escape for both frictiondyn == 0
 	if (glm::length(reldp) > PH_FRICTION_THRESHOLD) {
 		// not technically a force...
+		// nf below should probably be net force in the tan dir...
 		dynf = glm::length(nf) * (c1->getFrictionDyn() + c2->getFrictionDyn())
 			 * -glm::normalize(reldp) * dt;
 		c1->applyMomentum(dynf);
 		c2->applyMomentum(-dynf);
 	}
-	else if (reldp != glm::vec3(0)) {
+	else { // if friction minimal, just bring them to a stop relative to one another
+					  // tangential reldp could just be zero
 		c1->applyMomentum(c1->getMass() * -reldp);
 		c2->applyMomentum(c2->getMass() * reldp);
 	}
@@ -551,10 +607,8 @@ void ColliderPair::collidePointRect(float dt) {
 	RectCollider* rc = static_cast<RectCollider*>(c2);
 
 	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
-		if (!preventdefault) newtonianSlide(dt, rc->getNorm());
-		if (onslide) onslide(slidedata);
-		if (glm::dot(c1->getMomentum(), -glm::normalize(nf))
-			 + glm::dot(c2->getMomentum(), glm::normalize(nf)) > PH_CONTACT_THRESHOLD) {
+		COLLIDER_PAIR_SLIDE_CALL(dt, rc->getNorm())
+		if (glm::dot(c1->getMomentum(), rc->getNorm()) + glm::dot(c2->getMomentum(), -rc->getNorm()) > PH_CONTACT_THRESHOLD) {
 			COLLIDER_PAIR_DECOUPLE_CALL(dt)
 		}
 		else {
@@ -584,6 +638,7 @@ void ColliderPair::collidePointRect(float dt) {
 			COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, rc->getNorm())
 			return;
 		}
+		// TODO: what's the logic here???
 		if (f & COLLIDER_PAIR_FLAG_CONTACT) {
 			COLLIDER_PAIR_DECOUPLE_CALL(dt)
 			return;
@@ -689,6 +744,118 @@ void ColliderPair::collidePointMesh(float dt) {
 		}
 	}
 	/* is it possible to reach this point? */
+}
+
+void ColliderPair::collideSphereSphere(float dt) {
+	SphereCollider* sp1 = static_cast<SphereCollider*>(c1),
+		* sp2 = static_cast<SphereCollider*>(c2);
+
+	glm::vec3 p0 = sp1->getLastPos() - sp2->getLastPos(),
+		p1 = sp1->getPos() - sp2->getPos();
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		// COLLIDER_PAIR_SLIDE_CALL(dt, sp2->getNorm());
+		// TODO: decoupling criterion
+	}
+	else {
+		// TODO: efficiency gainz
+		// TODO: consider edge cases (<=, >=), these are mostly about what the previous/next
+		// collision check should handle
+		glm::vec3 p0top1 = p1 - p0;
+		if (p0top1 == glm::vec3(0)) return;
+		float a = pow(glm::length(p0top1), 2),
+		      b = 2 * glm::dot(p0top1, p0),
+		      c = glm::length(p0) - pow(sp1->getR() + sp2->getR(), 2),
+		      discriminant = pow(b, 2) - 4 * a * c;
+		/* 
+		 * a > 0; its a length squared
+		 * b >= 0; otherwise it'd be going in the wrong direction. check b < 0 to abort for no collision 
+		 * c >= 0; starting point must not be a collision, might even be > 0
+		 */
+		if (discriminant >= 0 && b >= 0) {
+			discriminant = sqrt(discriminant);
+			float t1 = (-b - discriminant) / 2 / a, t2 = (-b + discriminant) / 2 / a, t;
+			if (t1 > 0 && t1 <= 1) t = t1;
+			else if (t2 > 0 && t2 <= 1) t = t2;
+			else return;
+			glm::vec3 colpos = sp1->getLastPos() + t * (sp1->getPos() - sp1->getLastPos());
+			COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, glm::normalize(sp1->getLastPos() - colpos))
+		}
+	}
+}
+
+void ColliderPair::collideSpherePlane(float dt) {
+	SphereCollider* sp = static_cast<SphereCollider*>(c1);
+	PlaneCollider* pl = static_cast<PlaneCollider*>(c2);
+
+	glm::vec3 p0 = sp->getLastPos() - pl->getLastPos(),
+		p1 = sp->getPos() - pl->getPos();
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		COLLIDER_PAIR_SLIDE_CALL(dt, pl->getNorm());
+		if (glm::dot(c1->getVel(), pl->getNorm())
+				 + glm::dot(c2->getVel(), -pl->getNorm()) > PH_DECOUPLE_VELOCITY_THRESHOLD) {
+			COLLIDER_PAIR_DECOUPLE_CALL(dt)
+		}
+		// TODO: decoupling criterion
+	}
+	else if (glm::dot(p0, pl->getNorm()) > sp->getR()
+		 && glm::dot(p1, pl->getNorm()) < sp->getR()) {
+		float t = glm::dot(p0 - sp->getR() * pl->getNorm(), pl->getNorm()) / glm::dot(p0 - p1, pl->getNorm());
+		glm::vec3 colpos = sp->getLastPos() + t * (sp->getLastPos() - sp->getPos());
+		COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, pl->getNorm())
+	}
+
+}
+
+void ColliderPair::collideSphereRect(float dt) {
+	SphereCollider* sp = static_cast<SphereCollider*>(c1);
+	RectCollider* rc = static_cast<RectCollider*>(c2);
+
+	glm::vec3 p0 = sp->getLastPos() - rc->getLastPos(),
+		p1 = sp->getPos() - rc->getPos();
+	if (f & COLLIDER_PAIR_FLAG_CONTACT) {
+		COLLIDER_PAIR_SLIDE_CALL(dt, rc->getNorm());
+		/*
+		if (glm::dot(c1->getVel(), rc->getNorm())
+				 + glm::dot(c2->getVel(), -rc->getNorm()) > PH_DECOUPLE_VELOCITY_THRESHOLD) {
+				 */
+		if (glm::dot(reldp, rc->getNorm()) > PH_DECOUPLE_VELOCITY_THRESHOLD) {
+			COLLIDER_PAIR_DECOUPLE_CALL(dt)
+			std::cout << "threshold decouple " << dt << std::endl;
+			return;
+		}
+		glm::vec3 testpos = p1 - sp->getR() * rc->getNorm();
+		testpos = inverse(rc->getRot()) * testpos;
+		if (testpos.x < -rc->getLen().x || testpos.x > rc->getLen().x
+			|| testpos.z < -rc->getLen().y || testpos.z > rc->getLen().y) {
+			COLLIDER_PAIR_DECOUPLE_CALL(dt)
+			std::cout << "bounds decouple " << dt << std::endl;
+			return;
+		}
+	}
+	else if (glm::dot(p0, rc->getNorm()) > sp->getR()
+		 && glm::dot(p1, rc->getNorm()) < sp->getR()) {
+		float t = glm::dot(p0 - sp->getR() * rc->getNorm(), rc->getNorm()) / glm::dot(p0 - p1, rc->getNorm());
+		glm::vec3 colpos = sp->getLastPos() + t * (sp->getLastPos() - sp->getPos());
+		glm::vec3 testpos = colpos;
+		testpos -= rc->getPos();
+		testpos = inverse(rc->getRot()) * testpos;
+		if (testpos.x > -rc->getLen().x && testpos.x < rc->getLen().x
+			&& testpos.z > -rc->getLen().y && testpos.z < rc->getLen().y) {
+			COLLIDER_PAIR_COLLIDE_CALL(dt, colpos, rc->getNorm())
+		}
+	}
+	/*
+	if (glm::dot(p1, rc->getNorm()) < sp->getR() && glm::dot(p0, rc->getNorm()) < sp->getR()) {
+		if (!preventdefault) FatalError("Clipping!!!").raise();
+	}
+	*/
+	float dist0 = glm::dot(p0, rc->getNorm()),
+	      dist1 = glm::dot(p1, rc->getNorm());
+	if (onanticollide.f && dist0 < -sp->getR() && dist1 > -sp->getR()) onanticollide.f(onanticollide.d);
+	if (abs(dist0) < sp->getR()) {
+		if (onunclip.f && dist1 > sp->getR()) onunclip.f(onunclip.d);
+		else if (onantiunclip.f && dist1 < -sp->getR()) onantiunclip.f(onantiunclip.d);
+	}
 }
 
 PhysicsHandler::PhysicsHandler() : dt(0) {

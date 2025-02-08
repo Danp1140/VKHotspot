@@ -19,10 +19,8 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo() : WindowInfo(glm::vec2(0), glm::vec2(1)) {
-}
-
-WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
+WindowInfo::WindowInfo(WindowInitInfo&& i) {
+	// TODO: decompose into more init funcs
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
@@ -33,12 +31,12 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 	SDL_free(displays);
 
 	sdlwindow = SDL_CreateWindow(
-		"Vulkan Project", 
-		displaymode->w * s.x, displaymode->h * s.y, 
-		SDL_WINDOW_VULKAN);
+		i.name, 
+		displaymode->w * i.s.x, displaymode->h * i.s.y, 
+		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 	SDL_SetWindowPosition(
 		sdlwindow,
-		displaymode->w * p.x, displaymode->h * (1 - s.y));
+		displaymode->w * i.p.x, displaymode->h * (1 - i.s.y));
 
 	sdlwindowid = SDL_GetWindowID(sdlwindow);
 
@@ -80,7 +78,7 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 		GH::getPD(),
 		surface,
 		&surfacecaps);
-	numscis = surfacecaps.maxImageCount;
+	numscis = std::min<uint32_t>(GH_MAX_SWAPCHAIN_IMAGES, surfacecaps.maxImageCount);
 
 	const VkSwapchainCreateInfoKHR swapchaincreateinfo {
 		VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -128,18 +126,33 @@ WindowInfo::WindowInfo(glm::vec2 p, glm::vec2 s) {
 		vkCreateImageView(GH::getLD(), &imageviewcreateinfo, nullptr, &scimages[sciindex].view);
 	}
 	sciindex = 0;
+	GH_LOG_RESOURCE_SIZE(scimages, scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis)
+
+	// it is the user's responsibility to not try to access this image if they haven't asked for MSAA
+	if (i.msaa != VK_SAMPLE_COUNT_1_BIT) {
+		mscolorbuffer.extent = scimages[0].extent;
+		mscolorbuffer.format = GH_SWAPCHAIN_IMAGE_FORMAT;
+		mscolorbuffer.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		mscolorbuffer.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		mscolorbuffer.samples = i.msaa;
+		GH::createImage(mscolorbuffer);
+		GH_LOG_RESOURCE_SIZE(mscolorbuffer, mscolorbuffer.getPixelSize() * mscolorbuffer.extent.width * mscolorbuffer.extent.height)
+	}
 
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
 	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 	depthbuffer.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthbuffer.samples = i.msaa;
 	GH::createImage(depthbuffer);
+	GH_LOG_RESOURCE_SIZE(depthbuffer, depthbuffer.getPixelSize() * mscolorbuffer.extent.width * depthbuffer.extent.height)
 
 	createSyncObjects();
 	createPrimaryCBs();
 
 	rectaskvec = new std::vector<cbRecTask>[numscis];
 	cballocinfo.commandPool = GH::getCommandPool();
+	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) flags[fifi] = WINDOW_INFO_FLAG_CB_CHANGE;
 }
 
 WindowInfo::~WindowInfo() {
@@ -148,6 +161,7 @@ WindowInfo::~WindowInfo() {
 	destroyPrimaryCBs();
 	destroySyncObjects();
 	GH::destroyImage(depthbuffer);
+	GH::destroyImage(mscolorbuffer);
 	for (sciindex = 0; sciindex < numscis; sciindex++) {
 		vkDestroyImageView(GH::getLD(), scimages[sciindex].view, nullptr);
 	}
@@ -158,44 +172,63 @@ WindowInfo::~WindowInfo() {
 }
 
 bool WindowInfo::frameCallback() {
+	// TODO: add wait for sub finish
+	// this will limit framerate to hardware/monitor's framerate limit, but it's for the best
+	// doing one imgacquiresema per FIF cuz if task queuing is sufficiently quick it runs into itself	
+	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
+	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
 	vkAcquireNextImageKHR(
 		GH::getLD(),
 		swapchain,
 		UINT64_MAX,
-		imgacquiresema,
+		imgacquiresemas[fifindex],
 		VK_NULL_HANDLE,
 		&sciindex);
 
 	// TODO: changeflag to determine if re-enqueuing & re-recording is needed [l]
-	for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
+	// this is only necessary when it becomes a bottleneck (prob with more objects and lights in
+	// scene)
+	// made a change flag system that I won't remove because it will become useful when we do do this
+	// this will require keeping collectinfos around and just re-recording and replacing those that changed
+	// for that, may want to make collectinfos into a vector, esp because it ops in one thread
+	// if (flags[fifindex] & WINDOW_INFO_FLAG_CB_CHANGE) {
+		// TODO: pre-reserve queue space
+		for (const cbRecTask& t : rectaskvec[sciindex]) rectaskqueue.push(t);
 
-	// TODO: better timeout logic [l]
-	vkWaitForFences(GH::getLD(), 1, &subfinishfences[fifindex], VK_TRUE, UINT64_MAX);
-	vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
-	processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
+		// TODO: better timeout logic [l]
+		// TODO: how do these flags reconcile with conditional rerecord???
+		
+		processRecordingTasks(fifindex, 0, rectaskqueue, collectinfos, secondarycbset[fifindex]);
 
-	collectPrimaryCB();
+		// TODO: move this to a separate function to put at the bottom of the loop [l]
+		// that way if we multithread the user can do other stuff while we record
+		collectPrimaryCB();
+		// not setting for now
+		// flags[fifindex] &= ~WINDOW_INFO_FLAG_CB_CHANGE;
+	// }
+	// vkResetFences(GH::getLD(), 1, &subfinishfences[fifindex]);
 
 	submitAndPresent();
 
 	return !close;
 }
 
-void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
+void WindowInfo::addTask(const cbRecTaskTemplate& t, size_t i) {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			rectaskvec[scii].push_back(cbRecTask(
+			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask(
 				[scii, f = t.data.ft] (VkCommandBuffer& c) {f(scii, c);})
 			);
 		}
 	}
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
-			rectaskvec[scii].push_back(cbRecTask((VkRenderPassBeginInfo){
+			// TODO: can this rpbi be supplied by RPI?
+			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask((VkRenderPassBeginInfo){
 				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 				nullptr,
 				t.data.rpi.rp,
-				t.data.rpi.fbs[scii],
+				t.data.rpi.fbs[scii % t.data.rpi.numscis],
 				{{0, 0}, t.data.rpi.ext},
 				t.data.rpi.nclears, t.data.rpi.clears
 			}));
@@ -203,13 +236,20 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t)  {
 	}
 }
 
+void WindowInfo::addTask(const cbRecTaskTemplate& t) {
+	addTask(t, rectaskvec[0].size());
+}
+
 void WindowInfo::addTasks(std::vector<cbRecTaskTemplate>&& t) {
 	for (const cbRecTaskTemplate& ts : t) addTask(ts);
 }
 
+void WindowInfo::clearTasks() {
+	for (uint8_t scii = 0; scii < numscis; scii++) rectaskvec[scii].clear();
+}
+
 void WindowInfo::createSyncObjects() {
 	VkSemaphoreCreateInfo imgacquiresemacreateinfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0};
-	vkCreateSemaphore(GH::getLD(), &imgacquiresemacreateinfo, nullptr, &imgacquiresema);
 	VkSemaphoreCreateInfo subfinishsemacreateinfo {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0};
 	VkFenceCreateInfo subfinishfencecreateinfo {
 		VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, 
@@ -218,6 +258,7 @@ void WindowInfo::createSyncObjects() {
 	};
 	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
 		vkCreateSemaphore(GH::getLD(), &subfinishsemacreateinfo, nullptr, &subfinishsemas[fifi]);
+		vkCreateSemaphore(GH::getLD(), &imgacquiresemacreateinfo, nullptr, &imgacquiresemas[fifi]);
 		vkCreateFence(GH::getLD(), &subfinishfencecreateinfo, nullptr, &subfinishfences[fifi]);
 	}
 }
@@ -226,8 +267,8 @@ void WindowInfo::destroySyncObjects() {
 	for (uint8_t fifi = 0; fifi < GH_MAX_FRAMES_IN_FLIGHT; fifi++) {
 		vkDestroyFence(GH::getLD(), subfinishfences[fifi], nullptr);
 		vkDestroySemaphore(GH::getLD(), subfinishsemas[fifi], nullptr);
+		vkDestroySemaphore(GH::getLD(), imgacquiresemas[fifi], nullptr);
 	}
-	vkDestroySemaphore(GH::getLD(), imgacquiresema, nullptr);
 }
 
 void WindowInfo::createPrimaryCBs() {
@@ -331,7 +372,7 @@ void WindowInfo::submitAndPresent() {
 	submitinfo = {
 		VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		nullptr,
-		1, &imgacquiresema,
+		1, &imgacquiresemas[fifindex],
 		&defaultsubmitwaitstage,
 		1, &primarycbs[fifindex],
 		1, &subfinishsemas[fifindex]
@@ -374,23 +415,33 @@ BufferInfo GH::scratchbuffer = {
 };
 const char* GH::shaderdir = "../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
+ImageInfo GH::blankimage = {};
 
-GH::GH() {
+GH::GH(GHInitInfo&& i) {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		FatalError(
 			std::string("SDL3 Initialization Failed! From SDL_GetError():\n") 
 			 + SDL_GetError()).raise();
 	}
-	initVulkanInstance();
+	initVulkanInstance(i.iexts);
 	initDebug();
-	initDevicesAndQueues();
+	initDevicesAndQueues(i.dexts);
 	initCommandPools();
+	// TODO: delete initSamplers
 	initSamplers();
-	initDescriptorPoolsAndSetLayouts();
+	initDescriptorPoolsAndSetLayouts(std::move(i));
+
+	blankimage.extent = {1, 1};
+	blankimage.format = VK_FORMAT_R8_UNORM;
+	blankimage.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+	blankimage.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	blankimage.sampler = nearestsampler;
+	createImage(blankimage);
 }
 
 GH::~GH() {
 	vkQueueWaitIdle(genericqueue);
+	GH::destroyImage(blankimage);
 	terminateDescriptorPoolsAndSetLayouts();
 	terminateSamplers();
 	terminateCommandPools();
@@ -400,13 +451,13 @@ GH::~GH() {
 	SDL_Quit();
 }
 
-void GH::initVulkanInstance() {
+void GH::initVulkanInstance(const std::vector<const char*>& e) {
 	VkApplicationInfo appinfo {
 		VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		nullptr,
-		"WaveBox",
+		"VKHotspot Project",
 		VK_MAKE_VERSION(1, 0, 0),
-		"Jet",
+		"VKH",
 		VK_MAKE_VERSION(1, 0, 0),
 		VK_MAKE_API_VERSION(0, 1, 0, 0)
 	};
@@ -426,7 +477,7 @@ void GH::initVulkanInstance() {
 #ifdef __APPLE__
 		"VK_MVK_macos_surface", 
 #endif
-		"VK_KHR_get_physical_device_properties2", // unclear why this is needeed
+		"VK_KHR_get_physical_device_properties2", // required by portability subset :| 
 		"VK_EXT_debug_utils" // for val layers, not needed in final compilation
 	};
 	bool allowed;
@@ -499,7 +550,7 @@ void GH::terminateDebug() {
 	destroyDebugMessenger(instance, debugmessenger, nullptr);
 }
 
-void GH::initDevicesAndQueues() {
+void GH::initDevicesAndQueues(const std::vector<const char*>& e) {
 	uint32_t numphysicaldevices = -1u,
 			 numqueuefamilies;
 	vkEnumeratePhysicalDevices(instance, &numphysicaldevices, &physicaldevice);
@@ -516,10 +567,11 @@ void GH::initDevicesAndQueues() {
 		1,
 		&priorities[0]
 	};
-	const char* desireddeviceexts[2] {
+	std::vector<const char*> desireddeviceexts {
 		"VK_KHR_swapchain",
 		"VK_KHR_portability_subset"
 	};
+	desireddeviceexts.insert(desireddeviceexts.end(), e.begin(), e.end());
 	uint32_t nprops;
 	vkEnumerateDeviceExtensionProperties(
 		physicaldevice, 
@@ -531,18 +583,33 @@ void GH::initDevicesAndQueues() {
 		NULL,
 		&nprops, &props[0]);
 	std::vector<const char*> deviceexts;
-	for (size_t i = 0; i < 2; i++) {
+	bool found;
+	for (size_t i = 0; i < desireddeviceexts.size(); i++) {
+		found = false;
 		for (uint32_t j = 0; j < nprops; j++) {
 			if (strcmp(desireddeviceexts[i], props[j].extensionName) == 0) {
 				deviceexts.push_back(desireddeviceexts[i]);
+				found = true;
 				break;
 			}
+		}
+		if (!found) {
+			WarningError(
+				std::string("Desired extension ")
+				 + std::string(desireddeviceexts[i])
+				 + std::string(" not supported by physical device")).raise();
 		}
 	}
 	VkPhysicalDeviceFeatures physicaldevicefeatures {};
 	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
+	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
+/*
+	VkPhysicalDevicePortabilitySubsetFeaturesKHR portpdf {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
+	portpdf.mutableComparisonSamplers = VK_TRUE;
+*/
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+		// &portpdf,
 		nullptr,
 		0,
 		1, &queuecreateinfo,
@@ -597,6 +664,7 @@ void GH::terminateCommandPools() {
 	vkDestroyCommandPool(logicaldevice, commandpool, nullptr);
 }
 
+// TODO: phase this out, samplers should be managed elsewhere i believe
 void GH::initSamplers() {
 	VkSamplerCreateInfo samplerci {
 		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -621,17 +689,13 @@ void GH::terminateSamplers() {
 	vkDestroySampler(logicaldevice, nearestsampler, nullptr);
 }
 
-void GH::initDescriptorPoolsAndSetLayouts() { // TODO: efficient pool sizing [l]
-	VkDescriptorPoolSize poolsizes[2] {
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
-		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}
-	};
+void GH::initDescriptorPoolsAndSetLayouts(GHInitInfo&& i) {
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
 		0,
-		5,
-		2, &poolsizes[0] 
+		i.nds,
+		static_cast<uint32_t>(i.dps.size()), i.dps.data()
 	};
 	vkCreateDescriptorPool(logicaldevice, &descriptorpoolci, nullptr, &descriptorpool);
 }
@@ -645,13 +709,14 @@ void GH::createRenderPass(
 	uint8_t numattachments,
 	VkAttachmentDescription* attachmentdescs,
 	VkAttachmentReference* colorattachmentrefs,
+	VkAttachmentReference* resolveattachmentrefs,
 	VkAttachmentReference* depthattachmentref) {
 	VkSubpassDescription primarysubpassdescription {
 		0,
 		VK_PIPELINE_BIND_POINT_GRAPHICS,
 		0, nullptr,
-		static_cast<uint32_t>(numattachments - (depthattachmentref ? 1 : 0)), 
-		colorattachmentrefs, nullptr, depthattachmentref,
+		static_cast<uint32_t>(colorattachmentrefs ? 1 : 0), 
+		colorattachmentrefs, resolveattachmentrefs, depthattachmentref,
 		0, nullptr
 	};
 	VkSubpassDependency subpassdependency {
@@ -666,7 +731,7 @@ void GH::createRenderPass(
 		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 		nullptr,
 		0,
-		numattachments, &attachmentdescs[0],
+		static_cast<uint32_t>(numattachments), &attachmentdescs[0],
 		1, &primarysubpassdescription,
 		1, &subpassdependency
 	};
@@ -728,7 +793,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 			&filepath,
 			&shadermodule,
 			&shaderstagecreateinfo,
-			nullptr);
+			pi.specinfo);
 		VkComputePipelineCreateInfo pipelinecreateinfo {
 			VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 			nullptr,
@@ -775,7 +840,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		const_cast<const char**>(&shaderfilepaths[0]),
 		&shadermodules[0],
 		&shaderstagecreateinfos[0],
-		nullptr);
+		pi.specinfo);
 	vkCreateDescriptorSetLayout(
 		logicaldevice,
 		&pi.descsetlayoutci,
@@ -836,7 +901,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		0,
 		VK_FALSE,
 		VK_FALSE,
-		VK_POLYGON_MODE_FILL,
+		pi.polymode,
 		pi.cullmode,
 		VK_FRONT_FACE_COUNTER_CLOCKWISE,
 		VK_FALSE,
@@ -849,7 +914,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 		nullptr,
 		0,
-		VK_SAMPLE_COUNT_1_BIT,
+		pi.msaasamples,
 		VK_FALSE,
 		1.0f,
 		nullptr,
@@ -986,9 +1051,10 @@ void GH::createShader(
 			createinfos[stagecounter].stage = supportedshaderstages[x];
 			createinfos[stagecounter].module = modules[stagecounter];
 			createinfos[stagecounter].pName = "main";
-			createinfos[stagecounter].pSpecializationInfo = specializationinfos ? 
-										&specializationinfos[stagecounter] :
-										nullptr;
+			createinfos[stagecounter].pSpecializationInfo = 
+				(specializationinfos && specializationinfos[stagecounter].dataSize) ? 
+				&specializationinfos[stagecounter] :
+				nullptr;
 			delete[] shadersrc;
 			stagecounter++;
 		}
@@ -1052,6 +1118,7 @@ void GH::createDS(const PipelineInfo& p, VkDescriptorSet& ds) {
 	vkAllocateDescriptorSets(logicaldevice, &allocinfo, &ds);
 }
 
+// TODO: consolidate below functions to call one another and remove redundant code
 void GH::updateDS(
 	const VkDescriptorSet& ds, 
 	uint32_t i,
@@ -1071,6 +1138,25 @@ void GH::updateDS(
 	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
 }
 
+void GH::updateArrayDS(
+	const VkDescriptorSet& ds,
+	uint32_t i,
+	VkDescriptorType t,
+	std::vector<VkDescriptorImageInfo>&& ii) {
+	VkWriteDescriptorSet write {
+		VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		nullptr,
+		ds,
+		i,
+		0,
+		static_cast<uint32_t>(ii.size()),
+		t,
+		&ii[0], nullptr, nullptr
+	};
+	vkUpdateDescriptorSets(logicaldevice, 1, &write, 0, nullptr);
+}
+
+// TODO: rename, can be used to update not all of DS, just select bindings
 void GH::updateWholeDS(
 	const VkDescriptorSet& ds, 
 	std::vector<VkDescriptorType>&& t,
@@ -1129,20 +1215,24 @@ void GH::destroyMultiuserBuffer(BufferInfo& b) {
 }
 
 void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
+	updateBuffer(b, src, b.size, 0);	
+}
+
+void GH::updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset) {
 	void* dst;
 	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
 		&& b.memprops & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
-		vkMapMemory(logicaldevice, b.memory, 0, b.size, 0, &dst);
-		memcpy(dst, src, b.size);
+		vkMapMemory(logicaldevice, b.memory, offset, size, 0, &dst);
+		memcpy(dst, src, size);
 		vkUnmapMemory(logicaldevice, b.memory);
 	}
 	else {
-		scratchbuffer.size = b.size;
+		scratchbuffer.size = size;
 		createBuffer(scratchbuffer);
-		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		memcpy(dst, src, scratchbuffer.size);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, size, 0, &dst);
+		memcpy(dst, src, size);
 		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
-		VkBufferCopy cpyregion {0, 0, b.size};
+		VkBufferCopy cpyregion {0, offset, size};
 		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
 		vkCmdCopyBuffer(
 			interimcb,
@@ -1169,7 +1259,8 @@ void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
 void GH::createImage(ImageInfo& i) {
 	// stolen from other code i wrote, unsure why tiling should be determined this way
 	// in reality this is likely to be system-dependent requiring some device capability querying
-	i.tiling = i.format != VK_FORMAT_D32_SFLOAT ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
+	// i.tiling = i.format != VK_FORMAT_D32_SFLOAT ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
+	i.tiling = VK_IMAGE_TILING_OPTIMAL;
 	VkImageLayout finallayout = i.layout;
 	i.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 	VkImageCreateInfo imageci {
@@ -1181,7 +1272,7 @@ void GH::createImage(ImageInfo& i) {
 		{i.extent.width, i.extent.height, 1},
 		1,
 		1,
-		VK_SAMPLE_COUNT_1_BIT,
+		i.samples,
 		i.tiling,
 		i.usage,
 		VK_SHARING_MODE_EXCLUSIVE,
@@ -1218,6 +1309,10 @@ void GH::destroyImage(ImageInfo& i) {
 }
 
 void GH::updateImage(ImageInfo& i, void* src) {
+	updateImage(i, src, 0, 1, 0, 0);
+}
+
+void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize) {
 	// TODO: handle device local images using a staging buffer [l]
 	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
 	VkSubresourceLayout subresourcelayout;
@@ -1244,7 +1339,7 @@ void GH::updateImage(ImageInfo& i, void* src) {
 		scratchbuffer.size = pitch * i.extent.height;
 		createBuffer(scratchbuffer);
 		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst);
+		dstscan = static_cast<char*>(dst) + offset;
 		for (uint32_t x = 0; x < i.extent.height; x++) {
 			memcpy(reinterpret_cast<void*>(dstscan), 
 				reinterpret_cast<void*>(srcscan),
@@ -1284,13 +1379,23 @@ void GH::updateImage(ImageInfo& i, void* src) {
 	}
 	else {
 		vkMapMemory(logicaldevice, i.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst);
-		for (uint32_t x = 0; x < i.extent.height; x++) {
-			memcpy(reinterpret_cast<void*>(dstscan), 
-				reinterpret_cast<void*>(srcscan),
-				i.extent.width * i.getPixelSize());
-			dstscan += pitch;
-			srcscan += i.extent.width * i.getPixelSize();
+		dstscan = static_cast<char*>(dst) + offset;
+		// TODO: incorporate this system into dev loc update
+		if (stride == 1 && cpysize == 0) {
+			for (uint32_t x = 0; x < i.extent.height; x++) {
+				memcpy(reinterpret_cast<void*>(dstscan), 
+					reinterpret_cast<void*>(srcscan),
+					i.extent.width * i.getPixelSize());
+				dstscan += pitch;
+				srcscan += i.extent.width * i.getPixelSize();
+			}
+		}
+		else {
+			for (size_t i = 0; i < cpysize; i += stride) {
+				memcpy(dstscan, srcscan, elemsize);
+				srcscan += elemsize;
+				dstscan += stride;
+			}
 		}
 		vkUnmapMemory(logicaldevice, i.memory);
 	}
@@ -1349,14 +1454,22 @@ void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 							VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 			break;
-		case VK_IMAGE_LAYOUT_GENERAL:
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			dstmask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+			imgmembarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			break;
+		case VK_IMAGE_LAYOUT_GENERAL: // TODO: below is icky
 			imgmembarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-			dstmask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+			dstmask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 			break;
 		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
 			imgmembarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | 
 							VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+			dstmask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		default:
 			WarningError("unknown final layout for img transition").raise();
 	}
@@ -1394,7 +1507,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL GH::validationCallback(
 	if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
 	 || severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
 		std::cout << "----- Validation Error -----\n";
-		std::cout << callbackdata->pMessage << std::endl;
+		//std::cout << callbackdata->pMessage << std::endl;
+		FatalError(callbackdata->pMessage).raise();
 	}
 	return VK_FALSE;
 }

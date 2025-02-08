@@ -1,3 +1,6 @@
+#ifndef UI_HANDLER_H
+#define UI_HANDLER_H
+
 #include "GraphicsHandler.h"
 #include "UI.h"
 
@@ -8,25 +11,23 @@ public:
 	UIHandler() = delete;
 	UIHandler(const UIHandler& lvalue) = delete;
 	UIHandler(UIHandler&& rvalue) = delete;
-	UIHandler(VkExtent2D extent);
+	UIHandler(const PipelineInfo& p, VkExtent2D extent);
 	~UIHandler();
 
-	// void addComponent(UIComponent c);
+	const UIContainer& getRoot() const {return root;}
+
 	/* 
 	 * another hack to get polymorphic functions to work
 	 * (e.g., text needs to regen tex on ds set)
 	 */
+	// TODO: should this be a reference of some sort???
 	template <class T>
-	void addComponent(T c) {
-		VkDescriptorSet dstemp;
-		GH::createDS(graphicspipeline, dstemp);
-		c.setDS(dstemp);
-		c.setGraphicsPipeline(root.getGraphicsPipeline());
-		root.addChild(c);
+	T* addComponent(T c) {
+		return root.addChild(c);
 	}
-	void setTex(UIImage& i, const ImageInfo& ii);
+	void setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p);
 
-	void draw(VkCommandBuffer& cb, const VkFramebuffer& f) ;
+	void recordDraw(VkFramebuffer f, VkRenderPass rp, VkCommandBuffer& cb) const;
 
 	static constexpr UIPipelineInfo ghToUIPipelineInfo(const PipelineInfo& p) {
 		return (UIPipelineInfo){
@@ -47,7 +48,6 @@ public:
 			i.layout
 		};
 	}
-	// can't be constexpr because it needs to grab the GH sampler
 	static ImageInfo uiToGHImageInfo(const UIImageInfo& i) {
 		return (ImageInfo) {
 			i.image,
@@ -56,24 +56,22 @@ public:
 			i.extent,
 			i.format,
 			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, // for now assuming dynamic text
-			VK_IMAGE_LAYOUT_GENERAL,
-			GH::getNearestSampler(),
-			// below should probably depend on static vs dynamic tex
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			textsampler,
+			// TODO: below should probably depend on static vs dynamic tex
+			// VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
 		};
 	}
-
-	const VkRenderPass& getRenderPass() const {return renderpass;}
-	const VkClearValue& getColorClear() const {return colorclear;}
 
 // would like to have option for static vs dynamic textures...
 
 private:
-	VkRenderPass renderpass;
-	PipelineInfo graphicspipeline;
 	VkCommandBufferBeginInfo cbbegininfo;
 	VkCommandBufferInheritanceInfo cbinherinfo;
-	const VkClearValue colorclear;
+	static VkSampler textsampler;
 
 	UIContainer root;
 };
+
+#endif

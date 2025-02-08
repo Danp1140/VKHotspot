@@ -2,16 +2,43 @@
 
 VkDeviceSize Mesh::vboffsettemp = 0;
 
+MeshBase::MeshBase() : 
+		position(0),
+		scale(1),
+		rotation(1, 0, 0, 0),
+		model(1) {
+	aabb[0] = glm::vec3(std::numeric_limits<float>::infinity());
+	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
+}
+
+MeshBase::MeshBase(MeshBase&& rvalue) :
+		position(std::move(rvalue.position)),
+		scale(std::move(rvalue.scale)),
+		rotation(std::move(rvalue.rotation)),
+		model(std::move(rvalue.model)) {
+	aabb[0] = std::move(rvalue.aabb[0]);
+	aabb[1] = std::move(rvalue.aabb[1]);
+}
+
+
 void swap(MeshBase& lhs, MeshBase& rhs) {
 	std::swap(lhs.position, rhs.position);
 	std::swap(lhs.scale, rhs.scale);
 	std::swap(lhs.rotation, rhs.rotation);
 	std::swap(lhs.model, rhs.model);
+	std::swap(lhs.aabb, rhs.aabb);
 }
 
 MeshBase& MeshBase::operator=(MeshBase&& rhs) {
 	swap(*this, rhs);
 	return *this;
+}
+
+void MeshBase::addVecToAABB(const glm::vec3& v) {
+	for (uint8_t i = 0; i < 3; i++) {
+		aabb[0][i] = std::min(aabb[0][i], v[i]);
+		aabb[1][i] = std::max(aabb[1][i], v[i]);
+	}
 }
 
 void MeshBase::setPos(glm::vec3 p) {
@@ -36,10 +63,6 @@ void MeshBase::updateModelMatrix() {
 		* glm::scale(glm::mat4(1), scale);
 }
 
-Mesh::Mesh(const char* f) : Mesh() {
-	loadOBJ(f);
-}
-
 Mesh::Mesh(Mesh&& rvalue) :
 	MeshBase(std::move(rvalue)),
 	vbtraits(std::move(rvalue.vbtraits)),
@@ -47,6 +70,19 @@ Mesh::Mesh(Mesh&& rvalue) :
 	indexbuffer(std::move(rvalue.indexbuffer)) {
 	rvalue.vertexbuffer = {};
 	rvalue.indexbuffer = {};
+}
+
+Mesh::Mesh(const char* f) : Mesh() {
+	loadOBJ(f);
+}
+
+Mesh::Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu) : vbtraits(vbt) {
+	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | abu;
+	vertexbuffer.size = getVertexBufferElementSize() * vbs;
+	GH::createBuffer(vertexbuffer);
+	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | abu;
+	indexbuffer.size = sizeof(MeshIndex) * ibs;
+	GH::createBuffer(indexbuffer);
 }
 
 Mesh::~Mesh() {
@@ -112,7 +148,7 @@ void Mesh::recordDraw(
 			rs.pipeline.objpushconstantrange.size, 
 			rs.objpcdata[rsidx]);
 	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
@@ -126,25 +162,31 @@ size_t Mesh::getTraitsElementSize(VertexBufferTraits t) {
 	return result;
 }
 
-VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t) {
+VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t, VertexBufferTraits o) {
 	uint32_t numtraits = 0, offset = 0;
 	VkVertexInputBindingDescription* bindingdesc = new VkVertexInputBindingDescription[1] {
 		{0, static_cast<uint32_t>(getTraitsElementSize(t)), VK_VERTEX_INPUT_RATE_VERTEX}
 	};
 	VkVertexInputAttributeDescription* attribdesc = new VkVertexInputAttributeDescription[MAX_VERTEX_BUFFER_NUM_TRAITS];
 	if (t & VERTEX_BUFFER_TRAIT_POSITION) {
-		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
-		numtraits++;
+		if (!(o & VERTEX_BUFFER_TRAIT_POSITION)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
 		offset += sizeof(glm::vec3);
 	}
 	if (t & VERTEX_BUFFER_TRAIT_UV) {
-		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32_SFLOAT, offset};
-		numtraits++;
+		if (!(o & VERTEX_BUFFER_TRAIT_UV)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32_SFLOAT, offset};
+			numtraits++;
+		}
 		offset += sizeof(glm::vec2);
 	}
 	if (t & VERTEX_BUFFER_TRAIT_NORMAL) {
-		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
-		numtraits++;
+		if (!(o & VERTEX_BUFFER_TRAIT_NORMAL)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
 		offset += sizeof(glm::vec3);
 	}
 	if (t & VERTEX_BUFFER_TRAIT_WEIGHT) {
@@ -225,6 +267,7 @@ void Mesh::loadOBJ(const char* fp) {
 	MeshIndex itemp;
 	for (uint16_t x = 0; x < vertexindices.size() / 3; x++) {
 		for (uint16_t y = 0; y < 3; y++) {
+			addVecToAABB(vertextemps[vertexindices[3 * x + y]]);
 			if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) {
 				memcpy(vscan, &vertextemps[vertexindices[3 * x + y]], sizeof(glm::vec3));
 				vscan += sizeof(glm::vec3);
@@ -251,10 +294,10 @@ void Mesh::loadOBJ(const char* fp) {
 	free(idst);
 }
 
-InstancedMesh::InstancedMesh(InstancedMesh&& rvalue) : 
+InstancedMesh::InstancedMesh(InstancedMesh&& rvalue) :
 	Mesh(std::move(rvalue)),
 	instanceub(std::move(rvalue.instanceub)) {
-	instanceub = {};
+	rvalue.instanceub = {};
 }
 
 InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
@@ -263,6 +306,17 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) :
 	instanceub.size = m.size() * sizeof(InstancedMeshData);
 	GH::createBuffer(instanceub);
 	GH::updateWholeBuffer(instanceub, m.data());
+	glm::vec3 initialaabb[2] = {aabb[0], aabb[1]};
+	aabb[0] = glm::vec3(std::numeric_limits<float>::infinity());
+	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
+	glm::vec4 temp;
+	for (const InstancedMeshData& imd : m) {
+		for (uint8_t i = 0; i < 2; i++) {
+			temp = glm::vec4(initialaabb[i], 1);
+			temp = imd.m * temp;
+			addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
+		}
+	}
 }
 
 InstancedMesh::~InstancedMesh() {
@@ -336,7 +390,7 @@ void InstancedMesh::recordDraw(
 			rs.pipeline.objpushconstantrange.size, 
 			rs.objpcdata[rsidx]);
 	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
-	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
 	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
@@ -347,6 +401,8 @@ LODMesh::LODMesh(std::vector<LODMeshData>& md) : nummeshes(md.size()) {
 	for (uint8_t i = 0; i < nummeshes; i++) {
 		meshes[i] = std::move(md[i]);
 	}
+	memcpy(&aabb[0], meshes[nummeshes - 1].getMesh().getAABB(), 2 * sizeof(glm::vec3)); // takes AABB of last LOD,
+	// presumed lowest res
 }
 
 LODMesh::~LODMesh() {

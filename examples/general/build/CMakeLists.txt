@@ -4,6 +4,7 @@ project(GeneralExample)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++20 -Wno-deprecated")
 
+#[[
 if (UNIX)
 	if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 		set(CMAKE_FIND_FRAMEWORK LAST)
@@ -47,3 +48,11 @@ target_link_libraries(${PROJECT_NAME}
 	Vulkan::Vulkan
 	SDL3::SDL3
 	PNG::PNG)
+message(WARNING "didnt actually comment")
+]]
+
+find_package(VKH REQUIRED)
+
+add_executable(${PROJECT_NAME} ../src/main.cpp)
+
+target_link_libraries(${PROJECT_NAME} VKH::VKH)

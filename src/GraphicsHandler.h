@@ -1,6 +1,9 @@
 #ifndef GRAPHICS_HANDLER_H
 #define GRAPHICS_HANDLER_H
 
+// TODO: do we need this??? should p be up to user, as with selectively enabled exts
+#define VK_ENABLE_BETA_EXTENSIONS
+
 #include <vulkan/vulkan.h>
 #include <ext.hpp>
 #include <SDL3/SDL.h>
@@ -15,12 +18,26 @@
 
 #include "Errors.h"
 
+#define GH_VERBOSE_RESOURCE_SIZES
+#ifdef GH_VERBOSE_RESOURCE_SIZES
+#define GH_LOG_RESOURCE_SIZE(n, s) { \
+	std::cout << #n << " size: " << s << " bytes"; \
+	if (s >= 1000000000) std::cout << " (~" << ceil((float)s / 1000000000.f) << "Gb)"; \
+	else if (s >= 1000000) std::cout << " (~" << ceil((float)s / 1000000.f) << "Mb)"; \
+	else if (s >= 1000) std::cout << " (~" << ceil((float)s / 1000.f) << "kb)"; \
+	std::cout << std::endl; \
+}
+#else
+#define GH_LOG_RESOURCE_SIZE(n, s)
+#endif
+
 #define GH_SWAPCHAIN_IMAGE_FORMAT VK_FORMAT_B8G8R8A8_SRGB
 // TODO: constider making this a D16_UNORM [l]
 // this intersects with system-dependent format selection with preferential formats, as not all systems
 // may be capable of a D16_UNORM, while most if not all will be able to use a D32_SFLOAT
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
-#define GH_MAX_FRAMES_IN_FLIGHT 6
+#define GH_MAX_SWAPCHAIN_IMAGES 8
+#define GH_MAX_FRAMES_IN_FLIGHT 8
 
 #define NUM_SHADER_STAGES_SUPPORTED 5
 const VkShaderStageFlagBits supportedshaderstages[NUM_SHADER_STAGES_SUPPORTED] = {
@@ -72,6 +89,7 @@ typedef struct ImageInfo {
 	VkSampler sampler = VK_NULL_HANDLE;
 	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	VkImageTiling tiling; // set by GH::createImage depending on img props
+	VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 
 	constexpr VkImageSubresource getDefaultSubresource() const {
 		return {
@@ -101,9 +119,13 @@ typedef struct ImageInfo {
 				return 1;
 			case VK_FORMAT_R8G8B8_UNORM:
 				return 3;
+			case VK_FORMAT_B8G8R8A8_SRGB:
+				return 4;
 			case VK_FORMAT_R8G8B8A8_SRGB:
 				return 4;
 			case VK_FORMAT_R8G8B8A8_UNORM:
+				return 4;
+			case VK_FORMAT_D32_SFLOAT:
 				return 4;
 			default:
 				FatalError("Unknown format for getPixelSize()").raise();
@@ -126,10 +148,14 @@ typedef struct PipelineInfo {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
 	};
 	bool depthtest = false;
-	VkSpecializationInfo specinfo = {};
+	// specinfo array in order of shader stages
+	VkSpecializationInfo* specinfo = nullptr;
+	VkPolygonMode polymode = VK_POLYGON_MODE_FILL;
 	VkPrimitiveTopology topo = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	VkExtent2D extent = {0, 0}; 
 	VkCullModeFlags cullmode = VK_CULL_MODE_BACK_BIT;
+	VkSampleCountFlagBits msaasamples = VK_SAMPLE_COUNT_1_BIT;
+	// could /consider/ making this a RenderPassInfo ref to avoid redundant data like extent, msaa, etc
 	VkRenderPass renderpass;
 } PipelineInfo;
 
@@ -220,6 +246,7 @@ typedef std::function<void (uint8_t, VkCommandBuffer&)> cbRecFuncTemplate;
 typedef struct cbRecTaskRenderPassTemplate {
 	VkRenderPass rp;
 	const VkFramebuffer* fbs;
+	uint32_t numscis;
 	VkExtent2D ext;
 	uint32_t nclears;
 	const VkClearValue* clears;
@@ -228,11 +255,13 @@ typedef struct cbRecTaskRenderPassTemplate {
 	cbRecTaskRenderPassTemplate(
 		const VkRenderPass r,
 		const VkFramebuffer* const f,
+		uint32_t ns,
 		const VkExtent2D e,
 		uint32_t nc,
 		const VkClearValue* const c) :
 		rp(r),
 		fbs(f),
+		numscis(ns),
 		ext(e),
 		nclears(nc),
 		clears(c) {}
@@ -288,7 +317,20 @@ typedef struct cbRecTaskTemplate {
 	} data;
 } cbRecTaskTemplate;
 
+typedef enum WindowInfoFlagBits {
+	WINDOW_INFO_FLAG_NONE = 0x00,
+	WINDOW_INFO_FLAG_CB_CHANGE = 0x01
+} WindowInfoFlagBits;
+typedef uint8_t WindowInfoFlags;
+
 class GH;
+
+typedef struct WindowInitInfo {
+	glm::vec2 p = glm::vec2(0),
+		s = glm::vec2(1);
+	const char* name = "";
+	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+} WindowInitInfo;
 
 class WindowInfo {
 public:
@@ -304,9 +346,11 @@ public:
 	 * - Resolution (can this vary relative to window size?)
 	 * - Monitor
 	 */
-	WindowInfo();
+	WindowInfo() : WindowInfo((WindowInitInfo){}) {}
+	WindowInfo(WindowInitInfo&& i);
 	/* p & s are normalized position & size  */
-	WindowInfo(glm::vec2 p, glm::vec2 s);
+	// TODO: phase out
+	WindowInfo(glm::vec2 p, glm::vec2 s) : WindowInfo({.p = p, .s = s}) {}
 	// explicitly delete these until we can safely implement them
 	WindowInfo(const WindowInfo& lvalue) = delete;
 	WindowInfo(WindowInfo&& rvalue) = delete;
@@ -316,12 +360,17 @@ public:
 	 * Returns false if the window should close (SDL_EVENT_QUIT or _WINDOW_CLOSE REQUESTED), true otherwise
 	 */
 	bool frameCallback();
+	void addTask(const cbRecTaskTemplate& t, size_t i);
+	// presumes to add to end
 	void addTask(const cbRecTaskTemplate& t);
 	void addTasks(std::vector<cbRecTaskTemplate>&& t);
+	// use sparingly, only if all window tasks truly change, e.g. scene change
+	void clearTasks();
 
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
-	const VkSemaphore& getImgAcquireSema() const {return imgacquiresema;}
+	VkSampleCountFlagBits getMSAASamples() const {return mscolorbuffer.samples;}
 	const ImageInfo* const getSCImages() const {return scimages;}
+	const ImageInfo& getMSAAImage() const {return mscolorbuffer;}
 	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
 	uint32_t getNumSCIs() const {return numscis;}
@@ -329,18 +378,19 @@ public:
 private:
 	SDL_Window* sdlwindow;
 	uint32_t sdlwindowid;
-	bool close;
+	bool close; // TODO: move to flags???
 	VkSurfaceKHR surface;
 	VkSwapchainKHR swapchain;
-	ImageInfo* scimages, depthbuffer;
+	ImageInfo* scimages, mscolorbuffer, depthbuffer;
 	uint32_t numscis, sciindex, fifindex;
-	VkSemaphore imgacquiresema, subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
+	VkSemaphore imgacquiresemas[GH_MAX_FRAMES_IN_FLIGHT], subfinishsemas[GH_MAX_FRAMES_IN_FLIGHT];
 	VkFence subfinishfences[GH_MAX_FRAMES_IN_FLIGHT];
 	VkCommandBuffer primarycbs[GH_MAX_FRAMES_IN_FLIGHT];
 	std::vector<cbRecTask>* rectaskvec;
 	std::queue<cbRecTask> rectaskqueue;
 	std::queue<cbCollectInfo> collectinfos;
 	std::vector<VkCommandBuffer> secondarycbset[GH_MAX_FRAMES_IN_FLIGHT];
+	WindowInfoFlags flags[GH_MAX_FRAMES_IN_FLIGHT];
 
 	// below members are temp to make ops done every frame faster
 	// these are used directly after they're set, and should not be read elsewhere
@@ -369,9 +419,20 @@ private:
 	void submitAndPresent();
 };
 
+typedef struct GHInitInfo {
+	std::vector<const char*> iexts, dexts;
+	std::vector<VkDescriptorPoolSize> dps = {
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8},
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}
+	};
+	uint32_t nds = 16;
+} GHInitInfo;
+
 class GH {
 public:
-	GH();
+	GH() : GH((GHInitInfo){}) {}
+	GH(GHInitInfo&& i);
 	~GH();
 
 	static void createRenderPass(
@@ -379,6 +440,7 @@ public:
 		uint8_t numattachments,
 		VkAttachmentDescription* attachmentdescs,
 		VkAttachmentReference* colorattachmentrefs,
+		VkAttachmentReference* resolveattachmentrefs,
 		VkAttachmentReference* depthattachmentref);
 	static void destroyRenderPass(VkRenderPass& rp);
 
@@ -392,6 +454,11 @@ public:
 		VkDescriptorType t,
 		VkDescriptorImageInfo ii,
 		VkDescriptorBufferInfo bi);
+	static void updateArrayDS(
+		const VkDescriptorSet& ds,
+		uint32_t i,
+		VkDescriptorType t,
+		std::vector<VkDescriptorImageInfo>&& ii);
 	static void updateWholeDS(
 		const VkDescriptorSet& ds, 
 		std::vector<VkDescriptorType>&& t,
@@ -404,6 +471,8 @@ public:
 	static void copyMultiuserBuffer(const BufferInfo& b);
 	static void destroyMultiuserBuffer(BufferInfo& b);
 	static void updateWholeBuffer(const BufferInfo& b, void* src);
+	// size and offset in bytes, not elements
+	static void updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset);
 
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set
@@ -412,6 +481,10 @@ public:
 	static void createImage(ImageInfo& i);
 	static void destroyImage(ImageInfo& i);
 	static void updateImage(ImageInfo& i, void* src);
+	/* src assumed tightly packed, stride only affects dst */
+	/* cpysize is dist from first cpy to last IN DST */
+	/* presumed stride > elemsize */
+	static void updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize);
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
@@ -419,7 +492,9 @@ public:
 	static const VkQueue& getGenericQueue() {return genericqueue;}
 	static const uint8_t getQueueFamilyIndex() {return queuefamilyindex;}
 	static const VkCommandPool& getCommandPool() {return commandpool;}
+	static const VkCommandBuffer& getInterimCB() {return interimcb;}
 	static const VkSampler& getNearestSampler() {return nearestsampler;}
+	static const ImageInfo& getBlankImage() {return blankimage;}
 
 	static void setShaderDirectory(const char* d) {shaderdir = d;}
 
@@ -438,6 +513,7 @@ private:
 	static BufferInfo scratchbuffer;
 	static const char* shaderdir;
 	static std::map<VkBuffer, uint8_t> bufferusers;
+	static ImageInfo blankimage;
 
 	/*
 	 * Below are several graphics initialization functions. Most have self-explanatory names and are relatively
@@ -449,7 +525,7 @@ private:
 
 	// init/terminateVulkanInstance also handle the primary surface & window, as they will always exist for a GH
 	// TODO: Remove hard-coding and enhance initVulkanInstance's ability to dynamically enable needed extensions [l]
-	void initVulkanInstance();
+	void initVulkanInstance(const std::vector<const char*>& e);
 	void terminateVulkanInstance();
 
 	static VkResult createDebugMessenger(
@@ -466,7 +542,7 @@ private:
 
 	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, [l] 
 	// and hardware to use 
-	void initDevicesAndQueues();
+	void initDevicesAndQueues(const std::vector<const char*>& e);
 	void terminateDevicesAndQueues();
 
 	void initCommandPools();
@@ -475,7 +551,7 @@ private:
 	void initSamplers();
 	void terminateSamplers();
 
-	static void initDescriptorPoolsAndSetLayouts();
+	static void initDescriptorPoolsAndSetLayouts(GHInitInfo&& i);
 	static void terminateDescriptorPoolsAndSetLayouts();
 
 	static void transitionImageLayout(ImageInfo& i, VkImageLayout newlayout);

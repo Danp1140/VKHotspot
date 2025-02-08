@@ -1,42 +1,122 @@
-#include "UIHandler.h"
 #include "Scene.h"
 #include "PhysicsHandler.h"
 #include "TextureHandler.h"
 #include "InputHandler.h"
+#include <random>
 
 #define MOVEMENT_SENS 0.75f
 #define FOV_SENS 0.05f
 
+void createShadowCastPipeline(RenderPassInfo& rpi, Light& l) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "shadowmap";
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(MeshPCData)};
+	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	p.depthtest = true;
+	p.extent = l.getShadowMap().extent;
+	p.cullmode = VK_CULL_MODE_FRONT_BIT;
+	p.renderpass = rpi.getRenderPass();
+	GH::createPipeline(p);
+	l.setSMPipeline(p);
+	Mesh::ungetVISCI(p.vertexinputstateci);
+}
+
+void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "shadowtest";
+	VkDescriptorSetLayoutBinding bindings[3] {{
+			0,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+		}, {
+			1,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			SCENE_MAX_DIR_LIGHTS,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+		}, {
+			2,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+
+	}};
+	p.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		3, &bindings[0]
+	};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
+	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	p.depthtest = true;
+	p.extent = w.getSCExtent();
+	p.msaasamples = w.getMSAASamples();
+	p.renderpass = rpi.getRenderPass();
+/*
+	VkSpecializationMapEntry specmaps[3] {
+		{0, 0, sizeof(uint32_t)},
+		{1, sizeof(uint32_t), sizeof(uint32_t)},
+		{2, 2 * sizeof(uint32_t), sizeof(uint32_t)}
+	};
+	const uint32_t temp[3] = {SCENE_MAX_DIR_LIGHTS, SCENE_MAX_DIR_SHADOWCASTING_LIGHTS, SCENE_MAX_SHADOWCATCHERS};
+	VkSpecializationInfo spi[2];
+	spi[0] = {3, &specmaps[0], 3 * sizeof(uint32_t), static_cast<const void*>(&temp[0])};
+	spi[1] = {.dataSize = 0};
+	p.specinfo = &spi[0];
+*/
+	GH::createPipeline(p);
+	rpi.addPipeline(p, &s.getCamera()->getVP());
+	Mesh::ungetVISCI(p.vertexinputstateci);
+}
+
 void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	VkRenderPass r;
-	VkAttachmentDescription attachdescs[2] {{
+	VkAttachmentDescription attachdescs[3] {{
 			0, 
 			GH_SWAPCHAIN_IMAGE_FORMAT,
-			VK_SAMPLE_COUNT_1_BIT,
+			w.getMSAASamples(),
 			VK_ATTACHMENT_LOAD_OP_CLEAR,
 			VK_ATTACHMENT_STORE_OP_STORE,
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 		}, {
 			0, 
 			GH_DEPTH_BUFFER_IMAGE_FORMAT,
-			VK_SAMPLE_COUNT_1_BIT,
+			w.getMSAASamples(),
 			VK_ATTACHMENT_LOAD_OP_CLEAR,
 			VK_ATTACHMENT_STORE_OP_STORE,
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+		}, {
+			0, 
+			GH_SWAPCHAIN_IMAGE_FORMAT,
+			VK_SAMPLE_COUNT_1_BIT,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 	}};
-	VkAttachmentReference attachrefs[2] {
+	VkAttachmentReference attachrefs[3] {
 		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
-		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
+		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL},
+		{2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}
 	};
-	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], &attachrefs[1]);
-
-	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
+	GH::createRenderPass(r, 3, &attachdescs[0], &attachrefs[0], &attachrefs[2], &attachrefs[1]);
+	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), &w.getMSAAImage(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -46,6 +126,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
+	p.msaasamples = w.getMSAASamples();
 	p.renderpass = r;
 	GH::createPipeline(p);
 	rpi.addPipeline(p, &s.getCamera()->getVP());
@@ -74,6 +155,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	ip.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	ip.depthtest = true;
 	ip.extent = w.getSCExtent();
+	ip.msaasamples = w.getMSAASamples();
 	ip.renderpass = r;
 	GH::createPipeline(ip);
 	rpi.addPipeline(ip, &s.getCamera()->getVP());
@@ -83,11 +165,11 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	tp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	tp.shaderfilepathprefix = "diffusetexture";
 	VkDescriptorSetLayoutBinding dtbindings[1] {{
-		0,
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		1,
-		VK_SHADER_STAGE_FRAGMENT_BIT,
-		nullptr
+			0,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			1,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
 	}};
 	tp.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -101,10 +183,60 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	tp.depthtest = true;
 	tp.extent = w.getSCExtent();
 	tp.renderpass = r;
+	tp.msaasamples = w.getMSAASamples();
 	GH::createPipeline(tp);
 	rpi.addPipeline(tp, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(tp.vertexinputstateci);
+	s.addRenderPass(rpi);
 
+	VkAttachmentDescription uiattachdesc {
+		0,
+		GH_SWAPCHAIN_IMAGE_FORMAT,
+		VK_SAMPLE_COUNT_1_BIT,
+		VK_ATTACHMENT_LOAD_OP_LOAD,
+		VK_ATTACHMENT_STORE_OP_STORE,
+		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+		VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+	};
+	VkAttachmentReference uiattachref {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+	GH::createRenderPass(r, 1, &uiattachdesc, &uiattachref, nullptr, nullptr);
+	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, nullptr, {{0, 0, 0, 1}});
+
+	PipelineInfo uip;
+	uip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	uip.shaderfilepathprefix = "UI";
+	uip.renderpass = r;
+	uip.extent = w.getSCExtent(); 
+	uip.cullmode = VK_CULL_MODE_NONE;
+	uip.pushconstantrange = {
+		VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+		0, sizeof(UIPushConstantData)
+	};
+	VkDescriptorSetLayoutBinding uipbindings[1] {{
+		0,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		1,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
+		nullptr
+	}};
+	uip.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		1, &uipbindings[0]
+	};
+	VkSpecializationMapEntry specmap[2] {
+		{0, 0, sizeof(uint32_t)},
+		{1, sizeof(uint32_t), sizeof(uint32_t)}
+	};
+	VkSpecializationInfo spi[2];
+	spi[0] = {2, &specmap[0], sizeof(VkExtent2D), static_cast<void*>(&uip.extent)};
+	spi[1] = {.dataSize = 0};
+	uip.specinfo = &spi[0];
+	GH::createPipeline(uip);
+	rpi.addPipeline(uip, nullptr);
 	s.addRenderPass(rpi);
 }
 
@@ -156,63 +288,171 @@ LODMesh createLODSuzanne(Scene& s, std::vector<LODFuncData>& datadst) {
 	return LODMesh(datatemp);
 }
 
+void prependTwoDigitTime(SDL_Time t, std::wstring& s) {
+	s.insert(0, std::to_wstring(t));
+	if (t < 10) s.insert(0, L"0");
+}
+
+std::wstring getTimestamp() {
+	SDL_Time t;
+	SDL_GetCurrentTime(&t);
+	t = SDL_NS_TO_SECONDS(t);
+	SDL_Time temp = t % 60;
+	std::wstring res;
+	prependTwoDigitTime(temp, res);
+	res.insert(0, L":");
+	t /= 60;
+	temp = t % 60;
+	prependTwoDigitTime(temp, res);
+	res.insert(0, L":");
+	t /= 60;
+	temp = t % 24;
+	prependTwoDigitTime(temp, res);
+	res.append(L" (UTC lol)");
+	return res;
+}
+
+void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
+	std::random_device rdev;
+	std::mt19937 gen(rdev());
+	std::uniform_real_distribution<float> thetadist(0, glm::two_pi<float>()),
+		phidist(0, glm::half_pi<float>()),
+		rdist(3, 10),
+		coldist(0, 0.75);
+	float theta = thetadist(gen),
+		phi = phidist(gen),
+		r = rdist(gen);
+	glm::vec3 pos(r * glm::vec3(cos(theta) * cos(phi), sin(phi), sin(theta) * cos(phi)));
+	// TODO: if they want a shadowmap, require a pipeline to be passed in with the constructor
+	// SM resolution can be ripped right from that!
+	DirectionalLight* l = s.addDirectionalLight(DirectionalLight({{pos,  glm::vec3(coldist(gen), coldist(gen), coldist(gen)), {256, 256}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, -pos}));
+	createShadowCastPipeline(s.getRenderPass(0), *l);
+	s.getRenderPass(0).addPipeline(l->getSMPipeline(), &l->getVP());
+	s.getRenderPass(0).addMesh(&suzanne, VK_NULL_HANDLE, &suzanne.getModelMatrix(), 0);
+
+	// technically inefficient to rewrite already written data here, but shouldn't happen often
+	std::vector<uint32_t> idxs;
+	for (uint32_t i = 0; i < s.getNumDirSCLights(); i++) idxs.push_back(i);
+	const RenderSet& rs = s.getRenderPass(s.getNumDirSCLights()).getRenderSet(3);
+	// current state of affairs:
+	// - hooking up just one in the first slot works great
+	// - hooking up multiple works for the first one, the second appears distorted, and the third and rest black out everything
+	// - since one at a time hookup works, it seems like its an issue with the CUB
+	s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], {0}, idxs, 0);
+	// s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], {}, {s.getNumDirSCLights() - 1}, 0);
+	s.hookupShadowCaster(&suzanne, std::move(idxs));
+
+
+	for (int32_t i = s.getRenderPass(0).getTasks().size() - 1; i >= 0; i--) {
+		w.addTask(s.getRenderPass(0).getTasks()[i], 0);
+	}
+}
+
 int main() {
 	GH graphicshandler = GH();
-	WindowInfo w;
-	UIHandler ui(w.getSCExtent());
+	WindowInfo w((WindowInitInfo){.msaa = VK_SAMPLE_COUNT_4_BIT});
 	TextureHandler th;
-
-	/*
-	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(
-		ui.getRenderPass(),
-		w.getPresentationFBs(),
-		w.getSCImages()[0].extent,
-		1, &ui.getColorClear())));
-	// TODO: fix UIHandler, this is disgusting lol [l] 
-	w.addTask(cbRecTaskTemplate(cbRecFuncTemplate(
-		VK_NULL_HANDLE,
-		nullptr,
-		VK_NULL_HANDLE, VK_NULL_HANDLE,
-		VK_NULL_HANDLE, VK_NULL_HANDLE,
-		[&ui, &w] (cbRecData d, VkCommandBuffer& cb) { ui.draw(cb, w.getCurrentPresentationFB()); },
-		w.getPresentationFBs())));
-	ui.addComponent(UIText(L"text from main", UICoord(1000, 1000)));
-	*/
-	
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
+
 	Mesh m("../resources/models/cube.obj");
 	createScene(s, w, m);
 
+	/*
+	 * UI Setup
+	 */
+	/*
+	 * As of yet unresolved issue: UI is strangely offset when rendered on Linux Mint machine w/ Nvidia graphics card, 1080p monitor
+	 */
+
+	std::wstring log = L"";
+	const size_t logmaxlines = 20;
+	uint64_t lastfpstime = SDL_GetTicks();
+	const uint64_t maxfpstime = 1000;
+	float fpstot = 0, framevar, frameavg;
+	std::vector<float> frametimes;
+	size_t numf = 0;
+	UIHandler ui(s.getRenderPass(1).getRenderSet(0).pipeline, w.getSCExtent());
+	UIContainer* leftsidebar = ui.addComponent(UIContainer());
+	// leftsidebar->setPos(UICoord(0, 0));
+	// leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
+	leftsidebar->setPos(UICoord(0, 2 * w.getSCExtent().height));
+	leftsidebar->setExt(UICoord(1000, -2 * w.getSCExtent().height));
+	// leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
+	leftsidebar->setBGCol({0, 0.8, 0, 1});
+	UIText* logtext = leftsidebar->addChild(UIText());
+	logtext->setPos(UICoord(0, 0));
+	logtext->setBGCol({0, 0, 0, 0});
+	UIText* camtext = ui.addComponent(UIText());
+	camtext->setPos(UICoord(1000, w.getSCExtent().height));
+	UIText* fpstext = ui.addComponent(UIText());
+	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
+	s.getRenderPass(1).setUI(&ui, 0);
+
+	/*
+	 * Lighting
+	 */
+
+	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight({{glm::vec3(-20, 20, 0), glm::vec3(1, 1, 0), {1024, 1024}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(1, -1, 0)}));
+	DirectionalLight* noshad = s.addDirectionalLight(DirectionalLight({{glm::vec3(0, 20, -20), glm::vec3(0, 0, 1), {0, 0}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(0, -1, 1)}));
+
+	createShadowCastPipeline(s.getRenderPass(0), *sl);
+	s.getRenderPass(0).addPipeline(sl->getSMPipeline(), &sl->getVP());
+	s.getRenderPass(0).addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
+	createShadowReceivePipeline(s.getRenderPass(1), s, w);
+
+	/*
+	 * Misc Mesh Instantiation
+	 */
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
 	VkDescriptorSet temp;
-	GH::createDS(s.getRenderPass(0).getRenderSet(1).pipeline, temp);
+	GH::createDS(s.getRenderPass(1).getRenderSet(1).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
-	s.getRenderPass(0).addMesh(&im, temp, nullptr, 1);
+	s.getRenderPass(1).addMesh(&im, temp, nullptr, 1);
 
 	Mesh plane("../resources/models/plane.obj");
-	s.getRenderPass(0).addMesh(&plane, VK_NULL_HANDLE, &plane.getModelMatrix(), 0);
+	GH::createDS(s.getRenderPass(1).getRenderSet(3).pipeline, temp);
+	s.hookupLightCatcher(&plane, temp, {0}, {0});
+	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 3); // plane receives shadows
 
 	std::vector<LODFuncData> tempfd;
 	LODMesh suz = createLODSuzanne(s, tempfd);
+	/*
 	TextureSet t("../resources/textures/uvgrid");
 	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
-	GH::createDS(s.getRenderPass(0).getRenderSet(2).pipeline, temp);
+	GH::createDS(s.getRenderPass(1).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
-	s.getRenderPass(0).addMesh(&suz, temp, &suz.getModelMatrix(), 2);
+	*/
+	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 3);
+	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
+	s.hookupShadowCaster(&suz, {0});
+	m.setPos(glm::vec3(-5, 10, -5));
+	s.hookupShadowCaster(&m, {0});
 
 	w.addTasks(s.getDrawTasks());
+
+	/*
+	 * Physics Scene Setup
+	 */
 
 	PhysicsHandler ph;
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
-	pc->setPos(glm::vec3(0, 10, 0));
-	// pc->applyForce(glm::vec3(0, -9.807, 0));
+	pc->setPos(glm::vec3(-5, 10, -5));
+	pc->applyForce(glm::vec3(0, -9.807, 0));
 
 	PlaneCollider* plc = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
 	plc->setMass(std::numeric_limits<float>::infinity());
 
 	ph.addColliderPair(ColliderPair(pc, plc));
+	ph.getColliderPair(0).setOnCollide([] (void* d) {
+		std::wstring* l = static_cast<std::wstring*>(d);
+		l->insert(0, L"Point collided with plane!\n");
+		}, &log);
+
+	/*
+	 * Input Scripting
+	 */
 
 	InputHandler ih;
 	glm::vec3 movementdir;
@@ -222,13 +462,38 @@ int main() {
 	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getRight()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_E, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_Q, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward()); }));
+	// TODO: consider using a sigmoid to modulate FOVY input
 	ih.addHold(InputHold(SDL_SCANCODE_UP, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() > FOV_SENS) c->setFOVY(c->getFOVY() - FOV_SENS); }));
 	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() < glm::pi<float>() - FOV_SENS) c->setFOVY(c->getFOVY() + FOV_SENS); }));
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log, &w, &s, &suz, &plane] (const SDL_Event& e) { 
+		if (e.key.scancode == SDL_SCANCODE_H) {
+			log.insert(0, L"Hello World! @ " + getTimestamp() + L"\n");
+			return true;
+		}
+		if (e.key.scancode == SDL_SCANCODE_L) {
+			if (s.getNumDirSCLights() < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS) {
+				addLight(w, s, suz, plane);
+				log.insert(0, L"Added Light @ ["
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().x) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().y) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().z) + L"] w/ col ["
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().x) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().y) + L", " 
+						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().z) + L"] \n");
+			}
+			else log.insert(0, L"Too many lights to add another!\n");
+			return true;
+		}
+		return false;
+	}));
+
 
 	ph.start();
-	bool xpressed = false;
-	SDL_Event eventtemp;
+	float theta = 0;
 	while (w.frameCallback()) {
+		/*
+		 * Input Update
+		 */
 		movementdir = glm::vec3(0);
 		ih.update();
 		SDL_PumpEvents();
@@ -237,12 +502,39 @@ int main() {
 			s.getCamera()->setForward(-s.getCamera()->getPos());
 		}
 
+		/*
+		 * UI Update
+		 */
+		size_t numlines = 0;
+		for (wchar_t c : log) if (c == L'\n') numlines++;
+		if (numlines > logmaxlines) log = log.substr(0, log.find_last_of(L'\n'));
+		if (logtext->getText() != log) logtext->setText(log);
+		std::wstring camtextstring = L"[" + std::to_wstring(s.getCamera()->getPos().x) + L", " + std::to_wstring(s.getCamera()->getPos().y) + L", " + std::to_wstring(s.getCamera()->getPos().z) + L"], FOV = " 
+			 + std::to_wstring(s.getCamera()->getFOVY()) + L"º";
+		if (camtext->getText() != camtextstring) camtext->setText(camtextstring);
+		frametimes.push_back(1.f / ph.getDT());
+		fpstot += frametimes.back();
+		numf++;
+		if (SDL_GetTicks() - lastfpstime > maxfpstime) {
+			framevar = 0;
+			frameavg = fpstot / (float)numf;
+			// frametimes name is a bit misleading...
+			for (float t : frametimes) framevar += pow(t - frameavg, 2);
+			framevar /= (float)(numf - 1);
+			fpstext->setText(std::to_wstring(frameavg) + L" fps"
+					 + L"\nn = " + std::to_wstring(numf)
+					 + L"\nvar = " + std::to_wstring(framevar));
+			fpstot = 0;
+			numf = 0;
+			lastfpstime = SDL_GetTicks();
+			frametimes.clear();
+		}
+
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
-		plane.setPos(plc->getPos());
+		// plane.setPos(plc->getPos());
 
-		SDL_Delay(17); // TODO: get rid of this delay lol
 		ph.update();
 	}
 	vkQueueWaitIdle(GH::getGenericQueue());

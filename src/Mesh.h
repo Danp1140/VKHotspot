@@ -10,17 +10,9 @@ class Mesh;
 
 class MeshBase {
 public:
-	MeshBase() : 
-		position(0),
-		scale(1),
-		rotation(1, 0, 0, 0),
-		model(1) {}
+	MeshBase();
 	MeshBase(const MeshBase& lvalue) = delete;
-	MeshBase(MeshBase&& rvalue) :
-		position(std::move(rvalue.position)),
-		scale(std::move(rvalue.scale)),
-		rotation(std::move(rvalue.rotation)),
-		model(std::move(rvalue.model)) {}
+	MeshBase(MeshBase&& rvalue);
 	~MeshBase() = default;
 
 	friend void swap(MeshBase& lhs, MeshBase& rhs);
@@ -35,12 +27,18 @@ public:
 		size_t rsidx,
 		VkCommandBuffer& c) const = 0;
 
+	void addVecToAABB(const glm::vec3& v);
+
 	const glm::vec3& getPos() const {return position;}
 	const glm::mat4& getModelMatrix() const {return model;}
+	const glm::vec3* getAABB() const {return &aabb[0];}
 
 	void setPos(glm::vec3 p);
 	void setRot(glm::quat r);
 	void setScale(glm::vec3 s);
+
+protected:
+	glm::vec3 aabb[2]; // min, then max, note that this is pre-model matrix
 
 private:
 	glm::vec3 position, scale;
@@ -50,9 +48,11 @@ private:
 	void updateModelMatrix();
 };
 
-typedef uint16_t MeshIndex;
+// TODO: way to edit this and param in draw call
+typedef uint32_t MeshIndex;
 
 typedef enum VertexBufferTraitBits {
+	VERTEX_BUFFER_TRAIT_NONE = 0x00,
 	VERTEX_BUFFER_TRAIT_POSITION = 0x01,
 	VERTEX_BUFFER_TRAIT_UV = 0x02,
 	VERTEX_BUFFER_TRAIT_NORMAL = 0x04,
@@ -72,6 +72,7 @@ public:
 	Mesh(const Mesh& lvalue) = delete;
 	Mesh(Mesh&& rvalue);
 	Mesh(const char* f);
+	Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu);
 	~Mesh();
 
 	friend void swap(Mesh& lhs, Mesh& rhs);
@@ -86,7 +87,9 @@ public:
 		size_t rsidx,
 		VkCommandBuffer& c) const;
 	static size_t getTraitsElementSize(VertexBufferTraits t);
-	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t);
+	// t is the mask of all data in buffer;
+	// o is the mask of data in buffer but unused
+	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t, VertexBufferTraits o = VERTEX_BUFFER_TRAIT_NONE);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
 
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
