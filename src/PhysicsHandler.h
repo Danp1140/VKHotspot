@@ -240,15 +240,15 @@ typedef struct PhysicsCallback {
 
 #define COLLIDER_PAIR_COLLIDE_CALL(dt, cp, n) { \
 	if (!preventdefault) newtonianCollide(dt, cp, n); \
-	if (oncollide) oncollide(collidedata); \
+	if (oncollide.f) oncollide.f(oncollide.d); \
 }
 #define COLLIDER_PAIR_SLIDE_CALL(dt, n) { \
 	if (!preventdefault) newtonianSlide(dt, n); \
-	if (onslide) onslide(slidedata); \
+	if (onslide.f) onslide.f(onslide.d); \
 }
 #define COLLIDER_PAIR_DECOUPLE_CALL(dt) { \
 	if (!preventdefault) newtonianDecouple(dt); \
-	if (ondecouple) ondecouple(decoupledata); \
+	if (ondecouple.f) ondecouple.f(ondecouple.d); \
 }
 
 class ColliderPair {
@@ -263,10 +263,6 @@ public:
 		reldp(0),
 		lreldp(0),
 		dynf(0),
-		oncollide(nullptr),
-		oncouple(nullptr),
-		ondecouple(nullptr),
-		onslide(nullptr),
 		preventdefault(false) {}
 	ColliderPair(Collider* col1, Collider* col2);
 	~ColliderPair() = default;
@@ -275,10 +271,10 @@ public:
 
 	void check(float dt);
 
-	void setOnCollide(PhysicsCallbackFunc f, void* d) {oncollide = f; collidedata = d;}
-	void setOnCouple(PhysicsCallbackFunc f, void* d) {oncouple = f; coupledata = d;}
-	void setOnDecouple(PhysicsCallbackFunc f, void* d) {ondecouple = f; decoupledata = d;}
-	void setOnSlide(PhysicsCallbackFunc f, void* d) {onslide = f; slidedata = d;}
+	void setOnCollide(PhysicsCallback pc) {oncollide = pc;}
+	void setOnCouple(PhysicsCallback pc) {oncouple = pc;}
+	void setOnDecouple(PhysicsCallback pc) {ondecouple = pc;}
+	void setOnSlide(PhysicsCallback pc) {onslide = pc;}
 	void setOnAntiCollide(PhysicsCallback pc) {onanticollide = pc;}
 	void setOnUnclip(PhysicsCallback pc) {onunclip = pc;}
 	void setOnAntiUnclip(PhysicsCallback pc) {onantiunclip = pc;}
@@ -288,10 +284,8 @@ private:
 	Collider* c1, * c2;
 	ColliderPairFlags f;
 	void (ColliderPair::*cf)(float);
-	PhysicsCallbackFunc oncollide, oncouple, ondecouple, onslide; 
-	void* collidedata, * coupledata, * decoupledata, * slidedata;
 	bool preventdefault;
-	PhysicsCallback onunclip, onantiunclip, onanticollide;
+	PhysicsCallback oncollide, oncouple, ondecouple, onslide, onunclip, onantiunclip, onanticollide;
 	
 	const void* nearest;
 	glm::vec3 nf, reldp, lreldp, dynf, netf; // nf is normal force, netf is net force 
@@ -378,20 +372,20 @@ public:
 		colliders.push_back(new T(c));
 		return colliders.back();
 	}
-	void addColliderPair(ColliderPair&& p);
+	ColliderPair* addColliderPair(ColliderPair&& p, bool active);
+	void removeColliderPair(ColliderPair* p);
+	void activateColliderPair(ColliderPair* p);
+	void deactivateColliderPair(ColliderPair* p);
 
 	// rounds down; if dt == 0, will just apply during one update cycle
 	void addTimedMomentum(TimedValue&& t); 
 	void addTimedForce(TimedValue&& t); 
 
 	float getDT() {return dt;}
-	// TODO: add system to get by collider pointers too
-	ColliderPair& getColliderPair(size_t i) {return pairs[i];}
-
 
 private:
 	std::vector<Collider*> colliders;
-	std::vector<ColliderPair> pairs;
+	std::set<ColliderPair*> pairs, activepairs;
 	std::vector<TimedValue> tms, tfs;
 
 	float ti, lastt, dt; // in s

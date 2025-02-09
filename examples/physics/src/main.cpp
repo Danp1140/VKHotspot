@@ -121,43 +121,43 @@ int main() {
 	spherecol->applyForce(spherecol->getMass() * glm::vec3(0, -9.807, 0));
 
 
-	ph.addColliderPair(ColliderPair(pov, deathplane));
-	ph.addColliderPair(ColliderPair(pov, mainstage));
-	ph.addColliderPair(ColliderPair(pov, rampcol));
-	ph.addColliderPair(ColliderPair(pov, wall0col));
-	ph.addColliderPair(ColliderPair(pov, wall1col));
-	ph.addColliderPair(ColliderPair(pov, eventcol));
+	ColliderPair* death = ph.addColliderPair(ColliderPair(pov, deathplane), true);
+	ph.addColliderPair(ColliderPair(pov, mainstage), true);
+	ph.addColliderPair(ColliderPair(pov, rampcol), true);
+	ph.addColliderPair(ColliderPair(pov, wall0col), true);
+	ph.addColliderPair(ColliderPair(pov, wall1col), true);
+	ColliderPair* doevent = ph.addColliderPair(ColliderPair(pov, eventcol), true);
 	// ph.addColliderPair(ColliderPair(pov, spherecol));
 
-	ph.addColliderPair(ColliderPair(spherecol, deathplane));
-	ph.addColliderPair(ColliderPair(spherecol, mainstage));
+	ph.addColliderPair(ColliderPair(spherecol, deathplane), true);
+	ph.addColliderPair(ColliderPair(spherecol, mainstage), true);
 
-	ph.getColliderPair(0).setOnCollide([] (void* d) {
+	death->setOnCollide({[] (void* d) {
 			Collider* c = static_cast<Collider*>(d);
 			c->setPos(glm::vec3(0, 5, 0));
 			std::cout << "died" << std::endl;
-		}, pov);
-	ph.getColliderPair(0).setPreventDefault(true);
+		}, pov});
+	death->setPreventDefault(true);
 	Mesh* cubes[2] = {&cube0, &cube1};
-	ph.getColliderPair(5).setOnCollide([] (void* d) {
+	doevent->setOnCollide({[] (void* d) {
 			Mesh** cubes = static_cast<Mesh**>(d);
 			cubes[1]->setPos(cubes[1]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 1, 0));
-		}, &cubes[0]);
-	ph.getColliderPair(5).setOnAntiCollide({[] (void* d) {
+		}, &cubes[0]});
+	doevent->setOnAntiCollide({[] (void* d) {
 			Mesh** cubes = static_cast<Mesh**>(d);
 			cubes[0]->setPos(cubes[0]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 1, 0));
 		}, &cubes[0]});
-	ph.getColliderPair(5).setOnUnclip({[] (void* d) {
+	doevent->setOnUnclip({[] (void* d) {
 			Mesh** cubes = static_cast<Mesh**>(d);
 			cubes[1]->setPos(cubes[1]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 0, 0));
 		}, &cubes[0]});
-	ph.getColliderPair(5).setOnAntiUnclip({[] (void* d) {
+	doevent->setOnAntiUnclip({[] (void* d) {
 			Mesh** cubes = static_cast<Mesh**>(d);
 			cubes[0]->setPos(cubes[0]->getPos() * glm::vec3(1, 0, 1) + glm::vec3(0, 0, 0));
 		}, &cubes[0]});
 
 
-	ph.getColliderPair(5).setPreventDefault(true);
+	doevent->setPreventDefault(true);
 	// TODO: modify pipeline to have visible but distinct antinormal
 
 	/*

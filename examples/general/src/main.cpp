@@ -429,11 +429,11 @@ int main() {
 	PlaneCollider* plc = static_cast<PlaneCollider*>(ph.addCollider(PlaneCollider(glm::vec3(0, 1, 0))));
 	plc->setMass(std::numeric_limits<float>::infinity());
 
-	ph.addColliderPair(ColliderPair(pc, plc));
-	ph.getColliderPair(0).setOnCollide([] (void* d) {
-		std::wstring* l = static_cast<std::wstring*>(d);
-		l->insert(0, L"Point collided with plane!\n");
-		}, &log);
+	ColliderPair* colpair = ph.addColliderPair(ColliderPair(pc, plc), true);
+	colpair->setOnCollide({[] (void* d) {
+			std::wstring* l = static_cast<std::wstring*>(d);
+			l->insert(0, L"Point collided with plane!\n");
+		}, &log});
 
 	/*
 	 * Input Scripting
