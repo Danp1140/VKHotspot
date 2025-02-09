@@ -53,25 +53,10 @@ void Collider::applyMomentum(glm::vec3 po) {
 	dp += po / m; // should probably have a carve-out for m = 0 or inf
 }
 
-void Collider::coerceMomentum(glm::vec3 po, float dt) {
-	if (m == std::numeric_limits<float>::infinity()) return;
-	if (m == 0) return;
-	p += po / m * dt;
-	dp += po / m;
-}
-
 void Collider::applyForce(glm::vec3 F) {
 	if (m == std::numeric_limits<float>::infinity()) return;
 	if (m == 0) return; // idk what to do here, either infinite acceleration or none
 	ddp += F / m; // should probably have a carve-out for m = 0 or inf
-}
-
-void Collider::coerceForce(glm::vec3 F, float dt) {
-	if (m == std::numeric_limits<float>::infinity()) return;
-	if (m == 0) return;
-	p += F / m * pow(dt, 2.f);
-	dp += F / m * dt;
-	ddp += F / m;
 }
 
 glm::vec3 Collider::getMomentum() const {
@@ -492,7 +477,7 @@ void ColliderPair::newtonianCollide(float dt, const glm::vec3& p, const glm::vec
 	}
 	else if (po < PH_CONTACT_THRESHOLD) {
 		newtonianCouple(dt, dt0, n); // if we're here, preventdefault must be false
-		if (oncouple) oncouple(coupledata); 
+		if (oncouple.f) oncouple.f(oncouple.d); 
 	}
 	else {
 #ifdef PH_VERBOSE_COLLISIONS
@@ -892,11 +877,28 @@ void PhysicsHandler::update() {
 	}
 	for (size_t i = 0; i < tfs.size(); i++) tfs[i].dt -= dt;
 	for (Collider* c : colliders) c->update(dt);
-	for (ColliderPair& p : pairs) p.check(dt);
+	for (ColliderPair* p : activepairs) p->check(dt);
 }
 
-void PhysicsHandler::addColliderPair(ColliderPair&& p) {
-	pairs.push_back(p);
+ColliderPair* PhysicsHandler::addColliderPair(ColliderPair&& p, bool active) {
+	ColliderPair* res = new ColliderPair(std::move(p));
+	pairs.insert(res);
+	if (active) activateColliderPair(res);
+	return res;
+}
+
+void PhysicsHandler::removeColliderPair(ColliderPair* p) {
+	activepairs.erase(p);
+	pairs.erase(p);
+	delete p;
+}
+
+void PhysicsHandler::activateColliderPair(ColliderPair* p) {
+	activepairs.insert(p);
+}
+
+void PhysicsHandler::deactivateColliderPair(ColliderPair* p) {
+	activepairs.erase(p);
 }
 
 void PhysicsHandler::addTimedMomentum(TimedValue&& t) {
