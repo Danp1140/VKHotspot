@@ -12,12 +12,33 @@
 
 #define AH_SPEED_OF_SOUND 343.f // m/s
 
+// doesn't stop overflow, just puts a warning out if it happens
+#define AH_CHECK_SAMPLE_OVERFLOW
+
+/*
+ * TODO before merge:
+ *  - generally cleanup :\
+ *  - sync between main thread sound record and audio thread sound record (audiocallbackdata)
+ */
+
+typedef float (*AudioResponseFunction)(const glm::vec3&, const glm::vec3&);
+
+typedef struct AudioObjectInitInfo {
+	glm::vec3 pos = glm::vec3(0),
+		forward = glm::vec3(0, 0, 1);
+	AudioResponseFunction respfunc = nullptr;
+} AudioObjectInitInfo;
+
 class AudioObject {
 public:
 	AudioObject() : 
 		p(0),
 		f(0, 0 ,-1),
 		rf(sphericalResponseFunction) {}
+	AudioObject(AudioObjectInitInfo ii) :
+		p(ii.pos),
+		f(ii.forward),
+		rf(ii.respfunc) {}
 
 	void setPos(glm::vec3 pos) {p = pos;};
 	void setForward(glm::vec3 forw) {f = glm::normalize(forw);};
@@ -33,7 +54,7 @@ public:
 
 private:
 	glm::vec3 p, f;
-	float (*rf)(const glm::vec3&, const glm::vec3&);
+	AudioResponseFunction rf;
 };
 
 class Sound : public AudioObject {
@@ -51,18 +72,31 @@ private:
 	void load();
 };
 
+typedef enum ListenerPropBits {
+	AH_LISTENER_PROPS_NONE = 0x00,
+	AH_LISTENER_PROP_BIT_SPEED_OF_SOUND = 0x01,
+	AH_LISTENER_PROP_BIT_INV_SQRT = 0x02
+} ListenerPropBits;
+typedef uint8_t ListenerProps;
+
+typedef struct ListenerInitInfo {
+	AudioObjectInitInfo super;
+	std::vector<float> mix = {};
+	ListenerProps p = AH_LISTENER_PROPS_NONE;
+} ListenerInitInfo;
+
 class Listener : public AudioObject {
 public:
-	Listener();
-	Listener(std::vector<float> m);
+	Listener() : Listener((ListenerInitInfo){}) {}
+	Listener(ListenerInitInfo ii);
 
-	uint8_t getNumChannels() const {return numchannels;}
 	const float* getMix() const {return &mix[0];}
 	float getMix(uint8_t c) const {return mix[c];}
+	ListenerProps getProps() const {return props;}
 
 private:
-	uint8_t numchannels;
 	float mix[AH_MAX_CHANNELS];
+	ListenerProps props;
 };
 
 typedef struct SoundData {
@@ -71,6 +105,9 @@ typedef struct SoundData {
 	int16_t* playhead; // TODO; see if we can phase this out
 } SoundData;
 
+// TODO: what is this and why do we need it???
+// it is never used in audio thread callback
+// once you have a working test, remove this field and see what happens
 typedef struct RelativityData {
 	float offset;
 	float offsetrate; // in samples/sample
@@ -84,8 +121,14 @@ typedef struct ListenerData {
 } ListenerData;
 
 typedef struct AudioCallbackData {
-	std::vector<ListenerData> listeners;
+	std::vector<ListenerData> listeners, immediatelisteners;
 	std::vector<SoundData> sounds;
+	uint8_t numchannels;
+
+	// below is scratch data to avoid realloc during func invocation
+	int16_t* outdst, sampletemp, * playheadtemp;
+	float respfactor, lrespfactor, respfactortemp, loffset, offset, offsettemp;
+	glm::vec3 diffvec, ldiffvec;
 } AudioCallbackData;
 
 class AudioHandler {
@@ -97,8 +140,8 @@ public:
 
 	void addSound(Sound&& s);
 	void addListener(Listener&& l);
+	void addImmediateListener(Listener&& l);
 
-	// TODO: maybe a string-value map would be more intuitive
 	Sound& getSound(size_t i) {return *sounds[i];}
 	const std::vector<Sound*>& getSounds() const {return sounds;}
 	Listener& getListener(size_t i) {return *listeners[i];}
@@ -107,13 +150,8 @@ private:
 	PaStream* stream;
 	std::vector<Sound*> sounds;
 	std::vector<Listener*> listeners;
-	// immediatelisteners (no speed of sound delay)
-	// directlisteners (no geometry considerations whatsoever)
-	// BIG TODO: gain system
 	AudioCallbackData acd;
 
-	// TODO: separate callback for sounds where speed of sound is negligible
-	// and for sounds where the listener/sound geometry is unimportant
 	static int streamCallback(
 		const void* in, void* out,
 		unsigned long framecount,

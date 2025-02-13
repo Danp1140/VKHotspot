@@ -15,7 +15,7 @@ void setupStereoExample(AudioHandler& a);
 
 void updateStereoExample(AudioHandler& a, Scene& s);
 
-void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& s);
+void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& sc);
 
 float conicResponseFunction(const glm::vec3& f, const glm::vec3& r) {
 	const float c = 0.5, s = 20, b = 0.5;
@@ -121,9 +121,9 @@ RenderPassInfo createRenderPass(const WindowInfo& w) {
 		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
 		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
 	};
-	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], &attachrefs[1]);
+	GH::createRenderPass(r, 2, &attachdescs[0], &attachrefs[0], nullptr, &attachrefs[1]);
 
-	return RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
+	return RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 }
 
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r) {
@@ -168,12 +168,14 @@ PipelineInfo createInstancedPipeline(const VkExtent2D& e, const VkRenderPass& r)
 }
 
 void setupStereoExample(AudioHandler& a) {
-	a.addListener(Listener({1, 0}));
-	a.addListener(Listener({0, 1}));
-	a.getListener(0).setRespFunc(conicResponseFunction);
-	a.getListener(1).setRespFunc(conicResponseFunction);
-	a.getListener(0).setForward(glm::vec3(-0.5, 0, -1));
-	a.getListener(1).setForward(glm::vec3(0.5, 0, -1));
+	// low overall sensativity, even in appropriate direction
+	// expecting loud noise
+	a.addListener(Listener({
+		{.forward=glm::vec3(-0.5, 0, -1), .respfunc=conicResponseFunction},
+		.mix={0.2, 0}, .p=AH_LISTENER_PROP_BIT_INV_SQRT}));
+	a.addListener(Listener({
+		{.forward=glm::vec3(0.5, 0, -1), .respfunc=conicResponseFunction},
+		.mix={0, 0.2}, .p=AH_LISTENER_PROP_BIT_INV_SQRT}));
 
 	a.addSound(Sound("../resources/sounds/ta1.1mono.wav"));
 	a.addSound(Sound("../resources/sounds/ta1.2mono.wav"));
@@ -187,7 +189,7 @@ void setupStereoExample(AudioHandler& a) {
 	a.addSound(Sound("../resources/sounds/ml3.1mono.wav"));
 
 	const float r = 50;
-	const float dtheta = 1.57;
+	const float dtheta = 6.28;
 	float theta = -dtheta / 2;
 	for (uint8_t i = 0; i < a.getSounds().size(); i++) {
 		a.getSound(i).setPos(r * glm::vec3(sin(theta), 0, cos(theta)));
@@ -204,7 +206,7 @@ void updateStereoExample(AudioHandler& a, Scene& s) {
 	a.getListener(1).setForward(s.getCamera()->getForward() + 0.5f * s.getCamera()->getRight());
 }
 
-void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& s) {
+void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& sc) {
 	std::vector<InstancedMeshData> imd;
 	glm::vec3 v;
 	for (Sound* s : a.getSounds()) {
@@ -212,13 +214,20 @@ void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& s) {
 		imd.push_back({
 			glm::translate(glm::mat4(1), s->getPos()) 
 			 * glm::mat4_cast(glm::normalize(glm::quat(1 + glm::dot(glm::vec3(0, 0, 1), s->getForward()), v)))});
+		/*
+		v = glm::cross(glm::vec3(-1, 0, 0), s->getForward());
+		float theta = asin(glm::length(v)) / 2;
+		imd.push_back({
+			glm::translate(glm::mat4(1), s->getPos()) 
+			* glm::mat4_cast(glm::normalize(glm::quat(cos(theta), sinf(theta) * v)))});
+		*/
 	}
 	dst = InstancedMesh("../resources/models/sound.obj", imd);
 
 	VkDescriptorSet ds;
-	GH::createDS(s.getRenderPass(0).getRenderSet(0).pipeline, ds);
+	GH::createDS(sc.getRenderPass(0).getRenderSet(0).pipeline, ds);
 	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, dst.getInstanceUB().getDBI());
 
-	s.getRenderPass(0).addMesh(&dst, ds, nullptr, 0);
+	sc.getRenderPass(0).addMesh(&dst, ds, nullptr, 0);
 }
 

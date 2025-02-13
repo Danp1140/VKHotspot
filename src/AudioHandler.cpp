@@ -17,27 +17,22 @@ Sound::Sound(const char* fp) {
 
 }
 
-Listener::Listener() : numchannels(2) {
-	for (uint8_t c = 0; c < numchannels; c++) mix[c] = 1;
-}
-
-Listener::Listener(std::vector<float> m) {
+Listener::Listener(ListenerInitInfo ii) :
+	AudioObject(ii.super),
+	props(ii.p) {
 	// TODO: audiostream num channels, not just total max channels
-	if (m.size() > AH_MAX_CHANNELS) 
+	if (ii.mix.size() > AH_MAX_CHANNELS) 
 		WarningError("Too many audio channels, taking as many as possible").raise();
-	numchannels = std::min(m.size(), (size_t)AH_MAX_CHANNELS);
-	for (uint8_t c = 0; c < numchannels; c++) mix[c] = m[c];
+	for (uint8_t c = 0; c < std::min(ii.mix.size(), (size_t)AH_MAX_CHANNELS); c++) mix[c] = ii.mix[c];
 }
 
 AudioHandler::AudioHandler() {
 	// TODO: allow for multiple AH's, don't always initialize PA
 	Pa_Initialize();
-	/*
 	int numdev = Pa_GetDeviceCount();
 	for (int i = 0; i < numdev; i++) {
 		std::cout << Pa_GetDeviceInfo(i)->name << std::endl;
 	}
-	*/
 }
 
 AudioHandler::~AudioHandler() {
@@ -50,10 +45,11 @@ AudioHandler::~AudioHandler() {
 }
 
 void AudioHandler::start() {
-	// TODO: device querying
+	acd.numchannels = 2;
+	// TODO: device querying, also allows setting channels
 	Pa_OpenDefaultStream(
 		&stream,
-		0, 2,
+		0, acd.numchannels,
 		paInt16,
 		AH_SAMPLE_RATE,
 		paFramesPerBufferUnspecified,
@@ -92,6 +88,17 @@ void AudioHandler::addListener(Listener&& l) {
 	}
 }
 
+/*
+ * diffvec and values derived therefrom will vary per-sample, but may be
+ * too expensive to calculate in that way. i estimate frame sizes varying
+ * from 256 to 4096, or 0.006 to 0.093 seconds. so, i think we can calculate
+ * a start, an end, and do linear interpolation (even if the values do not actually
+ * vary linearly).
+ *
+ * the reason I think it's good to do lerp instead of just taking a value is that we
+ * don't actually know exactly how small the frames are, and a jump in level, especially
+ * a large one at an unlucky time, could be very obvious
+ */
 int AudioHandler::streamCallback(
 		const void* in, void* out,
 		unsigned long framecount,
@@ -99,62 +106,68 @@ int AudioHandler::streamCallback(
 		PaStreamCallbackFlags flags,
 		void *data) {
 	AudioCallbackData* d = static_cast<AudioCallbackData*>(data);
-	// could technically avoid all this alloc by having these values in the data ptr
-	int16_t* outdst, sampletemp, * playheadtemp;
-	float respfactor, lrespfactor, respfactortemp, loffset, offset, offsettemp;
-	glm::vec3 diffvec, ldiffvec;
+	memset(out, 0, framecount * d->numchannels * sizeof(int16_t));
+	
 	// watch out for overflow, although >256 listeners and/or sounds is criminal
 	for (uint8_t li = 0; li < d->listeners.size(); li++) {
 		for (uint8_t si = 0; si < d->sounds.size(); si++) {
-			// timeoffset = dist / AH_SPEED_OF_SOUND;
-			outdst = static_cast<int16_t*>(out);
-			playheadtemp = d->sounds[si].playhead;
-			/*
-			 * diffvec and values derived therefrom will vary per-sample, but may be
-			 * too expensive to calculate in that way. i estimate frame sizes varying
-			 * from 256 to 4096, or 0.006 to 0.093 seconds. so, i think we can calculate
-			 * a start, an end, and do linear interpolation (even if the values do not actually
-			 * vary linearly).
-			 */
-			// points from listener to sound
-			// TODO: conslidate diffvec length calcs as stored float
-			diffvec = d->sounds[si].s->getPos() - d->listeners[li].l->getPos();
-			ldiffvec = d->sounds[si].lp - d->listeners[li].lp;
-			// maybe a time for fast inverse square root??
-			respfactor = pow(glm::length(diffvec), -0.5)
-				 * d->listeners[li].l->getResp(diffvec) 
-				 * d->sounds[si].s->getResp(-diffvec);
-			lrespfactor = pow(glm::length(ldiffvec), -0.5)
-				 * d->listeners[li].l->getResp(ldiffvec) 
-				 * d->sounds[si].s->getResp(-ldiffvec);
-			loffset = glm::length(ldiffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
-			offset = glm::length(diffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
+			d->outdst = static_cast<int16_t*>(out);
+			d->playheadtemp = d->sounds[si].playhead;
+			// TODO: conslidate d->diffvec length calcs as stored float
+			if (d->listeners[li].l->getProps() & (AH_LISTENER_PROP_BIT_SPEED_OF_SOUND | AH_LISTENER_PROP_BIT_INV_SQRT)) {
+				d->diffvec = d->sounds[si].s->getPos() - d->listeners[li].l->getPos();
+				d->ldiffvec = d->sounds[si].lp - d->listeners[li].lp;
+				d->respfactor = d->listeners[li].l->getResp(d->diffvec) 
+					 * d->sounds[si].s->getResp(-d->diffvec);
+				d->lrespfactor = d->listeners[li].l->getResp(d->diffvec) 
+					 * d->sounds[si].s->getResp(-d->diffvec);
+				if (d->listeners[li].l->getProps() & AH_LISTENER_PROP_BIT_INV_SQRT) {
+					d->respfactor *= pow(glm::length(d->diffvec), -0.5);
+					d->lrespfactor *= pow(glm::length(d->ldiffvec), -0.5);
+				}
+				if (d->listeners[li].l->getProps() & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
+					d->offset = glm::length(d->diffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
+					d->loffset = glm::length(d->ldiffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
+				}
+			}
 			for (unsigned long i = 0; i < framecount; i++) {
 				if (si == d->sounds.size() - 1 
-					 && (uint8_t*)playheadtemp - d->sounds[si].s->getBuf() == d->sounds[si].s->getBufLen()) {
+					 && (uint8_t*)d->playheadtemp - d->sounds[si].s->getBuf() == d->sounds[si].s->getBufLen()) {
+					// TODO: end of sound handling
+					// involves sync with main thread
 					// erase sound
-					// main thread should check sound struct (read only) to update AH's main
+					// main thread shoud check sound struct (read only) to update AH's main
 					// record of sounds
 				}
-				offsettemp = std::lerp(loffset, offset, (float)i / (float)framecount);
-				// TODO: see if you can adjust the math to remove a subtraction of unsigned values
-				if ((uint8_t*)(playheadtemp - (size_t)ceil(offsettemp)) < d->sounds[si].s->getBuf())
-					sampletemp = 0;
-				else 
-					sampletemp = std::lerp(
-						*(playheadtemp - (size_t)floor(offsettemp)),
-						*(playheadtemp - (size_t)ceil(offsettemp)), 
-						fmod(offsettemp, 1));
-				respfactortemp = std::lerp(lrespfactor, respfactor, (float)i / (float)framecount);
-				for (uint8_t c = 0; c < d->listeners[li].l->getNumChannels(); c++) { // technically this must be the same for all 
-					if (li == 0 && si == 0) *outdst = 0;
-					*outdst += 
-						sampletemp 
-						 * d->listeners[li].l->getMix(c) 
-						 * respfactortemp;
-					outdst++;
+				if (d->listeners[li].l->getProps() & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
+						d->offsettemp = std::lerp(d->loffset, d->offset, (float)i / (float)framecount);
+					// TODO: see if you can adjust the math to remove a subtraction of unsigned values
+					if ((uint8_t*)(d->playheadtemp - (size_t)ceil(d->offsettemp)) < d->sounds[si].s->getBuf())
+						d->sampletemp = 0;
+					else 
+						d->sampletemp = std::lerp(
+							*(d->playheadtemp - (size_t)floor(d->offsettemp)),
+							*(d->playheadtemp - (size_t)ceil(d->offsettemp)), 
+							fmod(d->offsettemp, 1));
 				}
-				playheadtemp++;
+				else {
+					d->sampletemp = *d->playheadtemp;
+				}
+				d->respfactortemp = std::lerp(d->lrespfactor, d->respfactor, (float)i / (float)framecount);
+				for (uint8_t c = 0; c < d->numchannels; c++) { 
+#ifdef AH_SPEED_OF_SOUND
+					if (INT16_MAX - *d->outdst < d->sampletemp * d->listeners[li].l->getMix(c) * d->respfactortemp) 
+						WarningError("audio sample overflow").raise();
+					if (INT16_MIN - *d->outdst > d->sampletemp * d->listeners[li].l->getMix(c) * d->respfactortemp) 
+						WarningError("audio sample underflow").raise();
+#endif
+					*d->outdst += 
+						d->sampletemp 
+						 * d->listeners[li].l->getMix(c) 
+						 * d->respfactortemp;
+					d->outdst++;
+				}
+				d->playheadtemp++;
 			}
 			if (li == d->listeners.size() - 1) {
 				d->sounds[si].lp = d->sounds[si].s->getPos();
@@ -165,11 +178,5 @@ int AudioHandler::streamCallback(
 		d->listeners[li].lp = d->listeners[li].l->getPos();
 		d->listeners[li].lf = d->listeners[li].l->getForward();
 	}
-
-	/*
-	 * TODO: tactic for managing clipping
-	 * also: separate loops for sounds where speed of sound is irrelevent
-	 */
-
 	return 0;
 }
