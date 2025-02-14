@@ -102,22 +102,11 @@ private:
 typedef struct SoundData {
 	Sound* s;
 	glm::vec3 lp, lf;
-	int16_t* playhead; // TODO; see if we can phase this out
 } SoundData;
-
-// TODO: what is this and why do we need it???
-// it is never used in audio thread callback
-// once you have a working test, remove this field and see what happens
-typedef struct RelativityData {
-	float offset;
-	float offsetrate; // in samples/sample
-} RelativityData;
 
 typedef struct ListenerData {
 	const Listener* l;
 	glm::vec3 lp, lf;
-	// TODO: do away with rel data, recalculated every invoc anyway
-	std::vector<RelativityData> rel; // TODO: can we make the vector but not the data within const???
 } ListenerData;
 
 typedef struct AudioCallbackData {

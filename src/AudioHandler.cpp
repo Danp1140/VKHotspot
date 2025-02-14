@@ -63,29 +63,16 @@ void AudioHandler::addSound(Sound&& s) {
 	acd.sounds.push_back({
 		sounds.back(),
 		sounds.back()->getPos(), sounds.back()->getForward(),
-		reinterpret_cast<int16_t*>(sounds.back()->getBuf()),
+		reinterpret_cast<int16_t*>(sounds.back()->getBuf())
 	});
-	for (ListenerData& l : acd.listeners) {
-		l.rel.push_back({
-			glm::distance(sounds.back()->getPos(), l.l->getPos()) / AH_SPEED_OF_SOUND * (float)AH_SAMPLE_RATE,
-			0
-		});
-	}
 }
 
 void AudioHandler::addListener(Listener&& l) {
 	listeners.push_back(new Listener(l));
 	acd.listeners.push_back({
 		listeners.back(),
-		listeners.back()->getPos(), listeners.back()->getForward(),
-		{}
+		listeners.back()->getPos(), listeners.back()->getForward()
 	});
-	for (Sound* s : sounds) {
-		acd.listeners.back().rel.push_back({
-			glm::distance(sounds.back()->getPos(), listeners.back()->getPos()) / AH_SPEED_OF_SOUND * (float)AH_SAMPLE_RATE,
-			0
-		});
-	}
 }
 
 /*
