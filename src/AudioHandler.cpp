@@ -1,5 +1,12 @@
 #include "AudioHandler.h"
 
+AudioObject::AudioObject(AudioObjectInitInfo ii) :
+		p(ii.pos),
+		f(ii.forward),
+		rf(ii.respfunc) {
+	if (!rf) rf = sphericalResponseFunction;
+}
+
 float AudioObject::sphericalResponseFunction(const glm::vec3& f, const glm::vec3& r) {
 	return 1;
 }
@@ -14,7 +21,7 @@ float AudioObject::hemisphericalResponseFunction(const glm::vec3& f, const glm::
 Sound::Sound(const char* fp) {
 	SDL_AudioSpec temp;
 	FatalError("Bad LoadWAV").sdlCatch(SDL_LoadWAV(fp, &temp, &buf, &buflen));
-
+	playhead = reinterpret_cast<int16_t*>(buf);
 }
 
 Listener::Listener(ListenerInitInfo ii) :
@@ -45,34 +52,29 @@ AudioHandler::~AudioHandler() {
 }
 
 void AudioHandler::start() {
-	acd.numchannels = 2;
+	numchannels = 2;
 	// TODO: device querying, also allows setting channels
 	Pa_OpenDefaultStream(
 		&stream,
-		0, acd.numchannels,
+		0, numchannels,
 		paInt16,
 		AH_SAMPLE_RATE,
 		paFramesPerBufferUnspecified,
 		streamCallback,
-		&acd);
+		this);
 	Pa_StartStream(stream);
 }
 
 void AudioHandler::addSound(Sound&& s) {
+	mut.lock();
 	sounds.push_back(new Sound(s));
-	acd.sounds.push_back({
-		sounds.back(),
-		sounds.back()->getPos(), sounds.back()->getForward(),
-		reinterpret_cast<int16_t*>(sounds.back()->getBuf())
-	});
+	mut.unlock();
 }
 
 void AudioHandler::addListener(Listener&& l) {
+	mut.lock();
 	listeners.push_back(new Listener(l));
-	acd.listeners.push_back({
-		listeners.back(),
-		listeners.back()->getPos(), listeners.back()->getForward()
-	});
+	mut.unlock();
 }
 
 /*
@@ -92,44 +94,60 @@ int AudioHandler::streamCallback(
 		const PaStreamCallbackTimeInfo* t,
 		PaStreamCallbackFlags flags,
 		void *data) {
-	AudioCallbackData* d = static_cast<AudioCallbackData*>(data);
+	AudioHandler* d = static_cast<AudioHandler*>(data);
 	memset(out, 0, framecount * d->numchannels * sizeof(int16_t));
+	d->dt = (float)framecount / AH_SAMPLE_RATE;
+
+	// Thread safety notes:
+	// 
+	// We assume a sound's buffer and bufferlength to be untouched after creation
 	
+	d->mut.lock();
+	d->lcount = d->listeners.size();
+	d->scount = d->sounds.size();
+	d->mut.unlock();
 	// watch out for overflow, although >256 listeners and/or sounds is criminal
-	for (uint8_t li = 0; li < d->listeners.size(); li++) {
-		for (uint8_t si = 0; si < d->sounds.size(); si++) {
+	for (uint8_t li = 0; li < d->lcount; li++) {
+		d->mut.lock();
+		d->proptemp = d->listeners[li]->getProps();
+		memcpy(d->mixtemp, d->listeners[li]->getMix(), d->numchannels * sizeof(float));
+		d->mut.unlock();
+		for (uint8_t si = 0; si < d->scount; si++) {
 			d->outdst = static_cast<int16_t*>(out);
-			d->playheadtemp = d->sounds[si].playhead;
+			d->playheadtemp = d->sounds[si]->getPlayhead();
 			// TODO: conslidate d->diffvec length calcs as stored float
-			if (d->listeners[li].l->getProps() & (AH_LISTENER_PROP_BIT_SPEED_OF_SOUND | AH_LISTENER_PROP_BIT_INV_SQRT)) {
-				d->diffvec = d->sounds[si].s->getPos() - d->listeners[li].l->getPos();
-				d->ldiffvec = d->sounds[si].lp - d->listeners[li].lp;
-				d->respfactor = d->listeners[li].l->getResp(d->diffvec) 
-					 * d->sounds[si].s->getResp(-d->diffvec);
-				d->lrespfactor = d->listeners[li].l->getResp(d->diffvec) 
-					 * d->sounds[si].s->getResp(-d->diffvec);
-				if (d->listeners[li].l->getProps() & AH_LISTENER_PROP_BIT_INV_SQRT) {
+			if (d->proptemp & (AH_LISTENER_PROP_BIT_SPEED_OF_SOUND | AH_LISTENER_PROP_BIT_INV_SQRT)) {
+				d->mut.lock();
+				d->diffvec = d->sounds[si]->getPos() - d->listeners[li]->getPos();
+				// d->ldiffvec = d->sounds[si]->lp - d->listeners[li]->lp;
+				d->ldiffvec = d->sounds[si]->getPos() - d->listeners[li]->getPos() - d->dt * (d->sounds[si]->getVel() - d->listeners[li]->getVel());
+				d->respfactor = d->listeners[li]->getResp(d->diffvec) 
+					 * d->sounds[si]->getResp(-d->diffvec);
+				d->lrespfactor = d->listeners[li]->getResp(d->ldiffvec) 
+					 * d->sounds[si]->getResp(-d->ldiffvec);
+				if (d->proptemp & AH_LISTENER_PROP_BIT_INV_SQRT) {
 					d->respfactor *= pow(glm::length(d->diffvec), -0.5);
 					d->lrespfactor *= pow(glm::length(d->ldiffvec), -0.5);
 				}
-				if (d->listeners[li].l->getProps() & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
+				if (d->proptemp & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
 					d->offset = glm::length(d->diffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
 					d->loffset = glm::length(d->ldiffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
 				}
+				d->mut.unlock();
 			}
 			for (unsigned long i = 0; i < framecount; i++) {
-				if (si == d->sounds.size() - 1 
-					 && (uint8_t*)d->playheadtemp - d->sounds[si].s->getBuf() == d->sounds[si].s->getBufLen()) {
+				if (si == d->scount - 1 
+					 && (uint8_t*)d->playheadtemp - d->sounds[si]->getBuf() == d->sounds[si]->getBufLen()) {
 					// TODO: end of sound handling
 					// involves sync with main thread
 					// erase sound
 					// main thread shoud check sound struct (read only) to update AH's main
 					// record of sounds
 				}
-				if (d->listeners[li].l->getProps() & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
-						d->offsettemp = std::lerp(d->loffset, d->offset, (float)i / (float)framecount);
+				if (d->proptemp & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
+					d->offsettemp = std::lerp(d->loffset, d->offset, (float)i / (float)framecount);
 					// TODO: see if you can adjust the math to remove a subtraction of unsigned values
-					if ((uint8_t*)(d->playheadtemp - (size_t)ceil(d->offsettemp)) < d->sounds[si].s->getBuf())
+					if ((uint8_t*)(d->playheadtemp - (size_t)ceil(d->offsettemp)) < d->sounds[si]->getBuf())
 						d->sampletemp = 0;
 					else 
 						d->sampletemp = std::lerp(
@@ -143,27 +161,22 @@ int AudioHandler::streamCallback(
 				d->respfactortemp = std::lerp(d->lrespfactor, d->respfactor, (float)i / (float)framecount);
 				for (uint8_t c = 0; c < d->numchannels; c++) { 
 #ifdef AH_SPEED_OF_SOUND
-					if (INT16_MAX - *d->outdst < d->sampletemp * d->listeners[li].l->getMix(c) * d->respfactortemp) 
+					if (INT16_MAX - *d->outdst < d->sampletemp * d->mixtemp[c] * d->respfactortemp) 
 						WarningError("audio sample overflow").raise();
-					if (INT16_MIN - *d->outdst > d->sampletemp * d->listeners[li].l->getMix(c) * d->respfactortemp) 
+					if (INT16_MIN - *d->outdst > d->sampletemp * d->mixtemp[c] * d->respfactortemp) 
 						WarningError("audio sample underflow").raise();
 #endif
 					*d->outdst += 
 						d->sampletemp 
-						 * d->listeners[li].l->getMix(c) 
+						 * d->mixtemp[c] 
 						 * d->respfactortemp;
 					d->outdst++;
 				}
 				d->playheadtemp++;
 			}
-			if (li == d->listeners.size() - 1) {
-				d->sounds[si].lp = d->sounds[si].s->getPos();
-				d->sounds[si].lf = d->sounds[si].s->getForward();
-				d->sounds[si].playhead += framecount;
-			}
+			if (li == d->lcount - 1) d->sounds[si]->advancePlayhead(framecount);
 		}
-		d->listeners[li].lp = d->listeners[li].l->getPos();
-		d->listeners[li].lf = d->listeners[li].l->getForward();
 	}
+	d->mut.unlock();
 	return 0;
 }

@@ -21,24 +21,21 @@
  *  - sync between main thread sound record and audio thread sound record (audiocallbackdata)
  */
 
+class AudioObject;
+
 typedef float (*AudioResponseFunction)(const glm::vec3&, const glm::vec3&);
 
 typedef struct AudioObjectInitInfo {
 	glm::vec3 pos = glm::vec3(0),
-		forward = glm::vec3(0, 0, 1);
-	AudioResponseFunction respfunc = nullptr;
+		forward = glm::vec3(0, 0, 1),
+		vel = glm::vec3(0);
+	AudioResponseFunction respfunc = nullptr; // if left null set to sphereical rf in constructor
 } AudioObjectInitInfo;
 
 class AudioObject {
 public:
-	AudioObject() : 
-		p(0),
-		f(0, 0 ,-1),
-		rf(sphericalResponseFunction) {}
-	AudioObject(AudioObjectInitInfo ii) :
-		p(ii.pos),
-		f(ii.forward),
-		rf(ii.respfunc) {}
+	AudioObject() : AudioObject((AudioObjectInitInfo){}) {}
+	AudioObject(AudioObjectInitInfo ii);
 
 	void setPos(glm::vec3 pos) {p = pos;};
 	void setForward(glm::vec3 forw) {f = glm::normalize(forw);};
@@ -46,6 +43,7 @@ public:
 
 	const glm::vec3& getPos() const {return p;}
 	const glm::vec3& getForward() const {return f;}
+	const glm::vec3& getVel() const {return v;}
 	const float getResp(const glm::vec3& r) const {return rf(f, r);}
 
 	static float sphericalResponseFunction(const glm::vec3& f, const glm::vec3& r);
@@ -53,7 +51,8 @@ public:
 
 
 private:
-	glm::vec3 p, f;
+	// velocity v for tracking doppler effect; irrelevent if SPEED_OF_SOUND bit not set in listener
+	glm::vec3 p, f, v;
 	AudioResponseFunction rf;
 };
 
@@ -62,12 +61,18 @@ public:
 	Sound() = delete;
 	Sound(const char* fp);
 
-	uint8_t* getBuf() {return buf;} // managing a data buffer??? gonna need good copy/move constructors ;-;
-	uint32_t getBufLen() {return buflen;}
+	// TODO: try marking const
+	const uint8_t* getBuf() const {return buf;} // managing a data buffer??? gonna need good copy/move constructors ;-;
+	uint32_t getBufLen() const {return buflen;}
+	const int16_t* getPlayhead() const {return playhead;}
+	void advancePlayhead(size_t numsamples) {playhead += numsamples;}
 
 private:
+	// buf and buflen are presumed untouched after creation
+	// playhead should ONLY be touched by audio thread
 	uint8_t* buf;
 	uint32_t buflen;
+	int16_t* playhead;
 
 	void load();
 };
@@ -99,27 +104,6 @@ private:
 	ListenerProps props;
 };
 
-typedef struct SoundData {
-	Sound* s;
-	glm::vec3 lp, lf;
-} SoundData;
-
-typedef struct ListenerData {
-	const Listener* l;
-	glm::vec3 lp, lf;
-} ListenerData;
-
-typedef struct AudioCallbackData {
-	std::vector<ListenerData> listeners, immediatelisteners;
-	std::vector<SoundData> sounds;
-	uint8_t numchannels;
-
-	// below is scratch data to avoid realloc during func invocation
-	int16_t* outdst, sampletemp, * playheadtemp;
-	float respfactor, lrespfactor, respfactortemp, loffset, offset, offsettemp;
-	glm::vec3 diffvec, ldiffvec;
-} AudioCallbackData;
-
 class AudioHandler {
 public:
 	AudioHandler();
@@ -139,7 +123,18 @@ private:
 	PaStream* stream;
 	std::vector<Sound*> sounds;
 	std::vector<Listener*> listeners;
-	AudioCallbackData acd;
+	std::mutex mut;
+	uint8_t numchannels;
+
+	// below is scratch data to avoid realloc during func invocation
+	// this should NEVER be touched by the main thread
+	int16_t* outdst, sampletemp;
+	const int16_t* playheadtemp;
+	float respfactor, lrespfactor, respfactortemp, loffset, offset, offsettemp, dt;
+	glm::vec3 diffvec, ldiffvec;
+	uint8_t lcount, scount;
+	ListenerProps proptemp;
+	float mixtemp[AH_MAX_CHANNELS];
 
 	static int streamCallback(
 		const void* in, void* out,
