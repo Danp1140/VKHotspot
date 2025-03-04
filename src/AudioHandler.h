@@ -1,5 +1,6 @@
 #include <vector>
 #include <iostream>
+#include <unordered_set>
 
 #include <ext.hpp>
 #include <portaudio.h>
@@ -17,7 +18,6 @@
 
 /*
  * TODO before merge:
- *  - generally cleanup :\
  *  - sync between main thread sound record and audio thread sound record (audiocallbackdata)
  */
 
@@ -29,7 +29,7 @@ typedef struct AudioObjectInitInfo {
 	glm::vec3 pos = glm::vec3(0),
 		forward = glm::vec3(0, 0, 1),
 		vel = glm::vec3(0);
-	AudioResponseFunction respfunc = nullptr; // if left null set to sphereical rf in constructor
+	AudioResponseFunction respfunc = nullptr; // if left null set to spherical rf in constructor
 } AudioObjectInitInfo;
 
 class AudioObject {
@@ -59,10 +59,10 @@ private:
 class Sound : public AudioObject {
 public:
 	Sound() = delete;
+	// TODO: copy/move constructors, nontrivial b/c of buf
 	Sound(const char* fp);
 
-	// TODO: try marking const
-	const uint8_t* getBuf() const {return buf;} // managing a data buffer??? gonna need good copy/move constructors ;-;
+	const uint8_t* getBuf() const {return buf;} 
 	uint32_t getBufLen() const {return buflen;}
 	const int16_t* getPlayhead() const {return playhead;}
 	void advancePlayhead(size_t numsamples) {playhead += numsamples;}
@@ -115,13 +115,12 @@ public:
 	void addListener(Listener&& l);
 	void addImmediateListener(Listener&& l);
 
-	Sound& getSound(size_t i) {return *sounds[i];}
-	const std::vector<Sound*>& getSounds() const {return sounds;}
+	const std::unordered_set<Sound*>& getSounds() const {return sounds;}
 	Listener& getListener(size_t i) {return *listeners[i];}
 
 private:
 	PaStream* stream;
-	std::vector<Sound*> sounds;
+	std::unordered_set<Sound*> sounds;
 	std::vector<Listener*> listeners;
 	std::mutex mut;
 	uint8_t numchannels;
@@ -133,8 +132,10 @@ private:
 	float respfactor, lrespfactor, respfactortemp, loffset, offset, offsettemp, dt;
 	glm::vec3 diffvec, ldiffvec;
 	uint8_t lcount, scount;
+	std::unordered_set<Sound*> stokill;
 	ListenerProps proptemp;
 	float mixtemp[AH_MAX_CHANNELS];
+	bool listenerdone, soundongoing;
 
 	static int streamCallback(
 		const void* in, void* out,

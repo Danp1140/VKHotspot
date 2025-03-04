@@ -1218,7 +1218,7 @@ void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
 	updateBuffer(b, src, b.size, 0);	
 }
 
-void GH::updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset) {
+void GH::updateBuffer(const BufferInfo& b, const void* src, size_t size, size_t offset) {
 	void* dst;
 	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
 		&& b.memprops & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {

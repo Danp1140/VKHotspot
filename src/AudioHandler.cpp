@@ -67,7 +67,7 @@ void AudioHandler::start() {
 
 void AudioHandler::addSound(Sound&& s) {
 	mut.lock();
-	sounds.push_back(new Sound(s));
+	sounds.insert(new Sound(s));
 	mut.unlock();
 }
 
@@ -97,34 +97,34 @@ int AudioHandler::streamCallback(
 	AudioHandler* d = static_cast<AudioHandler*>(data);
 	memset(out, 0, framecount * d->numchannels * sizeof(int16_t));
 	d->dt = (float)framecount / AH_SAMPLE_RATE;
+	d->stokill.clear();
 
 	// Thread safety notes:
 	// 
 	// We assume a sound's buffer and bufferlength to be untouched after creation
 	
+	// to avoid stopping main thread for long, have add/remove funcs dispatch separate thread
+	// TODO: deadlock insurance
 	d->mut.lock();
 	d->lcount = d->listeners.size();
 	d->scount = d->sounds.size();
-	d->mut.unlock();
 	// watch out for overflow, although >256 listeners and/or sounds is criminal
 	for (uint8_t li = 0; li < d->lcount; li++) {
-		d->mut.lock();
 		d->proptemp = d->listeners[li]->getProps();
 		memcpy(d->mixtemp, d->listeners[li]->getMix(), d->numchannels * sizeof(float));
-		d->mut.unlock();
-		for (uint8_t si = 0; si < d->scount; si++) {
+		for (Sound* s : d->sounds) {
 			d->outdst = static_cast<int16_t*>(out);
-			d->playheadtemp = d->sounds[si]->getPlayhead();
+			d->playheadtemp = s->getPlayhead();
+			d->soundongoing = false;
 			// TODO: conslidate d->diffvec length calcs as stored float
 			if (d->proptemp & (AH_LISTENER_PROP_BIT_SPEED_OF_SOUND | AH_LISTENER_PROP_BIT_INV_SQRT)) {
-				d->mut.lock();
-				d->diffvec = d->sounds[si]->getPos() - d->listeners[li]->getPos();
-				// d->ldiffvec = d->sounds[si]->lp - d->listeners[li]->lp;
-				d->ldiffvec = d->sounds[si]->getPos() - d->listeners[li]->getPos() - d->dt * (d->sounds[si]->getVel() - d->listeners[li]->getVel());
+				d->diffvec = s->getPos() - d->listeners[li]->getPos();
+				// d->ldiffvec = s->lp - d->listeners[li]->lp;
+				d->ldiffvec = s->getPos() - d->listeners[li]->getPos() - d->dt * (s->getVel() - d->listeners[li]->getVel());
 				d->respfactor = d->listeners[li]->getResp(d->diffvec) 
-					 * d->sounds[si]->getResp(-d->diffvec);
+					 * s->getResp(-d->diffvec);
 				d->lrespfactor = d->listeners[li]->getResp(d->ldiffvec) 
-					 * d->sounds[si]->getResp(-d->ldiffvec);
+					 * s->getResp(-d->ldiffvec);
 				if (d->proptemp & AH_LISTENER_PROP_BIT_INV_SQRT) {
 					d->respfactor *= pow(glm::length(d->diffvec), -0.5);
 					d->lrespfactor *= pow(glm::length(d->ldiffvec), -0.5);
@@ -133,21 +133,18 @@ int AudioHandler::streamCallback(
 					d->offset = glm::length(d->diffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
 					d->loffset = glm::length(d->ldiffvec) / AH_SPEED_OF_SOUND * AH_SAMPLE_RATE;
 				}
-				d->mut.unlock();
 			}
+			d->listenerdone = false;
 			for (unsigned long i = 0; i < framecount; i++) {
-				if (si == d->scount - 1 
-					 && (uint8_t*)d->playheadtemp - d->sounds[si]->getBuf() == d->sounds[si]->getBufLen()) {
-					// TODO: end of sound handling
-					// involves sync with main thread
-					// erase sound
-					// main thread shoud check sound struct (read only) to update AH's main
-					// record of sounds
+				if ((uint8_t*)d->playheadtemp - s->getBuf() == s->getBufLen()) {
+					d->listenerdone = true;
+					std::cout << "listener done" << std::endl;
+					break;
 				}
 				if (d->proptemp & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
 					d->offsettemp = std::lerp(d->loffset, d->offset, (float)i / (float)framecount);
 					// TODO: see if you can adjust the math to remove a subtraction of unsigned values
-					if ((uint8_t*)(d->playheadtemp - (size_t)ceil(d->offsettemp)) < d->sounds[si]->getBuf())
+					if ((uint8_t*)(d->playheadtemp - (size_t)ceil(d->offsettemp)) < s->getBuf())
 						d->sampletemp = 0;
 					else 
 						d->sampletemp = std::lerp(
@@ -174,9 +171,25 @@ int AudioHandler::streamCallback(
 				}
 				d->playheadtemp++;
 			}
-			if (li == d->lcount - 1) d->sounds[si]->advancePlayhead(framecount);
+			if (!d->listenerdone) d->soundongoing = true;
+			if (li == d->lcount - 1) {
+				// if (!d->soundongoing) d->sounds.erase(s);
+				// sketchy: we will advance playhead past end of valid data because SOS listeners
+				// may not be done yet and still require offset info
+				// data will not actually be read though, that check is done in the sample read loop
+				if (!d->soundongoing) d->stokill.insert(s);
+				else s->advancePlayhead(framecount);
+			}
 		}
 	}
 	d->mut.unlock();
+	if (!d->stokill.empty()) {
+		d->mut.lock();
+		for (Sound* k : d->stokill) {
+			d->sounds.erase(k);
+			std::cout << "killed " << k << std::endl;
+		}
+		d->mut.unlock();
+	}
 	return 0;
 }

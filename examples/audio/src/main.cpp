@@ -67,6 +67,15 @@ int main() {
 		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
 		return true;
 	}));
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&ah] (const SDL_Event& e) {
+		if (e.key.scancode == SDL_SCANCODE_E) {
+			Sound stemp("../resources/sounds/PunchyKick.wav"); 
+			stemp.setPos(glm::vec3(0, 0, 0));
+			ah.addSound(std::move(stemp));
+			return true;
+		}
+		return false;
+	}));
 
 	ah.start();
 	float theta = 0;
@@ -177,6 +186,7 @@ void setupStereoExample(AudioHandler& a) {
 		{.forward=glm::vec3(0.5, 0, -1), .respfunc=conicResponseFunction},
 		.mix={0, 0.2}, .p=AH_LISTENER_PROP_BIT_INV_SQRT}));
 
+	// TODO: reduce this to a list of FPs and a better sound constructor
 	a.addSound(Sound("../resources/sounds/ta1.1mono.wav"));
 	a.addSound(Sound("../resources/sounds/ta1.2mono.wav"));
 	a.addSound(Sound("../resources/sounds/ta2.1mono.wav"));
@@ -191,10 +201,10 @@ void setupStereoExample(AudioHandler& a) {
 	const float r = 50;
 	const float dtheta = 6.28;
 	float theta = -dtheta / 2;
-	for (uint8_t i = 0; i < a.getSounds().size(); i++) {
-		a.getSound(i).setPos(r * glm::vec3(sin(theta), 0, cos(theta)));
-		a.getSound(i).setForward(glm::vec3(-sin(theta), 0, -cos(theta)));
-		a.getSound(i).setRespFunc(conicResponseFunction);
+	for (Sound* s : a.getSounds()) {
+		s->setPos(r * glm::vec3(sin(theta), 0, cos(theta)));
+		s->setForward(glm::vec3(-sin(theta), 0, -cos(theta)));
+		s->setRespFunc(conicResponseFunction);
 		theta += dtheta / a.getSounds().size();
 	}
 }
