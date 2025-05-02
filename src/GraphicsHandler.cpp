@@ -78,7 +78,9 @@ WindowInfo::WindowInfo(WindowInitInfo&& i) {
 		GH::getPD(),
 		surface,
 		&surfacecaps);
-	numscis = std::min<uint32_t>(GH_MAX_SWAPCHAIN_IMAGES, surfacecaps.maxImageCount);
+	numscis = surfacecaps.maxImageCount ? 
+			std::min<uint32_t>(GH_MAX_SWAPCHAIN_IMAGES, surfacecaps.maxImageCount)
+			 : std::max<uint32_t>(GH_IDEAL_SWAPCHAIN_IMAGES, surfacecaps.minImageCount);
 
 	const VkSwapchainCreateInfoKHR swapchaincreateinfo {
 		VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,

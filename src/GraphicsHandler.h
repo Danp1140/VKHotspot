@@ -37,6 +37,7 @@
 // may be capable of a D16_UNORM, while most if not all will be able to use a D32_SFLOAT
 #define GH_DEPTH_BUFFER_IMAGE_FORMAT VK_FORMAT_D32_SFLOAT
 #define GH_MAX_SWAPCHAIN_IMAGES 8
+#define GH_IDEAL_SWAPCHAIN_IMAGES 4
 #define GH_MAX_FRAMES_IN_FLIGHT 8
 
 #define NUM_SHADER_STAGES_SUPPORTED 5

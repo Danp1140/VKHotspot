@@ -38,9 +38,10 @@ public:
 
 	const TextureSet& getSet(std::string n) const {return sets.at(n);}
 	VkSampler getSampler(std::string n) {return samplers.at(n);}
+	VkSampler getDefaultSampler() const {return defaultsampler;}
 
 	// TODO: allow adding with a VkSampler too, perhaps a list or map of them
-	void addSet(std::string n, TextureSet&& t);
+	const TextureSet& addSet(std::string n, TextureSet&& t);
 	VkSampler addSampler(
 		const char* n, 
 		VkFilter mag, VkFilter min, 

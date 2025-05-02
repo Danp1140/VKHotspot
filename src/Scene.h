@@ -61,6 +61,7 @@ public:
 	const VkRenderPass getRenderPass() const {return renderpass;}
 	const VkFramebuffer* getFramebuffers() const {return framebuffers;}
 	const RenderSet& getRenderSet(size_t i) const {return rendersets[i];}
+	size_t getNumRenderSets() const {return rendersets.size();}
 	const VkExtent2D& getExtent() const {return extent;}
 	const std::vector<VkClearValue>& getClears() const {return clears;}
 

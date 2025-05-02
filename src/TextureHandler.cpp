@@ -101,9 +101,9 @@ TextureHandler::~TextureHandler() {
 		vkDestroySampler(GH::getLD(), s.second, nullptr);
 }
 
-void TextureHandler::addSet(std::string n, TextureSet&& t) {
+const TextureSet& TextureHandler::addSet(std::string n, TextureSet&& t) {
 	// TextureSet& newt = sets.insert({n, t}).first->second;
-	sets.emplace(n, std::move(t));
+	return (*sets.try_emplace(n, std::move(t)).first).second;
 	// newt.setDiffuseSampler(defaultsampler); // TODO: update to work with generalized TextureSet
 }
 
