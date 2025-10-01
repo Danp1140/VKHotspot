@@ -11,7 +11,7 @@ if (UNIX)
 		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework Metal -framework Foundation -framework QuartzCore -framework IOKit -framework IOSurface -framework Cocoa -framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework CoreServices -framework Carbon -framework CoreFoundation -framework Security")
 		set(CMAKE_PREFIX_PATH "/usr/local/opt/zlib" ${CMAKE_PREFIX_PATH})
 		set(ENV{PKG_CONFIG_PATH} "/usr/local/opt/zlib/lib/pkgconfig/")
-    set(CMAKE_IGNORE_PATH "/Library/Frameworks/")
+		# set(CMAKE_IGNORE_PATH "/Library/Frameworks/")
 		set(CMAKE_FIND_LIBRARY_SUFFIXES ".dylib" ".a")
 	else()
 		set(CMAKE_FIND_LIBRARY_SUFFIXES ".so" ".a")
@@ -76,6 +76,7 @@ install(
 	../src/AudioHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
 
+include(GNUInstallDirs)
 install(
 	FILES
 	../src/GraphicsHandler.h
@@ -91,7 +92,6 @@ install(
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Package Config Hell
-include(GNUInstallDirs)
 install(
 	TARGETS ${PROJECT_NAME}
 	EXPORT ${PROJECT_NAME}Targets

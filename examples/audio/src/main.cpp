@@ -4,6 +4,7 @@
 
 #define MOVEMENT_SENS 1.f
 #define CAMERA_SENS 0.01f
+#define HEAD_WIDTH 0.5f
 
 RenderPassInfo createRenderPass(const WindowInfo& w);
 
@@ -13,7 +14,7 @@ PipelineInfo createInstancedPipeline(const VkExtent2D& e, const VkRenderPass& r)
 
 void setupStereoExample(AudioHandler& a);
 
-void updateStereoExample(AudioHandler& a, Scene& s);
+void updateStereoExample(AudioHandler& a, Scene& s, float dt);
 
 void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& sc);
 
@@ -77,17 +78,20 @@ int main() {
 		return false;
 	}));
 
+	float lastt = (float)SDL_GetTicks() - 1000.f, dt = 0;
 	ah.start();
 	float theta = 0;
 	const float scale = 100;
 	while (w.frameCallback()) {
+		dt = (float)SDL_GetTicks() - 1000.f - lastt;
+		lastt += dt;
 		movementdir = glm::vec3(0);
 		ih.update();
 		SDL_PumpEvents();
 		// TODO: this movement system causes jittery doppler shift, as the camera moves between one frame, but stays stationary across others
 		s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * movementdir);
 
-		updateStereoExample(ah, s);
+		updateStereoExample(ah, s, dt);
 
 		// Tornado Siren
 		// ah.getSound(0).setForward(glm::vec3(sin(theta), 0, cos(theta)));
@@ -181,10 +185,10 @@ void setupStereoExample(AudioHandler& a) {
 	// expecting loud noise
 	a.addListener(Listener({
 		{.forward=glm::vec3(-0.5, 0, -1), .respfunc=conicResponseFunction},
-		.mix={0.2, 0}, .p=AH_LISTENER_PROP_BIT_INV_SQRT}));
+		.mix={0.2, 0.02}, .p=AH_LISTENER_PROP_BIT_INV_SQRT | AH_LISTENER_PROP_BIT_SPEED_OF_SOUND}));
 	a.addListener(Listener({
 		{.forward=glm::vec3(0.5, 0, -1), .respfunc=conicResponseFunction},
-		.mix={0, 0.2}, .p=AH_LISTENER_PROP_BIT_INV_SQRT}));
+		.mix={0.02, 0.2}, .p=AH_LISTENER_PROP_BIT_INV_SQRT | AH_LISTENER_PROP_BIT_SPEED_OF_SOUND}));
 
 	// TODO: reduce this to a list of FPs and a better sound constructor
 	a.addSound(Sound("../resources/sounds/ta1.1mono.wav"));
@@ -209,11 +213,15 @@ void setupStereoExample(AudioHandler& a) {
 	}
 }
 
-void updateStereoExample(AudioHandler& a, Scene& s) {
-	a.getListener(0).setPos(s.getCamera()->getPos());
-	a.getListener(1).setPos(s.getCamera()->getPos());
-	a.getListener(0).setForward(s.getCamera()->getForward() - 0.5f * s.getCamera()->getRight());
-	a.getListener(1).setForward(s.getCamera()->getForward() + 0.5f * s.getCamera()->getRight());
+void updateStereoExample(AudioHandler& a, Scene& s, float dt) {
+	glm::vec3 lp = a.getListener(0).getPos();
+	a.getListener(0).setPos(s.getCamera()->getPos() - HEAD_WIDTH / 2 * s.getCamera()->getRight());
+	a.getListener(0).setVel((a.getListener(0).getPos() - lp) / dt);
+	lp = a.getListener(1).getPos();
+	a.getListener(1).setPos(s.getCamera()->getPos() - HEAD_WIDTH / 2 * s.getCamera()->getRight());
+	a.getListener(1).setVel((a.getListener(1).getPos() - lp) / dt);
+	a.getListener(0).setForward(0.2f * s.getCamera()->getForward() - 0.8f * s.getCamera()->getRight());
+	a.getListener(1).setForward(0.2f * s.getCamera()->getForward() + 0.8f * s.getCamera()->getRight());
 }
 
 void makeAudioMeshes(const AudioHandler& a, InstancedMesh& dst, Scene& sc) {

@@ -37,8 +37,9 @@ public:
 	AudioObject() : AudioObject((AudioObjectInitInfo){}) {}
 	AudioObject(AudioObjectInitInfo ii);
 
-	void setPos(glm::vec3 pos) {p = pos;};
-	void setForward(glm::vec3 forw) {f = glm::normalize(forw);};
+	void setPos(glm::vec3 pos) {p = pos;}
+	void setForward(glm::vec3 forw) {f = glm::normalize(forw);}
+	void setVel(glm::vec3 vel) {v = vel;}
 	void setRespFunc(float (*f)(const glm::vec3&, const glm::vec3&)) {rf = f;}
 
 	const glm::vec3& getPos() const {return p;}
