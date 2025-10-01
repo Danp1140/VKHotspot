@@ -7,5 +7,6 @@ find_dependency(Freetype REQUIRED)
 find_dependency(Vulkan REQUIRED)
 find_dependency(SDL3 REQUIRED)
 find_dependency(PNG REQUIRED)
+find_dependency(portaudio REQUIRED)
 
 check_required_components(VKH)

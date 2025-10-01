@@ -425,7 +425,7 @@ GH::GH(GHInitInfo&& i) {
 	}
 	initVulkanInstance(i.iexts);
 	initDebug();
-	initDevicesAndQueues(i.dexts);
+	initDevicesAndQueues(i.dexts, i.pdfeats);
 	initCommandPools();
 	// TODO: delete initSamplers
 	initSamplers();
@@ -441,7 +441,8 @@ GH::GH(GHInitInfo&& i) {
 
 GH::~GH() {
 	vkQueueWaitIdle(genericqueue);
-	GH::destroyImage(blankimage);
+	// TODO: figure out how to manage this resource
+	// GH::destroyImage(blankimage);
 	terminateDescriptorPoolsAndSetLayouts();
 	terminateSamplers();
 	terminateCommandPools();
@@ -478,7 +479,8 @@ void GH::initVulkanInstance(const std::vector<const char*>& e) {
 		"VK_MVK_macos_surface", 
 #endif
 		"VK_KHR_get_physical_device_properties2", // required by portability subset :| 
-		"VK_EXT_debug_utils" // for val layers, not needed in final compilation
+		"VK_EXT_debug_utils", // for val layers, not needed in final compilation
+		"VK_KHR_portability_enumeration"
 	};
 	bool allowed;
 	for (uint32_t i = 0; i < nsdlexts; i++) {
@@ -499,7 +501,7 @@ void GH::initVulkanInstance(const std::vector<const char*>& e) {
 	VkInstanceCreateInfo instancecreateinfo {
 		VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		nullptr,
-		0,
+		0x1,
 		&appinfo,
 		1, &layers[0],
 		static_cast<uint32_t>(extensions.size()), extensions.data() 
@@ -550,7 +552,7 @@ void GH::terminateDebug() {
 	destroyDebugMessenger(instance, debugmessenger, nullptr);
 }
 
-void GH::initDevicesAndQueues(const std::vector<const char*>& e) {
+void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures& f) {
 	uint32_t numphysicaldevices = -1u,
 			 numqueuefamilies;
 	vkEnumeratePhysicalDevices(instance, &numphysicaldevices, &physicaldevice);
@@ -600,7 +602,8 @@ void GH::initDevicesAndQueues(const std::vector<const char*>& e) {
 				 + std::string(" not supported by physical device")).raise();
 		}
 	}
-	VkPhysicalDeviceFeatures physicaldevicefeatures {};
+	VkPhysicalDeviceFeatures physicaldevicefeatures = f;
+	// TODO: this should prob be disabled by default
 	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
 	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
 /*
@@ -1218,7 +1221,7 @@ void GH::updateWholeBuffer(const BufferInfo& b, void* src) {
 	updateBuffer(b, src, b.size, 0);	
 }
 
-void GH::updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset) {
+void GH::updateBuffer(const BufferInfo& b, const void* src, size_t size, size_t offset) {
 	void* dst;
 	if (b.memprops & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT 
 		&& b.memprops & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {

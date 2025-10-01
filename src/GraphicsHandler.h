@@ -5,6 +5,8 @@
 #define VK_ENABLE_BETA_EXTENSIONS
 
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan_beta.h>
 #include <ext.hpp>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -427,6 +429,7 @@ typedef struct GHInitInfo {
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}
 	};
 	uint32_t nds = 16;
+	VkPhysicalDeviceFeatures pdfeats = {};
 } GHInitInfo;
 
 class GH {
@@ -472,7 +475,7 @@ public:
 	static void destroyMultiuserBuffer(BufferInfo& b);
 	static void updateWholeBuffer(const BufferInfo& b, void* src);
 	// size and offset in bytes, not elements
-	static void updateBuffer(const BufferInfo& b, void* src, size_t size, size_t offset);
+	static void updateBuffer(const BufferInfo& b, const void* src, size_t size, size_t offset);
 
 	/*
 	 * Creates image & image view and allocates memory. Non-default values for all other members should be set
@@ -542,7 +545,7 @@ private:
 
 	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, [l] 
 	// and hardware to use 
-	void initDevicesAndQueues(const std::vector<const char*>& e);
+	void initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures& f);
 	void terminateDevicesAndQueues();
 
 	void initCommandPools();

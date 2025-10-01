@@ -92,6 +92,9 @@ public:
 	static VkPipelineVertexInputStateCreateInfo getVISCI(VertexBufferTraits t, VertexBufferTraits o = VERTEX_BUFFER_TRAIT_NONE);
 	static void ungetVISCI(VkPipelineVertexInputStateCreateInfo v);
 
+	void setVertexBufferSize(uint32_t s) {vertexbuffer.size = s;} // TODO: is this really how we wanna do this???
+	void setIndexBufferSize(uint32_t s) {indexbuffer.size = s;} // TODO: is this really how we wanna do this???
+
 	const BufferInfo getVertexBuffer() const {return vertexbuffer;}
 	const BufferInfo getIndexBuffer() const {return indexbuffer;}
 
