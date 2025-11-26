@@ -1,7 +1,121 @@
 #include "TextureHandler.h"
 
-TextureSet::TextureSet(TextureSet&& rvalue) :
-	textures(std::move(rvalue.textures)) {
+/*
+void OSBrownian::generate(void* dst, VkExtent2D ext) {
+	GSLoadData loads[depth];
+	GSSample upsamples[depth];
+	GSMult normalize(1 / depth);
+	GSCoordX x(ext.width);
+	GSCoordY y(ext.width);
+
+	void* levels[depth];
+	for (uint8_t i = 0; i < depth; i++) {
+		VkExtent2D e = {1 << i, 1 << i};
+		levels[i] = malloc(pow(1 << i, 2));
+		Generator::noise(levels[i], e);
+		loads[i] = GSLoadData(levels[i]);
+		upsamples[i] = GSSample(ext.width / e.width);
+	}
+
+	
+	StepNode tree[4 * depth + 1];
+	tree[0].gs = x;
+	tree[1].gs = y;
+
+	tree[2].ins.push_back(&tree[0]);
+	tree[2].ins.push_back(&tree[1]);
+	tree[2].gs = loads[0];
+
+	tree[3].ins.push_back(&tree[2]);
+	tree[3].gs = upsamples[0];
+
+	tree[4].ins.push_back(&tree[3]);
+	tree[4].gs = normalize;
+
+	StepNode* lasttop = &tree[2];
+
+	const size_t idxoffset = 5;
+
+	for (uint8_t i = 1; i < depth; i++) {
+		tree[(i - 1) * 4 + idxoffset].ins.push_back(&tree[0]);
+		tree[(i - 1) * 4 + idxoffset].ins.push_back(&tree[1]);
+		tree[(i - 1) * 4 + idxoffset].gs = loads[i];
+
+		tree[(i - 1) * 4 + idxoffset + 1].ins.push_back{&tree[(i - 1) * 4 + 3]};
+		tree[(i - 1) * 4 + idxoffset + 1].gs = upsamples[i];
+
+		tree[(i - 1) * 4 + idxoffset + 2].ins.push_back(&tree[(i - 1) * 4 + 4]);
+		tree[(i - 1) * 4 + idxoffset + 2].gs = normalize;
+
+		tree[(i - 1) * 4 + idxoffset + 3].ins_push_back(&tree[(i - 1) * 4 + 5]);
+	}
+	*/
+
+	/*
+	 * load base level
+	 * upscale to dst
+	 * divide by num levels
+	 * set to dst
+	 *
+	 * for each next level
+	 * load level
+	 * upscale to dst
+	 * divide by num levels
+	 * add to dst
+	 */
+
+/*
+	for (uint8_t i = 0; i < depth; i++) {
+		free(levels[i]);
+	}
+}
+*/
+
+/*
+char GSAdd::generate(char* in) const {
+	return in[0] + in[1];
+}
+
+char GSMult::generate(char* in) const {
+	return in[0] * in[1];
+}
+
+char GSLoadData::generate(char* in) const {
+	return ((char*)data)[elemsize * (width * in[0] + in[1])];
+}
+
+char GSCoordX::generate(char* in) const {
+	return in[0] % width;
+}
+
+char GSCoordY::generate(char* in) const {
+	return in[0] / width;
+}
+
+void Generator::generate(void* dst, VkExtent2D ext, size_t esize) {
+	char* buffer = (char*)dst;
+
+	for (uint32_t i = 0; i < ext.width; i++) {
+		for (uint32_t j = 0; j < ext.height; j++) {
+			buffer[i * ext.height + j] = roots[0].generate({i, j}, esize); // TODO: change to work across all roots
+		}
+	}
+}
+*/
+
+/*
+void Generator::noise(void* dst, VkExtent2D ext) {
+	std::random_device rdev;
+	std::default_random_engine reng(rdev());
+	std::uniform_int_distribution<uint8_t> unidist();
+	char* dstscan = dst;
+	for (size_t i = 0; i < ext.width * ext.height; i++) {
+		*dstscan++ = unidist(reng);
+	}
+}
+*/
+
+TextureSet::TextureSet(TextureSet&& rvalue) : textures(std::move(rvalue.textures)) {
 #ifdef VERBOSE_TEXTURESET_OBJECTS
 	std::cout << this << " TextureSet(TextureSet&&)" << std::endl;
 #endif
