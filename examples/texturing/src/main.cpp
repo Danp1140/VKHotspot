@@ -164,6 +164,30 @@ void createBrownianTex(TextureSet& ts, size_t res, VkSampler s) {
 	float* tmp = new float[2*2];
 	for (size_t i = 0; i < res * res; i++) tmp[i] = n.generate(nullptr);
 
+	GSConst<float> df(pow(0.5, 2)), ndf(-pow(0.5, 2)), one(1);
+	
+	StepNode<float> u_pix_left_0({&u, &ndf}, &add);
+	StepNode<float> u_pix_left_1({&u_pix_left_0}, &floor);
+	StepNode<float> u_pix_left({&u_pix_left_1, &df}, &add); 
+	StepNode<float> u_pix_right({&u_pix_left, &one}, &add); 
+	StepNode<float> v_pix_up_0({&u, &ndf}, &add);
+	StepNode<float> v_pix_up_1({&v_pix_up_0}, &floor);
+	StepNode<float> v_pix_up({&v_pix_up_1, &df}, &add); 
+	StepNode<float> v_pix_down({&v_pix_up, &one}, &add);
+	StepNode<float> lra_0({&u, &df}, &mod);
+	StepNode<float> lra({&lra_0, &df}, &mult);
+	StepNode<float> uda_0({&v, &df}, &mod);
+	StepNode<float> uda({&uda_0, &df}, &mult);
+
+	StepNode<float> res_0({&u_pix_right, &lra}, 
+
+
+	// pseudo-code under the assumption that we can make u-v nodes
+	// look at the remainder after fmodding u against 0.5^(res@depth).
+	// multiplying that remainder by 0.5^(res@depth) gets us the mixing value a of the right texel, with 1-a being the one for the left
+	// the pixel value of the left pixel can be retrieved as floor(u - 0.5^(res@depth)) + 0.5^(res@depth). the right one is just one over
+	// ensure proper bounding on each side of course.
+	// find the appropriate v direction columns in the same way as u, execute the u-dir sampling once on each, and blend as you did u
 	StepNode<float> 
 
 	GSConst<float> a_const(1);

@@ -86,11 +86,15 @@ class GSSample : public GenStep<U> {
 public:
 	GSSample(GSSampleType t) : type(t) {}
 
-	U generate(U* in) const {TODO}
+	U generate(U* in) const {
+		if (type == GS_SAMPLE_TYPE_NEAREST) {
+
+		}
+	}
 
 private:
 	GSSampleType type;
-}
+};
 
 /*
  * Non-"FAST" types are scaled to cross (0, 0), (2n + 0.5, 1), (2n + 1, 0), and (2n + 1.5, -1)
@@ -262,6 +266,11 @@ private:
 
 	/* for move operations, keeps vulkan image objects from being deleted */
 	void nukeTextures();
+
+	/*
+	template<class T>
+	static std::vector<StepNode<T>>
+	*/
 };
 
 class TextureHandler {
