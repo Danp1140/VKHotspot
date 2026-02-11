@@ -100,33 +100,36 @@ void createDNSPipeline(PipelineInfo& p, const WindowInfo& w, VkRenderPass r) {
 }
 
 void createSolidTex(TextureSet& ts, size_t res, VkSampler s) {
-	GSConst<char> r(0xff), g(0xdd), b(0x11), a(0xff);
-
-	StepNode<char> r_root({}, &r), g_root({}, &g), b_root({}, &b), a_root({}, &a);
-	std::vector<GenStepNode<char>*> roots = {&r_root, &g_root, &b_root, &a_root};
+	GSConst<uint8_t>* r = new GSConst((uint8_t)0xff), 
+		* g = new GSConst((uint8_t)0xdd), 
+		* b = new GSConst((uint8_t)0x11), 
+		* a = new GSConst((uint8_t)0xff);
+	std::vector<GenStep<uint8_t>*> roots = {r, g, b, a};
 
 	ts.addTexture("diffuse", roots, res, VK_FORMAT_R8G8B8A8_UNORM, s);
+
+	for (GenStep<uint8_t>* r : roots) delete r;
 }
 
 void createPlaidTex(TextureSet& ts, size_t res, VkSampler s) {
-	GSConst<float> c1(0), c2(1), norm(1 / (float)res), c3((float)res), c4(-1 / (float)res), c5(2), c6(0.25);
-	GSOsc<float> sinwave(GS_OSC_TYPE_SINE_FAST);
-	GSAdd<float> add;
-	GSMultiply<float> mult;
-	GSModu<float> modu;
-
-	StepNode<float> y_coord({(GenStepNode<float>*)SN_PIXEL_ID, (GenStepNode<float>*)&c3}, &modu);
-	StepNode<float> x_coord_0({(GenStepNode<float>*)SN_PIXEL_ID, (GenStepNode<float>*)&norm}, &mult);
-	StepNode<float> x_coord_1({(GenStepNode<float>*)&y_coord, (GenStepNode<float>*)&c4}, &mult);
-	StepNode<float> x_coord({(GenStepNode<float>*)&x_coord_0, (GenStepNode<float>*)&x_coord_1}, &add);
-	StepNode<float> sine1({(GenStepNode<float>*)&x_coord}, &sinwave);
-	StepNode<float> sine2({(GenStepNode<float>*)&y_coord}, &sinwave);
-	StepNode<float> comb({(GenStepNode<float>*)&sine1, (GenStepNode<float>*)&sine2}, &add);
-	StepNode<float> offset({(GenStepNode<float>*)&comb, (GenStepNode<float>*)&c5}, &add);
-	StepNode<float> r_root({(GenStepNode<float>*)&offset, (GenStepNode<float>*)&c6}, &mult), g_root({}, &c1), b_root({}, &c1), a_root({}, &c2);
-	std::vector<GenStepNode<float>*> roots = {&r_root, &g_root, &b_root, &a_root};
+	GSConst<float>* green = new GSConst(0.f), 
+		* blue = new GSConst(0.f), 
+		* alpha = new GSConst(1.f), 
+		* offset_c = new GSConst(2.f), 
+		* norm_c = new GSConst(0.25f);
+	GSDim* xcoord = new GSDim(0);
+	GSDim* ycoord = new GSDim(1);
+	GSCast<float, size_t>* xcoord_f = new GSCast<float, size_t>(xcoord);
+	GSCast<float, size_t>* ycoord_f = new GSCast<float, size_t>(ycoord);
+	GSOsc<float>* sine1 = new GSOsc(GS_OSC_TYPE_SINE_FAST, xcoord_f);
+	GSOsc<float>* sine2 = new GSOsc(GS_OSC_TYPE_SINE_FAST, ycoord_f);
+	GSBinOp<float>* comb = new GSBinOp(GS_BINOP_TYPE_ADD, sine1, sine2);
+	GSBinOp<float>* offset = new GSBinOp(GS_BINOP_TYPE_ADD, comb, offset_c);
+	GSBinOp<float>* normalize = new GSBinOp(GS_BINOP_TYPE_MULT, offset, norm_c);
+	std::vector<GenStep<float>*> roots = {normalize, green, blue, alpha};
 
 	ts.addTexture("diffuse", roots, res, VK_FORMAT_R32G32B32A32_SFLOAT, s);
+	for (GenStep<float>* r : roots) delete r;
 }
 
 void createNoiseTex(TextureSet& ts, size_t res, VkSampler s) {
@@ -135,67 +138,81 @@ void createNoiseTex(TextureSet& ts, size_t res, VkSampler s) {
 	uint32_t* tmp = new uint32_t[res * res];
 	for (size_t i = 0; i < res * res; i++) tmp[i] = n.generate(nullptr);
 
-	GSLoad<uint32_t> l(tmp);
-	StepNode<uint32_t> lstep({SN_PIXEL_ID}, &l);
-	GSConst<uint8_t> c(0xff);
-	CastStepNode<uint8_t, uint32_t> cast(&lstep);
+	GSDim* xcoord = new GSDim(0);
+	GSDim* ycoord = new GSDim(1);
+	GSConst<size_t>* res_c = new GSConst(res);
+	GSBinOp<size_t>* idx_tmp = new GSBinOp(GS_BINOP_TYPE_MULT, xcoord, res_c);
+	GSBinOp<size_t>* idx = new GSBinOp(GS_BINOP_TYPE_ADD, idx_tmp, ycoord);
+	GSLoad<uint32_t, size_t>* l = new GSLoad(tmp, idx);
+	GSConst<uint8_t>* c = new GSConst((uint8_t)0xff);
+	GSCast<uint8_t, uint32_t>* cast = new GSCast<uint8_t, uint32_t>(l);
 
-	StepNode<uint8_t> a_root({}, &c);
-	std::vector<GenStepNode<uint8_t>*> roots = {&cast, &cast, &cast, &a_root};
+	std::vector<GenStep<uint8_t>*> roots = {cast, cast, cast, c};
 
 	ts.addTexture("diffuse", roots, res, VK_FORMAT_R8G8B8A8_UNORM, s);
 
+	delete cast;
+	delete c;
 	delete[] tmp;
 }
 
 void createGradTex(TextureSet& ts, size_t res, VkSampler s) {
-	GSConst<float> c(1);
+	GSConst<float>* c = new GSConst(1.f);
 
-	CastStepNode<float, uint32_t> cast(SN_PIXEL_ID);
+	GSDim* x = new GSDim(0);
+	GSDim* y = new GSDim(1);
+	GSConst<float>* norm_x = new GSConst(1.f / (float)res);
+	GSConst<float>* norm_y = new GSConst(1.f / (float)res);
+	GSCast<float, size_t>* x_f = new GSCast<float, size_t>(x);
+	GSCast<float, size_t>* y_f = new GSCast<float, size_t>(y);
+	GSBinOp<float>* x_norm = new GSBinOp(GS_BINOP_TYPE_MULT, x_f, norm_x);
+	GSBinOp<float>* y_norm = new GSBinOp(GS_BINOP_TYPE_MULT, y_f, norm_y);
 
-	StepNode<float> a_root({}, &c);
-	std::vector<GenStepNode<float>*> roots = {&cast, &cast, &cast, &a_root};
+	std::vector<GenStep<float>*> roots = {c, y_norm, x_norm, c};
 
 	ts.addTexture("diffuse", roots, res, VK_FORMAT_R32G32B32A32_SFLOAT, s);
+
+	delete x_norm;
+	delete y_norm;
+	delete c;
 }
 
 void createBrownianTex(TextureSet& ts, size_t res, VkSampler s) {
-	NDSNoise<float> n(0, 1);
-	float* tmp = new float[2*2];
-	for (size_t i = 0; i < res * res; i++) tmp[i] = n.generate(nullptr);
+	std::cout << "started gen" << std::endl;
+	NDSNoise<uint8_t> n;
+	uint8_t* tmp = new uint8_t[8*8];
+	for (size_t i = 0; i < 8*8; i++) tmp[i] = n.generate(nullptr);
 
-	GSConst<float> df(pow(0.5, 2)), ndf(-pow(0.5, 2)), one(1);
+	GSConst<uint8_t>* a = new GSConst((uint8_t)0x00);
 	
-	StepNode<float> u_pix_left_0({&u, &ndf}, &add);
-	StepNode<float> u_pix_left_1({&u_pix_left_0}, &floor);
-	StepNode<float> u_pix_left({&u_pix_left_1, &df}, &add); 
-	StepNode<float> u_pix_right({&u_pix_left, &one}, &add); 
-	StepNode<float> v_pix_up_0({&u, &ndf}, &add);
-	StepNode<float> v_pix_up_1({&v_pix_up_0}, &floor);
-	StepNode<float> v_pix_up({&v_pix_up_1, &df}, &add); 
-	StepNode<float> v_pix_down({&v_pix_up, &one}, &add);
-	StepNode<float> lra_0({&u, &df}, &mod);
-	StepNode<float> lra({&lra_0, &df}, &mult);
-	StepNode<float> uda_0({&v, &df}, &mod);
-	StepNode<float> uda({&uda_0, &df}, &mult);
 
-	StepNode<float> res_0({&u_pix_right, &lra}, 
+	GSDim* xcoord = new GSDim(0);
+	GSDim* ycoord = new GSDim(1);
+	GSCast<float, size_t>* f_x = new GSCast<float, size_t>(xcoord);
+	GSCast<float, size_t>* f_y = new GSCast<float, size_t>(ycoord);
+	GSConst<float>* ds_c = new GSConst(8.f/(float)res);
+	GSBinOp<float>* ds_x = new GSBinOp(GS_BINOP_TYPE_MULT, f_x, ds_c);
+	GSBinOp<float>* ds_y = new GSBinOp(GS_BINOP_TYPE_MULT, f_y, ds_c);
 
+	GSDim* l_x = new GSDim(0);
+	GSDim* l_y = new GSDim(1);
+	GSConst<size_t>* l_c = new GSConst((size_t)8);
+	GSBinOp<size_t>* l_m = new GSBinOp(GS_BINOP_TYPE_MULT, l_x, l_c);
+	GSBinOp<size_t>* l_idx = new GSBinOp(GS_BINOP_TYPE_ADD, l_m, l_y);
+	GSLoad<uint8_t, size_t>* l = new GSLoad(tmp, l_idx);
+	
+	GSSample<uint8_t, float>* samp = new GSSample<uint8_t, float>(GS_SAMPLE_TYPE_LINEAR, l, {ds_x, ds_y});
+	// GSSample<uint8_t, float>* samp = new GSSample<uint8_t, float>(GS_SAMPLE_TYPE_NEAREST, l, {ds_x, ds_y});
 
-	// pseudo-code under the assumption that we can make u-v nodes
-	// look at the remainder after fmodding u against 0.5^(res@depth).
-	// multiplying that remainder by 0.5^(res@depth) gets us the mixing value a of the right texel, with 1-a being the one for the left
-	// the pixel value of the left pixel can be retrieved as floor(u - 0.5^(res@depth)) + 0.5^(res@depth). the right one is just one over
-	// ensure proper bounding on each side of course.
-	// find the appropriate v direction columns in the same way as u, execute the u-dir sampling once on each, and blend as you did u
-	StepNode<float> 
+	std::vector<GenStep<uint8_t>*> roots = {samp, samp, samp, a};
 
-	GSConst<float> a_const(1);
-	StepNode<float> a_root({}, &a_const);
-	std::vector<GenStepNode<float>*> roots = {&a_root};
+	ts.addTexture("diffuse", roots, res, VK_FORMAT_R8G8B8A8_UNORM, s);
 
-	ts.addTexture("diffuse", roots, res, VK_FORMAT_R32G32B32A32_SFLOAT, s);
+	delete samp;
+	delete a;
 	delete[] tmp;
+
+	std::cout << "ended gen" << std::endl;
 }
 
 int main() {
@@ -213,22 +230,31 @@ int main() {
 
 	TextureHandler th;
 	th.setDefaultSampler(th.addSampler("linminmag", VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, VK_FALSE));
-	TextureSet solid, plaid, noise, grad;
+	TextureSet solid, plaid, noise, grad, brow;
+	/*
 	createSolidTex(solid, 1, th.getDefaultSampler());
 	createPlaidTex(plaid, 512, th.getDefaultSampler());
 	createNoiseTex(noise, 512, th.getDefaultSampler());
+	*/
 	createGradTex(grad, 512, th.getDefaultSampler());
+	createBrownianTex(brow, 512, th.getDefaultSampler());
+	/*
 	th.addSet("solid", std::move(solid));
 	th.addSet("plaid", std::move(plaid));
 	th.addSet("noise", std::move(noise));
+	*/
 	th.addSet("grad", std::move(grad));
+	th.addSet("brow", std::move(brow));
 
 	Mesh plane("../resources/models/plane.obj");
+	Mesh plane2("../resources/models/plane.obj");
+	plane2.setPos(plane2.getPos() + glm::vec3(0, 0, -20));
 
 	VkDescriptorSet temp;
 	GH::createDS(s.getRenderPass(0).getRenderSet(0).pipeline, temp);
-	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, th.getSet("plaid").getTexture("diffuse").getDII(), {});
+	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, th.getSet("brow").getTexture("diffuse").getDII(), {});
 	s.getRenderPass(0).addMesh(&plane, temp, &plane.getModelMatrix(), 0);
+	s.getRenderPass(0).addMesh(&plane2, temp, &plane2.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
 
