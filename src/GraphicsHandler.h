@@ -426,7 +426,8 @@ typedef struct GHInitInfo {
 	std::vector<VkDescriptorPoolSize> dps = {
 		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32},
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4},
+		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
 	};
 	uint32_t nds = 16;
 	VkPhysicalDeviceFeatures pdfeats = {};
@@ -446,6 +447,9 @@ public:
 		VkAttachmentReference* resolveattachmentrefs,
 		VkAttachmentReference* depthattachmentref);
 	static void destroyRenderPass(VkRenderPass& rp);
+	static VkAttachmentDescription2 ad2ad2(const VkAttachmentDescription& a);
+	// if col, allows color aspect, otherwise allows depth. stencil and metadata unimplemented
+	static VkAttachmentReference2 ar2ar2(const VkAttachmentReference& a, bool col);
 
 	static void createPipeline(PipelineInfo& pi);
 	static void destroyPipeline(PipelineInfo& pi);

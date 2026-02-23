@@ -1,7 +1,9 @@
 #include "GraphicsHandler.h"
 
-#define CAMERA_DEFAULT_NEAR_CLIP 0.01f
-#define CAMERA_DEFAULT_FAR_CLIP 1000.f
+// #define CAMERA_DEFAULT_NEAR_CLIP 0.01f
+// #define CAMERA_DEFAULT_FAR_CLIP 1000.f
+#define CAMERA_DEFAULT_NEAR_CLIP 1.f
+#define CAMERA_DEFAULT_FAR_CLIP 100.f
 
 class Camera {
 public:

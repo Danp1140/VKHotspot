@@ -1,11 +1,3 @@
-echo "Compiling UI Shaders"
-glslc -fshader-stage=vert GLSL/UIVertex.glsl -o SPIRV/UIvert.spv
-glslc -fshader-stage=frag GLSL/UIFragment.glsl -o SPIRV/UIfrag.spv
-
-echo "Compiling UI Texture Shaders"
-glslc -fshader-stage=vert GLSL/UITextureVertex.glsl -o SPIRV/UItexturevert.spv
-glslc -fshader-stage=frag GLSL/UITextureFragment.glsl -o SPIRV/UItexturefrag.spv
-
 echo "Compiling Default Shaders"
 glslc -fshader-stage=vert GLSL/DefaultVertex.glsl -o SPIRV/defaultvert.spv
 glslc -fshader-stage=frag GLSL/DefaultFragment.glsl -o SPIRV/defaultfrag.spv
@@ -21,4 +13,15 @@ glslc -fshader-stage=frag GLSL/DiffuseTextureFragment.glsl -o SPIRV/diffusetextu
 echo "Compiling ND Texture Shaders"
 glslc -fshader-stage=vert GLSL/NDTextureVertex.glsl -o SPIRV/NDtexturevert.spv
 glslc -fshader-stage=frag GLSL/NDTextureFragment.glsl -o SPIRV/NDtexturefrag.spv
+
+echo "Compiling Volumetric Shader"
+glslc -fshader-stage=comp GLSL/VolumeCompute.glsl -o SPIRV/volcomp.spv
+
+echo "Compiling Post-Processing Shaders"
+glslc -fshader-stage=vert GLSL/PostProcVertex.glsl -o SPIRV/postprocvert.spv
+glslc -fshader-stage=frag GLSL/PostProcFragment.glsl -o SPIRV/postprocfrag.spv
+
+echo "Compiling POM"
+glslc -fshader-stage=vert GLSL/NDPVertex.glsl -o SPIRV/ndpvert.spv
+glslc -fshader-stage=frag GLSL/NDPFragment.glsl -o SPIRV/ndpfrag.spv
 

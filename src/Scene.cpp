@@ -15,6 +15,11 @@ RenderPassInfo::RenderPassInfo(
 	createFBs(nsci, scis, ms, d);
 }
 
+RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx) :
+	renderpass(r), numscis(nsci), extent(ext), clears(c) {
+	createFBs(numscis, sci_att_idx, att);
+}
+
 void RenderPassInfo::destroy() {
 	for (RenderSet r : rendersets) GH::destroyPipeline(r.pipeline);
 	if (framebuffers) {
@@ -111,6 +116,32 @@ void RenderPassInfo::createFBs(const uint32_t nsci, const ImageInfo* scis, const
 	};
 	for (uint8_t scii = 0; scii < nsci; scii++) {
 		if (scis) attachments[scattachidx] = scis[scii].view;
+		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &framebuffers[scii]);
+	}
+}
+
+/*
+ * imgs must be passed in in the order of the attachments in the renderpass
+ * imgs[sciidx] must be an array of the scis
+ */
+void RenderPassInfo::createFBs(const uint32_t nsci, uint32_t sciidx, const std::vector<const ImageInfo*> imgs) {
+	// to make msaa easily compatible with non-msaa, we could still have nsci framebuffers,
+	// but just have them all be the same framebuffer in an msaa context
+	framebuffers = new VkFramebuffer[nsci];
+	VkImageView attachments[imgs.size()];
+	for (uint8_t i = 0; i < imgs.size(); i++) {
+		if (i != sciidx) attachments[i] = imgs[i]->view;
+	}
+	VkFramebufferCreateInfo framebufferci {
+		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		renderpass,
+		(uint32_t)imgs.size(), &attachments[0],
+		extent.width, extent.height, 1
+	};
+	for (uint8_t scii = 0; scii < nsci; scii++) {
+		if (sciidx != -1u) attachments[sciidx] = imgs[sciidx][scii].view;
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &framebuffers[scii]);
 	}
 }

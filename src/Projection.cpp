@@ -174,6 +174,7 @@ void DirectionalLight::updateProj() {
 			// -temp[1].z, -temp[0].z);
 			// TODO: this is still strange...
 			-100, 100);
+			// -10, 10);
 /*
 		std::cout << "lo-z: " << temp[0].z << std::endl;
 		std::cout << "hi-z: " << temp[1].z << std::endl;
