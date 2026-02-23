@@ -45,6 +45,7 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Scene.cpp ../src/Scene.h
 	../src/Projection.cpp ../src/Projection.h
 	../src/Mesh.cpp ../src/Mesh.h
+	../src/PostProcessing.cpp ../src/PostProcessing.h
 	../src/TextureHandler.cpp ../src/TextureHandler.h
 	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
 	../src/InputHandler.cpp ../src/InputHandler.h
@@ -70,6 +71,7 @@ install(
 	../src/Scene.h
 	../src/Projection.h
 	../src/Mesh.h
+	../src/PostProcessing.h
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
 	../src/InputHandler.h
@@ -85,6 +87,7 @@ install(
 	../src/Scene.h
 	../src/Projection.h
 	../src/Mesh.h
+	../src/PostProcessing.h
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
 	../src/InputHandler.h

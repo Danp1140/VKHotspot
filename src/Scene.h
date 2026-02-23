@@ -48,13 +48,14 @@ public:
 		const ImageInfo* ms,
 		const ImageInfo* d,
 		std::vector<VkClearValue>&& c);
+	RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx);
 	~RenderPassInfo() = default;
 
 	void destroy(); // handles actual destruction of VK objects pointed to by handles
 
 	void addPipeline(const PipelineInfo& p, const void* pcd);
 	void addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx);
-	void setUI(const UIHandler* u, size_t pidx);
+	void setUI(const UIHandler* u, size_t pidx); // TODO: prob get rid of this
 
 	std::vector<cbRecTaskTemplate> getTasks() const;
 
@@ -63,6 +64,7 @@ public:
 	const RenderSet& getRenderSet(size_t i) const {return rendersets[i];}
 	const VkExtent2D& getExtent() const {return extent;}
 	const std::vector<VkClearValue>& getClears() const {return clears;}
+	cbRecTaskRenderPassTemplate getRPT() const;
 
 private:
 	VkRenderPass renderpass;
@@ -74,7 +76,7 @@ private:
 
 	// TODO: see if you can make this interface more intuitive
 	void createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* r, const ImageInfo* d);
-	cbRecTaskRenderPassTemplate getRPT() const;
+	void createFBs(const uint32_t nsci, uint32_t sciidx, const std::vector<const ImageInfo*> imgs);
 };
 
 // TODO: consider using std430 for all below

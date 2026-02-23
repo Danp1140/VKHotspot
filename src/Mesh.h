@@ -56,10 +56,12 @@ typedef enum VertexBufferTraitBits {
 	VERTEX_BUFFER_TRAIT_POSITION = 0x01,
 	VERTEX_BUFFER_TRAIT_UV = 0x02,
 	VERTEX_BUFFER_TRAIT_NORMAL = 0x04,
-	VERTEX_BUFFER_TRAIT_WEIGHT = 0x08,
+	VERTEX_BUFFER_TRAIT_TANGENT = 0x10,
+	VERTEX_BUFFER_TRAIT_BITANGENT = 0x20,
+	VERTEX_BUFFER_TRAIT_WEIGHT = 0x40,
 } VertexBufferTraitBits;
 typedef uint8_t VertexBufferTraits;
-#define MAX_VERTEX_BUFFER_NUM_TRAITS 4
+#define MAX_VERTEX_BUFFER_NUM_TRAITS 6
 
 typedef struct MeshPCData {
 	glm::mat4 m;
@@ -72,6 +74,7 @@ public:
 	Mesh(const Mesh& lvalue) = delete;
 	Mesh(Mesh&& rvalue);
 	Mesh(const char* f);
+	Mesh(const char* f, VertexBufferTraits vbt);
 	Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu);
 	~Mesh();
 

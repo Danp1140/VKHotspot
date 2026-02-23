@@ -2,10 +2,16 @@
 #include "PhysicsHandler.h"
 #include "TextureHandler.h"
 #include "InputHandler.h"
+#include "PostProcessing.h"
 #include <random>
 
 #define MOVEMENT_SENS 0.75f
 #define FOV_SENS 0.05f
+
+typedef struct POMPCData {
+	glm::mat4 vp;
+	glm::vec4 c_p;
+} POMPCData;
 
 void createShadowCastPipeline(RenderPassInfo& rpi, Light& l) {
 	PipelineInfo p;
@@ -16,7 +22,8 @@ void createShadowCastPipeline(RenderPassInfo& rpi, Light& l) {
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = l.getShadowMap().extent;
-	p.cullmode = VK_CULL_MODE_FRONT_BIT;
+	// p.cullmode = VK_CULL_MODE_FRONT_BIT;
+	p.cullmode = VK_CULL_MODE_NONE;
 	p.renderpass = rpi.getRenderPass();
 	GH::createPipeline(p);
 	l.setSMPipeline(p);
@@ -77,9 +84,9 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	Mesh::ungetVISCI(p.vertexinputstateci);
 }
 
-void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
+void createScene(Scene& s, const WindowInfo& w, const Mesh& m, const PPStep& pproc, const POMPCData& ppd) {
 	VkRenderPass r;
-	VkAttachmentDescription attachdescs[3] {{
+	VkAttachmentDescription attachdescs[4] {{
 			0, 
 			GH_SWAPCHAIN_IMAGE_FORMAT,
 			w.getMSAASamples(),
@@ -98,7 +105,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
 		}, {
 			0, 
 			GH_SWAPCHAIN_IMAGE_FORMAT,
@@ -108,15 +115,28 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
 			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+		}, {
+			0, 
+			GH_DEPTH_BUFFER_IMAGE_FORMAT,
+			VK_SAMPLE_COUNT_1_BIT,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 	}};
-	VkAttachmentReference attachrefs[3] {
+	VkAttachmentReference attachrefs[4] {
 		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
 		{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL},
-		{2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}
+		{2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+		{3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
 	};
-	GH::createRenderPass(r, 3, &attachdescs[0], &attachrefs[0], &attachrefs[2], &attachrefs[1]);
-	RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), &w.getMSAAImage(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
+	GH::createRenderPass(r, 4, &attachdescs[0], &attachrefs[0], &attachrefs[2], &attachrefs[1]);
+	// RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), &w.getMSAAImage(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
+	std::vector<const ImageInfo*> att_imgs = {&w.getMSAAImage(), w.getDepthBuffer(), w.getSCImages(), &pproc.getDepthRes()};
+	RenderPassInfo rpi(r, w.getNumSCIs(), w.getMSAAImage().extent, {{0.3, 0.3, 0.3, 1}, {1, 0}}, att_imgs, 2);
 
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -187,8 +207,41 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	GH::createPipeline(tp);
 	rpi.addPipeline(tp, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(tp.vertexinputstateci);
-	s.addRenderPass(rpi);
 
+	PipelineInfo pomp;
+	pomp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	pomp.shaderfilepathprefix = "ndp";
+	/*
+	VkDescriptorSetLayoutBinding dtbindings[1] {{
+			0,
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			1,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			nullptr
+	}};
+	pomp.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		1, &dtbindings[0]
+	};
+	*/
+	pomp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(POMPCData)};
+	pomp.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(POMPCData), sizeof(POMPCData)};
+	pomp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT);
+	pomp.depthtest = true;
+	pomp.extent = w.getSCExtent();
+	pomp.renderpass = r;
+	pomp.msaasamples = w.getMSAASamples();
+	GH::createPipeline(pomp);
+	rpi.addPipeline(pomp, &ppd);
+	Mesh::ungetVISCI(pomp.vertexinputstateci);
+
+	s.addRenderPass(rpi);
+}
+
+RenderPassInfo createUIRPI(const WindowInfo& w) {
+	VkRenderPass r;
 	VkAttachmentDescription uiattachdesc {
 		0,
 		GH_SWAPCHAIN_IMAGE_FORMAT,
@@ -202,7 +255,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	};
 	VkAttachmentReference uiattachref {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
 	GH::createRenderPass(r, 1, &uiattachdesc, &uiattachref, nullptr, nullptr);
-	rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, nullptr, {{0, 0, 0, 1}});
+	RenderPassInfo rpi = RenderPassInfo(r, w.getNumSCIs(), w.getSCImages(), nullptr, nullptr, {{0, 0, 0, 1}});
 
 	PipelineInfo uip;
 	uip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -237,7 +290,7 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m) {
 	uip.specinfo = &spi[0];
 	GH::createPipeline(uip);
 	rpi.addPipeline(uip, nullptr);
-	s.addRenderPass(rpi);
+	return rpi;
 }
 
 InstancedMesh createCubeRing(std::vector<InstancedMeshData>& d, uint32_t steps, float r) {
@@ -349,13 +402,22 @@ void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
 }
 
 int main() {
-	GH graphicshandler = GH();
+	GHInitInfo ghii;
+	// shouldn't be required in vulkan 1.2+, but MoltenVK sucks
+	ghii.dexts.push_back("VK_KHR_depth_stencil_resolve");
+	ghii.dexts.push_back("VK_KHR_create_renderpass2");
+	ghii.dexts.push_back("VK_KHR_multiview");
+	ghii.dexts.push_back("VK_KHR_maintenance2");
+	GH graphicshandler = GH(std::move(ghii));
 	WindowInfo w((WindowInitInfo){.msaa = VK_SAMPLE_COUNT_4_BIT});
 	TextureHandler th;
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
+	PPStep volumetrics(&w, "vol");
 
 	Mesh m("../resources/models/cube.obj");
-	createScene(s, w, m);
+	POMPCData pompcdat;
+	createScene(s, w, m, volumetrics, pompcdat);
+	RenderPassInfo uirpi = createUIRPI(w);
 
 	/*
 	 * UI Setup
@@ -371,7 +433,7 @@ int main() {
 	float fpstot = 0, framevar, frameavg;
 	std::vector<float> frametimes;
 	size_t numf = 0;
-	UIHandler ui(s.getRenderPass(1).getRenderSet(0).pipeline, w.getSCExtent());
+	UIHandler ui(uirpi.getRenderSet(0).pipeline, w.getSCExtent());
 	UIContainer* leftsidebar = ui.addComponent(UIContainer());
 	// leftsidebar->setPos(UICoord(0, 0));
 	// leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
@@ -386,7 +448,7 @@ int main() {
 	camtext->setPos(UICoord(1000, w.getSCExtent().height));
 	UIText* fpstext = ui.addComponent(UIText());
 	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
-	s.getRenderPass(1).setUI(&ui, 0);
+	// s.getRenderPass(1).setUI(&ui, 0);
 
 	/*
 	 * Lighting
@@ -411,9 +473,13 @@ int main() {
 	s.getRenderPass(1).addMesh(&im, temp, nullptr, 1);
 
 	Mesh plane("../resources/models/plane.obj");
-	GH::createDS(s.getRenderPass(1).getRenderSet(3).pipeline, temp);
+	GH::createDS(s.getRenderPass(1).getRenderSet(4).pipeline, temp);
 	s.hookupLightCatcher(&plane, temp, {0}, {0});
-	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 3); // plane receives shadows
+	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 4); // plane receives shadows
+
+	Mesh plane2("../resources/models/plane.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT);
+	plane2.setPos(glm::vec3(20, 0, 0));
+	s.getRenderPass(1).addMesh(&plane2, VK_NULL_HANDLE, &plane2.getModelMatrix(), 3);
 
 	std::vector<LODFuncData> tempfd;
 	LODMesh suz = createLODSuzanne(s, tempfd);
@@ -423,13 +489,33 @@ int main() {
 	GH::createDS(s.getRenderPass(1).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
 	*/
-	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 3);
+	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 4);
 	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
 	s.hookupShadowCaster(&suz, {0});
 	m.setPos(glm::vec3(-5, 10, -5));
 	s.hookupShadowCaster(&m, {0});
 
+	Mesh tree("../resources/models/tree.obj");
+	s.getRenderPass(1).addMesh(&tree, temp, &tree.getModelMatrix(), 4);
+	s.getRenderPass(0).addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), 0);
+	tree.setPos(glm::vec3(-10, 0, 0));
+	tree.setScale(glm::vec3(4, 2, 4));
+	s.hookupShadowCaster(&tree, {0});
+
+	GH::updateDS(volumetrics.getDS(), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sl->getShadowMap().getDII(), {}); 
+
 	w.addTasks(s.getDrawTasks());
+
+	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(VK_NULL_HANDLE, nullptr, 0, {0, 0}, 0, nullptr)));
+	w.addTask(cbRecTaskTemplate([scis = w.getSCImages(), dst = volumetrics.getSrc()] (uint8_t scii, VkCommandBuffer& c) {PPStep::recordCopy(scii, c, scis, dst);}));
+	w.addTask(cbRecTaskTemplate(volumetrics.getRTRPT()));
+	w.addTask(cbRecTaskTemplate([rs = volumetrics.getRS()] (uint8_t scii, VkCommandBuffer& c) {PPStep::recordDraw(scii, c, rs);}));
+
+	w.addTask(cbRecTaskTemplate(uirpi.getRPT()));
+	w.addTask(cbRecTaskTemplate([&ui, rp = uirpi.getRenderPass(), fb = uirpi.getFramebuffers()]
+		(uint8_t scii, VkCommandBuffer& c) {
+		ui.recordDraw(fb[scii], rp, c); // might need to mod fb idx against ui's own scii count
+	}));
 
 	/*
 	 * Physics Scene Setup
@@ -465,7 +551,7 @@ int main() {
 	// TODO: consider using a sigmoid to modulate FOVY input
 	ih.addHold(InputHold(SDL_SCANCODE_UP, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() > FOV_SENS) c->setFOVY(c->getFOVY() - FOV_SENS); }));
 	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() < glm::pi<float>() - FOV_SENS) c->setFOVY(c->getFOVY() + FOV_SENS); }));
-	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log, &w, &s, &suz, &plane] (const SDL_Event& e) { 
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log, &w, &s, &suz, &plane, pc] (const SDL_Event& e) { 
 		if (e.key.scancode == SDL_SCANCODE_H) {
 			log.insert(0, L"Hello World! @ " + getTimestamp() + L"\n");
 			return true;
@@ -484,6 +570,9 @@ int main() {
 			else log.insert(0, L"Too many lights to add another!\n");
 			return true;
 		}
+		if (e.key.scancode == SDL_SCANCODE_C) {
+			pc->setPos(glm::vec3(-5, 10, -5));
+		}
 		return false;
 	}));
 
@@ -500,7 +589,11 @@ int main() {
 		if (movementdir != glm::vec3(0)) {
 			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
 			s.getCamera()->setForward(-s.getCamera()->getPos());
+
+			pompcdat = (POMPCData) {s.getCamera()->getVP(), glm::vec4(s.getCamera()->getPos().x, s.getCamera()->getPos().y, s.getCamera()->getPos().z, 1)};
 		}
+		// can't just do in loop cuz need time;
+		volumetrics.updatePC((temp_pc_dat){s.getCamera()->getVP(), sl->getVP(), glm::inverse(s.getCamera()->getVP()), s.getCamera()->getPos(), (float)SDL_GetTicks() / 1000.f});
 
 		/*
 		 * UI Update
@@ -538,6 +631,7 @@ int main() {
 		ph.update();
 	}
 	vkQueueWaitIdle(GH::getGenericQueue());
+	uirpi.destroy();
 
 	return 0;
 }

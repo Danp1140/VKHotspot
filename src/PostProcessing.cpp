@@ -1,23 +1,35 @@
 #include "PostProcessing.h"
 
 PPStep::PPStep(const WindowInfo* w, const char* shader_fpp) : window(w), fb(nullptr) {
-	dst.extent = window->getSCExtent();
-	dst.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-	dst.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-	dst.layout = VK_IMAGE_LAYOUT_GENERAL; // TODO see if we can specialize/transition
-	GH::createImage(dst);
+	src.extent = window->getSCExtent();
+	src.format = GH_SWAPCHAIN_IMAGE_FORMAT;
+	src.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	src.layout = VK_IMAGE_LAYOUT_GENERAL; // TODO see if we can specialize/transition
+	src.sampler = GH::getNearestSampler();
+	GH::createImage(src);
+	depth_res.extent = window->getSCExtent();
+	depth_res.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
+	depth_res.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	depth_res.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; // TODO see if we can specialize/transition
+	depth_res.sampler = GH::getNearestSampler();
+	GH::createImage(depth_res);
 
 	createRenderPass();
-	createProcPipeline(shader_fpp); 
-	createDrawPipeline();
+	createPipeline();
 }
 
 PPStep::~PPStep() {
 	GH::destroyPipeline(pipeline);
-	if (fb) delete fb;
+	GH::destroyRenderPass(rp);
+	if (fb) {
+		for (uint8_t scii = 0; scii < window->getNumSCIs(); scii++) vkDestroyFramebuffer(GH::getLD(), fb[scii], nullptr);
+		delete fb;
+	}
+	GH::destroyImage(depth_res);
+	GH::destroyImage(src);
 }
 
-void PPStep::recordProc(uint8_t scii, VkCommandBuffer& c, const PPRenderSet& rs) {
+void PPStep::recordCopy(uint8_t scii, VkCommandBuffer& c, const ImageInfo* src, const ImageInfo& dst) {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
@@ -28,34 +40,52 @@ void PPStep::recordProc(uint8_t scii, VkCommandBuffer& c, const PPRenderSet& rs)
 	VkCommandBufferBeginInfo cbbi {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		nullptr,
-		VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
+		0,
 		&cbinherinfo
 	};
 	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_COMPUTE, rs.pipeline.pipeline);
-	vkCmdBindDescriptorSets(
-		c,
-		VK_PIPELINE_BIND_POINT_GRAPHICS,
-		rs.pipeline.layout,
-		0, 1, &rs.ds,
-		0, nullptr);
-	vkCmdPushConstants(
-		c, 
-		rs.pipeline.layout, 
-		rs.pipeline.pushconstantrange.stageFlags, 
-		rs.pipeline.pushconstantrange.offset, 
-		rs.pipeline.pushconstantrange.size, 
-		rs.pcdata);
-	vkCmdDispatch(c, rs.pipeline.extent.width, rs.pipeline.extent.height, 1);
+	const VkImageSubresourceLayers subr {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+	const VkImageCopy cpy {
+		subr, {0, 0, 0},
+		subr, {0, 0, 0},
+		{dst.extent.width, dst.extent.height, 1}
+	};
+	// vkCmdCopyImage(c, src[scii].image, src[scii].layout, dst.image, dst.layout, 1, &cpy);
+	vkCmdCopyImage(c, src[scii].image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.image, dst.layout, 1, &cpy);
 	vkEndCommandBuffer(c);
 }
 
-void PPStep::recordDraw(uint8_t scii, VkCommandBuffer& c, PipelineInfo p, VkDescriptorSet ds, VkRenderPass rp, const VkFramebuffer* fb) {
+void PPStep::recordDepthResolve(uint8_t scii, VkCommandBuffer& c, const ImageInfo& ms_db, const ImageInfo& db) {
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
-		rp, 0,
-		fb[scii],
+		VK_NULL_HANDLE, 0,
+		VK_NULL_HANDLE,
+		VK_FALSE, 0, 0
+	};
+	VkCommandBufferBeginInfo cbbi {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		0,
+		&cbinherinfo
+	};
+	vkBeginCommandBuffer(c, &cbbi);
+	const VkImageSubresourceLayers subr {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+	const VkImageResolve res {
+		subr, {0, 0, 0},
+		subr, {0, 0, 0},
+		{db.extent.width, db.extent.height, 1}
+	};
+	vkCmdResolveImage(c, ms_db.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, db.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1, &res); 
+	vkEndCommandBuffer(c);
+}
+
+void PPStep::recordDraw(uint8_t scii, VkCommandBuffer& c, const PPRenderSet& rs) {
+	VkCommandBufferInheritanceInfo cbinherinfo {
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		nullptr,
+		rs.rp, 0,
+		rs.fb[scii],
 		VK_FALSE, 0, 0
 	};
 	VkCommandBufferBeginInfo cbbi {
@@ -65,19 +95,20 @@ void PPStep::recordDraw(uint8_t scii, VkCommandBuffer& c, PipelineInfo p, VkDesc
 		&cbinherinfo
 	};
 	vkBeginCommandBuffer(c, &cbbi);
-	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, p.pipeline);
+	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	vkCmdPushConstants(c, rs.pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(temp_pc_dat), rs.pcdata);
 	vkCmdBindDescriptorSets(
 		c,
 		VK_PIPELINE_BIND_POINT_GRAPHICS,
-		p.layout,
-		0, 1, &ds,
+		rs.pipeline.layout,
+		0, 1, &rs.ds,
 		0, nullptr);
-	vkCmdDrawIndexed(c, 6, 1, 0, 0, 0);
+	vkCmdDraw(c, 6, 1, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
 void PPStep::createRenderPass() {
-	VkAttachmentDescription attachdescs[3] {{
+	VkAttachmentDescription attachdescs[1] {{
 			0, 
 			GH_SWAPCHAIN_IMAGE_FORMAT,
 			VK_SAMPLE_COUNT_1_BIT, // TODO: do we just take the MSAA samples???
@@ -85,7 +116,7 @@ void PPStep::createRenderPass() {
 			VK_ATTACHMENT_STORE_OP_STORE,
 			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 			VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			VK_IMAGE_LAYOUT_UNDEFINED,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 	}};
 	VkAttachmentReference attachrefs[1] {
@@ -109,70 +140,43 @@ void PPStep::createRenderPass() {
 	}
 }
 
-void PPStep::createProcPipeline(const char* fpp) {
-	pipeline.stages = VK_SHADER_STAGE_COMPUTE_BIT;
-	pipeline.shaderfilepathprefix = fpp;
-	VkDescriptorSetLayoutBinding bindings[4] {{
+void PPStep::createPipeline() {
+	pipeline.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	pipeline.shaderfilepathprefix = "postproc";
+	VkDescriptorSetLayoutBinding bindings[3] {{
 		0, // color
 		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		1,
-		VK_SHADER_STAGE_COMPUTE_BIT,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
 		nullptr
 	}, {
 		1, // depth
 		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		1,
-		VK_SHADER_STAGE_COMPUTE_BIT,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
 		nullptr
 	}, {
-		2, // temp shadowmap
+		2, // shadow map
 		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 		1,
-		VK_SHADER_STAGE_COMPUTE_BIT,
-		nullptr
-	}, {
-		3, // result
-		VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-		1,
-		VK_SHADER_STAGE_COMPUTE_BIT,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
 		nullptr
 	}};
 	pipeline.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		nullptr,
 		0,
-		4, &bindings[0]
+		3, &bindings[0]
 	};
-	pipeline.pushconstantrange = {VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(temp_pc_dat)};
 	pipeline.extent = window->getSCExtent();
+	pipeline.renderpass = rp;
+	pipeline.pushconstantrange = {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(temp_pc_dat)};
 	GH::createPipeline(pipeline);
 
+	VkDescriptorImageInfo lyingdii = depth_res.getDII();
+	lyingdii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	GH::createDS(pipeline, ds);
-	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, window->getSCImages()[0].getDII(), {}); // TODO: one ds per sci
-	GH::updateDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, window->getDepthBuffer()->getDII(), {}); 
-	GH::updateDS(ds, 3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, dst.getDII(), {});
-}
-
-void PPStep::createDrawPipeline() {
-	draw_pipeline.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	draw_pipeline.shaderfilepathprefix = "postproc";
-	VkDescriptorSetLayoutBinding bindings[1] {{
-		0, // color
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		1,
-		VK_SHADER_STAGE_FRAGMENT_BIT,
-		nullptr
-	}};
-	draw_pipeline.descsetlayoutci = {
-		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		nullptr,
-		0,
-		1, &bindings[0]
-	};
-	draw_pipeline.extent = window->getSCExtent();
-	GH::createPipeline(draw_pipeline);
-
-	GH::createDS(draw_pipeline, draw_ds);
-	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, dst.getDII(), {});
+	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, src.getDII(), {});
+	GH::updateDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lyingdii, {});
 }
 

@@ -20,7 +20,6 @@ MeshBase::MeshBase(MeshBase&& rvalue) :
 	aabb[1] = std::move(rvalue.aabb[1]);
 }
 
-
 void swap(MeshBase& lhs, MeshBase& rhs) {
 	std::swap(lhs.position, rhs.position);
 	std::swap(lhs.scale, rhs.scale);
@@ -73,6 +72,10 @@ Mesh::Mesh(Mesh&& rvalue) :
 }
 
 Mesh::Mesh(const char* f) : Mesh() {
+	loadOBJ(f);
+}
+
+Mesh::Mesh(const char* f, VertexBufferTraits vbt) : vbtraits(vbt) {
 	loadOBJ(f);
 }
 
@@ -158,6 +161,8 @@ size_t Mesh::getTraitsElementSize(VertexBufferTraits t) {
 	if (t & VERTEX_BUFFER_TRAIT_POSITION) result += sizeof(glm::vec3);
 	if (t & VERTEX_BUFFER_TRAIT_UV) result += sizeof(glm::vec2);
 	if (t & VERTEX_BUFFER_TRAIT_NORMAL) result += sizeof(glm::vec3);
+	if (t & VERTEX_BUFFER_TRAIT_TANGENT) result += sizeof(glm::vec3);
+	if (t & VERTEX_BUFFER_TRAIT_BITANGENT) result += sizeof(glm::vec3);
 	// WEIGHT is included in override from ArmaturedMesh
 	return result;
 }
@@ -184,6 +189,20 @@ VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t, Vertex
 	}
 	if (t & VERTEX_BUFFER_TRAIT_NORMAL) {
 		if (!(o & VERTEX_BUFFER_TRAIT_NORMAL)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_TANGENT) {
+		if (!(o & VERTEX_BUFFER_TRAIT_TANGENT)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_BITANGENT) {
+		if (!(o & VERTEX_BUFFER_TRAIT_BITANGENT)) {
 			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
 			numtraits++;
 		}
@@ -265,19 +284,42 @@ void Mesh::loadOBJ(const char* fp) {
 	char* vscan = static_cast<char*>(vdst),
 		* iscan = static_cast<char*>(idst);
 	MeshIndex itemp;
+	uint16_t idx0, idx1, idx2;
 	for (uint16_t x = 0; x < vertexindices.size() / 3; x++) {
 		for (uint16_t y = 0; y < 3; y++) {
-			addVecToAABB(vertextemps[vertexindices[3 * x + y]]);
+			idx0 = 3 * x + y;
+			idx1 = 3 * x + (y + 1) % 3;
+			idx2 = 3 * x + (y + 2) % 3;
+			addVecToAABB(vertextemps[vertexindices[idx0]]);
 			if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) {
-				memcpy(vscan, &vertextemps[vertexindices[3 * x + y]], sizeof(glm::vec3));
+				memcpy(vscan, &vertextemps[vertexindices[idx0]], sizeof(glm::vec3));
 				vscan += sizeof(glm::vec3);
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_UV) {
-				memcpy(vscan, &uvtemps[uvindices[3 * x + y]], sizeof(glm::vec2));
+				memcpy(vscan, &uvtemps[uvindices[idx0]], sizeof(glm::vec2));
 				vscan += sizeof(glm::vec2);
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) {
-				memcpy(vscan, &normaltemps[normalindices[3 * x + y]], sizeof(glm::vec3));
+				memcpy(vscan, &normaltemps[normalindices[idx0]], sizeof(glm::vec3));
+				vscan += sizeof(glm::vec3);
+			}
+			glm::vec3 e1 = vertextemps[vertexindices[idx1]] - vertextemps[vertexindices[idx0]],
+								e2 = vertextemps[vertexindices[idx2]] - vertextemps[vertexindices[idx0]];
+			glm::vec2 uv1 = uvtemps[uvindices[idx1]] - uvtemps[uvindices[idx0]],
+								uv2 = uvtemps[uvindices[idx2]] - uvtemps[uvindices[idx0]];
+			float norm = uv1.x*uv2.y - uv2.x*uv1.y;
+			if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
+				*reinterpret_cast<glm::vec3*>(vscan) = glm::vec3(
+					e1.x*uv2.y - e2.x*uv1.y, 
+					e1.y*uv2.y - e2.y*uv1.y, 
+					e1.z*uv2.y - e2.z*uv1.y) / norm;
+				vscan += sizeof(glm::vec3);
+			}
+			if (vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
+				*reinterpret_cast<glm::vec3*>(vscan) = glm::vec3(
+					-e1.x*uv2.x + e2.x*uv1.x, 
+					-e1.y*uv2.x + e2.y*uv1.x, 
+					-e1.z*uv2.x + e2.z*uv1.x) / norm;
 				vscan += sizeof(glm::vec3);
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_WEIGHT) {
