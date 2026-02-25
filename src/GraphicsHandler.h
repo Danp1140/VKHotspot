@@ -349,7 +349,7 @@ public:
 	 * - Monitor
 	 */
 	WindowInfo() : WindowInfo((WindowInitInfo){}) {}
-	WindowInfo(WindowInitInfo&& i);
+	WindowInfo(const WindowInitInfo& i);
 	/* p & s are normalized position & size  */
 	// TODO: phase out
 	WindowInfo(glm::vec2 p, glm::vec2 s) : WindowInfo({.p = p, .s = s}) {}
@@ -436,7 +436,7 @@ typedef struct GHInitInfo {
 class GH {
 public:
 	GH() : GH((GHInitInfo){}) {}
-	GH(GHInitInfo&& i);
+	GH(const GHInitInfo& i);
 	~GH();
 
 	static void createRenderPass(
@@ -558,7 +558,7 @@ private:
 	void initSamplers();
 	void terminateSamplers();
 
-	static void initDescriptorPoolsAndSetLayouts(GHInitInfo&& i);
+	static void initDescriptorPoolsAndSetLayouts(const GHInitInfo& i);
 	static void terminateDescriptorPoolsAndSetLayouts();
 
 	static void transitionImageLayout(ImageInfo& i, VkImageLayout newlayout);

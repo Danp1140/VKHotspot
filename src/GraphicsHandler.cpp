@@ -19,7 +19,7 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo(WindowInitInfo&& i) {
+WindowInfo::WindowInfo(const WindowInitInfo& i) {
 	// TODO: decompose into more init funcs
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
@@ -429,7 +429,7 @@ const char* GH::shaderdir = "../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 ImageInfo GH::blankimage = {};
 
-GH::GH(GHInitInfo&& i) {
+GH::GH(const GHInitInfo& i) {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		FatalError(
 			std::string("SDL3 Initialization Failed! From SDL_GetError():\n") 
@@ -707,7 +707,7 @@ void GH::terminateSamplers() {
 	vkDestroySampler(logicaldevice, nearestsampler, nullptr);
 }
 
-void GH::initDescriptorPoolsAndSetLayouts(GHInitInfo&& i) {
+void GH::initDescriptorPoolsAndSetLayouts(const GHInitInfo& i) {
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,

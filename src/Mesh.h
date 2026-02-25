@@ -126,6 +126,7 @@ public:
 	InstancedMesh() = default;
 	InstancedMesh(const InstancedMesh& lvalue) = delete;
 	InstancedMesh(InstancedMesh&& rvalue);
+	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, VertexBufferTraits t);
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
 

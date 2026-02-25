@@ -5,7 +5,7 @@
 
 #include "GraphicsHandler.h"
 
-// #define VERBOSE_TEXTURESET_OBJECTS
+#define VERBOSE_TEXTURESET_OBJECTS
 
 class TextureSet {
 public:

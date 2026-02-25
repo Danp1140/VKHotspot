@@ -53,7 +53,9 @@ public:
 
 	void destroy(); // handles actual destruction of VK objects pointed to by handles
 
-	void addPipeline(const PipelineInfo& p, const void* pcd);
+	// returns the index of the newly-added pipeline
+	size_t addPipeline(const PipelineInfo& p, const void* pcd);
+	void setScenePC(size_t pidx, void* pcd) {rendersets[pidx].pcdata = pcd;}
 	void addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx);
 	void setUI(const UIHandler* u, size_t pidx); // TODO: prob get rid of this
 
@@ -109,10 +111,12 @@ typedef struct LUBData {
 class Scene {
 public:
 	Scene(float a);
+	Scene(const WindowInfo& w) : Scene((float)w.getSCExtent().width / (float)w.getSCExtent().height) {}
 	~Scene();
 
 	std::vector<cbRecTaskTemplate> getDrawTasks();
 
+	// returns index to just-added renderpass;
 	RenderPassInfo* addRenderPass(const RenderPassInfo& r);
 	// leaving updateLUB public ties into giving out a non-const DL ptr;
 	// if we wanted to make updateLUB priv, we'd need some sort of check-out,

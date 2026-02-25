@@ -32,8 +32,9 @@ void RenderPassInfo::destroy() {
 	if (renderpass != VK_NULL_HANDLE) GH::destroyRenderPass(renderpass);
 }
 
-void RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
+size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
 	rendersets.push_back({p, {}, {}, {}, nullptr, pcd});
+	return rendersets.size() - 1;
 }
 
 void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx) {
