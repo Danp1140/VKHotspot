@@ -26,7 +26,8 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 	if (ndisplays == 0 || !displays) {
 		FatalError(std::string("SDL found no displays. From SDL_GetError:\n") + SDL_GetError()).raise();
 	}
-	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(displays[0]);
+	const int disp_id = displays[std::min(i.target_display, ndisplays - 1)];
+	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(disp_id);
 	// TODO: use SDL_GetWindowWMInfo for system-dependent window info [l]
 	SDL_free(displays);
 
@@ -34,9 +35,9 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 		i.name, 
 		displaymode->w * i.s.x, displaymode->h * i.s.y, 
 		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-	SDL_SetWindowPosition(
-		sdlwindow,
-		displaymode->w * i.p.x, displaymode->h * (1 - i.s.y));
+	SDL_Rect bounds;
+	SDL_GetDisplayBounds(disp_id, &bounds);
+	SDL_SetWindowPosition(sdlwindow, bounds.x + displaymode->w * i.p.x, bounds.y + displaymode->h * (1 - i.s.y));
 
 	sdlwindowid = SDL_GetWindowID(sdlwindow);
 

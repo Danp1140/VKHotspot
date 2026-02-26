@@ -332,6 +332,7 @@ typedef struct WindowInitInfo {
 		s = glm::vec2(1);
 	const char* name = "";
 	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+	int target_display = 0; // tries to open window on display n, really picks min(n, ndisplays - 1)
 } WindowInitInfo;
 
 class WindowInfo {

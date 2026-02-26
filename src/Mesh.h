@@ -121,6 +121,10 @@ typedef struct InstancedMeshData {
 	glm::mat4 m;
 } InstancedMeshData;
 
+typedef struct IMCullingData {
+	size_t i;
+} IMCullingData;
+
 class InstancedMesh : public Mesh {
 public:
 	InstancedMesh() = default;
@@ -155,7 +159,7 @@ public:
 		VkCommandBuffer& c) const;
 
 private:
-	BufferInfo instanceub;
+	BufferInfo instanceub, cullingub;
 };
 
 typedef bool(*LODFunc)(Mesh&, void*);
