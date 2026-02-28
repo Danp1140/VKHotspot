@@ -14,7 +14,7 @@
 #define MOVEMENT_SENS 50.f
 #define MOVEMENT_CAP 2.f
 
-#define VB_TRAIT_ALL VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT
+#define VB_TRAIT_ALL (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT)
 
 typedef struct DNSScenePCData {
 	glm::mat4 vp;
@@ -185,12 +185,7 @@ size_t createDNSInstancedPipeline(RenderPassInfo& rpi, Scene& s, const WindowInf
 		7, &dtbindings[0]
 	};
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData)};
-	p.vertexinputstateci = Mesh::getVISCI(
-			VERTEX_BUFFER_TRAIT_POSITION
-			| VERTEX_BUFFER_TRAIT_UV 
-			| VERTEX_BUFFER_TRAIT_NORMAL
-			| VERTEX_BUFFER_TRAIT_TANGENT
-			| VERTEX_BUFFER_TRAIT_BITANGENT);
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
@@ -198,6 +193,52 @@ size_t createDNSInstancedPipeline(RenderPassInfo& rpi, Scene& s, const WindowInf
 	GH::createPipeline(p);
 	Mesh::ungetVISCI(p.vertexinputstateci);
 	return rpi.addPipeline(p, nullptr);
+}
+
+size_t createSMPipeline(RenderPassInfo& rpi, DirectionalLight& l) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "shadowmap";
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ VERTEX_BUFFER_TRAIT_POSITION);
+	p.depthtest = true;
+	p.extent = l.getShadowMap().extent;
+	p.cullmode = VK_CULL_MODE_FRONT_BIT;
+	p.renderpass = rpi.getRenderPass();
+	GH::createPipeline(p);
+	Mesh::ungetVISCI(p.vertexinputstateci);
+	l.setSMPipeline(p);
+	return rpi.addPipeline(p, &l.getVP());
+}
+
+size_t createSMInstancedPipeline(RenderPassInfo& rpi, DirectionalLight& l) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "sminst";
+	VkDescriptorSetLayoutBinding dtbindings[1] {{
+			0,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT,
+			nullptr
+	}};
+	p.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		1, &dtbindings[0]
+	};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ VERTEX_BUFFER_TRAIT_POSITION);
+	p.depthtest = true;
+	p.extent = l.getShadowMap().extent;
+	p.cullmode = VK_CULL_MODE_FRONT_BIT;
+	p.renderpass = rpi.getRenderPass();
+	GH::createPipeline(p);
+	Mesh::ungetVISCI(p.vertexinputstateci);
+	l.setSMPipeline(p);
+	return rpi.addPipeline(p, &l.getVP());
 }
 
 #ifdef ST_TS_WIN
@@ -241,12 +282,7 @@ size_t createTSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	p.shaderfilepathprefix = "ts";
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(DNSScenePCData), sizeof(glm::mat4)};
-	p.vertexinputstateci = Mesh::getVISCI(
-			VERTEX_BUFFER_TRAIT_POSITION
-			| VERTEX_BUFFER_TRAIT_UV 
-			| VERTEX_BUFFER_TRAIT_NORMAL
-			| VERTEX_BUFFER_TRAIT_TANGENT
-			| VERTEX_BUFFER_TRAIT_BITANGENT);
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_NORMAL));
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
@@ -313,6 +349,7 @@ size_t createUIPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	GH::createPipeline(p);
 	return rpi.addPipeline(p, nullptr);
 }
+
 #endif
 
 int main() {
@@ -339,6 +376,7 @@ int main() {
 	Scene ts_s(ts_w);
 	ts_s.getCamera()->setPos(glm::vec3(10, 10, 0));
 	ts_s.getCamera()->setForward(glm::vec3(-1, -1, 0));
+	DNSScenePCData dns_ts_s_pc {ts_s.getCamera()->getVP(), ts_s.getCamera()->getPos()};
 #endif
 
 	/*
@@ -357,7 +395,7 @@ int main() {
 	size_t ts_p_idx = createTSPipeline(*ts_rp, ts_s, ts_w);
 	RenderPassInfo ui_rp = createUIRenderPass(ts_w);
 	size_t ui_p_idx = createUIPipeline(ui_rp, ts_s, ts_w);
-	ts_rp->setScenePC(ts_p_idx, &dns_s_pc);
+	ts_rp->setScenePC(ts_p_idx, &dns_ts_s_pc);
 
 	/*
 	 * UI Setup
@@ -368,11 +406,14 @@ int main() {
 	stats->setExt({600, (float)ts_w.getSCExtent().height});
 	UIText* frame_stats_text = stats->addChild(UIText(L"fps will go here"));
 	frame_stats_text->setBGCol({0, 0, 0, 0});
+	UIImage* tex_mon = ui.addComponent(UIImage());
+	tex_mon->setPos({(float)ts_w.getSCExtent().width - 600, (float)ts_w.getSCExtent().height - 600});
+	tex_mon->setExt({600, 600});
 #endif
 
 	/*
 	 * This test scene is meant to be strenuous but not unfairly so.
-	 * E.g., there are many meshes, but they will be instanced if feasible,
+	 * E.g., there are many meshces, but they will be instanced if feasible,
 	 * textures are high-resolution, but not higher than needed
 	 *
 	 * Several trees are used to boost poly count and make complex shadows. TODO
@@ -383,9 +424,12 @@ int main() {
 	/*
 	 * Lighting Setup
 	 */
-	DirectionalLight* sc_dl = s.addDirectionalLight(DirectionalLight(
-		{{glm::vec3(0, 20, 0), glm::vec3(1), {1024, 1024}}, 
-		DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(0, -1, 0)}));
+	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(
+		{{glm::vec3(0.01, 20, 0), glm::vec3(1), {1024, 1024}}, 
+		DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(-0.01, -20, 0)}));
+	RenderPassInfo* sm_rp = &s.getRenderPass(0);
+	size_t sm_p_idx = createSMPipeline(*sm_rp, *key_light);
+	size_t sminst_p_idx = createSMInstancedPipeline(*sm_rp, *key_light);
 
 	/*
 	 * Textures
@@ -418,6 +462,9 @@ int main() {
 
 #ifdef ST_TS_WIN
 	ts_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), ts_p_idx);
+	// Mesh camera_frust("../../resources/models/objs/cube.obj");
+	ui.setTex(*tex_mon, key_light->getShadowMap(), ui_rp.getRenderSet(ui_p_idx).pipeline);
+
 #endif
 
 	const uint8_t trees_n = 50;
@@ -437,6 +484,10 @@ int main() {
 	GH::updateDS(ds_temp, 6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
 	s.hookupLightCatcher(&tree_body, ds_temp, {}, {0});
 	main_rp->addMesh(&tree_body, ds_temp, nullptr, dnsinstp_idx);
+	GH::createDS(sm_rp->getRenderSet(sminst_p_idx).pipeline, ds_temp);
+	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
+	sm_rp->addMesh(&tree_body, ds_temp, nullptr, sminst_p_idx);
+	s.hookupShadowCaster(&tree_body, {0});
 #ifdef ST_VERBOSE_STORAGE
 	GH_LOG_RESOURCE_SIZE(Tree Body VB, tree_body.getVertexBuffer().size);
 	GH_LOG_RESOURCE_SIZE(Tree Body IB, tree_body.getIndexBuffer().size);
@@ -445,9 +496,11 @@ int main() {
 	GH_LOG_RESOURCE_SIZE(Tree Body Normal, set.getTexture("normal").extent.width * set.getTexture("normal").extent.height * set.getTexture("normal").getPixelSize());
 	GH_LOG_RESOURCE_SIZE(Tree Body Specular, set.getTexture("specular").extent.width * set.getTexture("specular").extent.height * set.getTexture("specular").getPixelSize());
 #endif
+	/*
 	InstancedMesh tree_leaves("resources/models/tree_leaves.obj", trees_imdata, VB_TRAIT_ALL);
 	s.hookupLightCatcher(&tree_leaves, ds_temp, {}, {0});
 	main_rp->addMesh(&tree_leaves, ds_temp, nullptr, dnsinstp_idx);
+	*/
 
 	w.addTasks(s.getDrawTasks());
 
@@ -498,6 +551,17 @@ int main() {
 		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
 		return true;
 	}));
+	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_BUTTON_DOWN, [&w] (const SDL_Event& e) {
+		if (e.button.windowID == SDL_GetWindowID(w.getSDLWindow())) {
+			SDL_SetWindowRelativeMouseMode(w.getSDLWindow(), true);
+			return true;
+		}
+		return false;
+	}));
+	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_BUTTON_UP, [&w] (const SDL_Event& e) {
+		SDL_SetWindowRelativeMouseMode(w.getSDLWindow(), false);
+		return true;
+	}));
 
 	s.getCamera()->setPos(player_c->getPos());
 	dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
@@ -511,7 +575,7 @@ int main() {
 
 	while (w.frameCallback() && ts_w.frameCallback()) {
 #else
-	while (w.frameCallback()) {
+	while (w.frAameCallback()) {
 #endif
 #ifdef ST_TS_WIN
 		frame_dones[i] = SDL_GetTicks() - last_TOL;
@@ -561,6 +625,10 @@ int main() {
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());
+
+#ifdef ST_TS_WIN
+	ui_rp.destroy();
+#endif
 
 	return 0;
 }

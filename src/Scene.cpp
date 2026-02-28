@@ -267,7 +267,7 @@ void Scene::hookupLightCatcher(
 		WarningError("Max shadowcatchers reached, not adding").raise();
 		return;
 	}
-	numcatchers++;	
+	numcatchers++;
 
 	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, ce)});
 	updateLightCatcher(m, ds, dlidxs, scdlidxs, numcatchers - 1);

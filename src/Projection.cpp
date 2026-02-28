@@ -171,10 +171,10 @@ void DirectionalLight::updateProj() {
 		projection = glm::ortho<float>(
 			temp[0].x, temp[1].x, 
 			temp[0].y, temp[1].y, 
-			// -temp[1].z, -temp[0].z);
+			temp[0].z, temp[1].z);
 			// TODO: this is still strange...
-			-100, 100);
-			// -10, 10);
+			// -100, 100);
+			// 0, 10);
 /*
 		std::cout << "lo-z: " << temp[0].z << std::endl;
 		std::cout << "hi-z: " << temp[1].z << std::endl;

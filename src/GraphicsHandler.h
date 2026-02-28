@@ -377,6 +377,7 @@ public:
 	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
 	uint32_t getNumSCIs() const {return numscis;}
+	SDL_Window* getSDLWindow() {return sdlwindow;}
 
 private:
 	SDL_Window* sdlwindow;

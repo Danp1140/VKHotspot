@@ -375,9 +375,16 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, V
 	glm::vec4 temp;
 	for (const InstancedMeshData& imd : m) {
 		for (uint8_t i = 0; i < 2; i++) {
-			temp = glm::vec4(initialaabb[i], 1);
-			temp = imd.m * temp;
-			addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
+			for (uint8_t j = 0; j < 4; j++) {
+				if (j == 0) temp = glm::vec4(initialaabb[i], 1);
+				else {
+					glm::vec3 mask(0);
+					mask[j - 1] = 1;
+					temp = glm::vec4(initialaabb[i] + mask*initialaabb[(i+1)%2][j-1], 1);
+				}
+				temp = imd.m * temp;
+				addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
+			}
 		}
 	}
 }
