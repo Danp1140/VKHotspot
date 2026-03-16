@@ -342,27 +342,8 @@ InstancedMesh::InstancedMesh(InstancedMesh&& rvalue) :
 	rvalue.instanceub = {};
 }
 
-InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh(fp, m, VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {
-	/*
-InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
-	loadOBJ(fp);
-	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-	instanceub.size = m.size() * sizeof(InstancedMeshData);
-	GH::createBuffer(instanceub);
-	GH::updateWholeBuffer(instanceub, m.data());
-	glm::vec3 initialaabb[2] = {aabb[0], aabb[1]};
-	aabb[0] = glm::vec3(std::numeric_limits<float>::infinity());
-	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
-	glm::vec4 temp;
-	for (const InstancedMeshData& imd : m) {
-		for (uint8_t i = 0; i < 2; i++) {
-			temp = glm::vec4(initialaabb[i], 1);
-			temp = imd.m * temp;
-			addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
-		}
-	}
-	*/
-}
+InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : 
+	InstancedMesh(fp, m, VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
 
 InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, VertexBufferTraits t) : Mesh(fp, t) {
 	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -374,17 +355,10 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, V
 	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
 	glm::vec4 temp;
 	for (const InstancedMeshData& imd : m) {
-		for (uint8_t i = 0; i < 2; i++) {
-			for (uint8_t j = 0; j < 4; j++) {
-				if (j == 0) temp = glm::vec4(initialaabb[i], 1);
-				else {
-					glm::vec3 mask(0);
-					mask[j - 1] = 1;
-					temp = glm::vec4(initialaabb[i] + mask*initialaabb[(i+1)%2][j-1], 1);
-				}
-				temp = imd.m * temp;
-				addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
-			}
+		for (uint8_t i = 0; i < 8; i++) {
+			glm::vec4 temp(initialaabb[i % 2].x, initialaabb[(uint8_t)floor(i/2) % 2].y, initialaabb[(uint8_t)floor(i/4) % 2].z, 1);
+			temp = imd.m * temp;
+			addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
 		}
 	}
 }

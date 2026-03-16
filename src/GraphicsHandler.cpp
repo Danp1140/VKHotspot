@@ -34,7 +34,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 	sdlwindow = SDL_CreateWindow(
 		i.name, 
 		displaymode->w * i.s.x, displaymode->h * i.s.y, 
-		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_BORDERLESS);
 	SDL_Rect bounds;
 	SDL_GetDisplayBounds(disp_id, &bounds);
 	SDL_SetWindowPosition(sdlwindow, bounds.x + displaymode->w * i.p.x, bounds.y + displaymode->h * (1 - i.s.y));

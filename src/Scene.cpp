@@ -240,12 +240,10 @@ DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 }
 
 void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs) {
-	glm::vec4 vectemp;
 	glm::mat4 tempm;
 	for (uint8_t i = 0; i < scdlidxs.size(); i++) {
 		for (uint8_t j = 0; j < 2; j++) {
-			vectemp = m->getModelMatrix() * glm::vec4(m->getAABB()[j], 1);
-			dirsclights[scdlidxs[i]].addVecToFocus(glm::vec3(vectemp.x, vectemp.y, vectemp.z) / vectemp.w);
+			dirsclights[scdlidxs[i]].addVecToFocus(Light::apply(m->getModelMatrix(), m->getAABB()[j]));
 		}
 		// pretty inefficient to write this so frequently, but shouldn't be done too frequently
 		// in typical draw loop
@@ -306,4 +304,13 @@ void Scene::updateLightCatcher(
 	GH::updateDS(
 		ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
 		{}, {lightub.buffer, offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx, offsetof(LUBCatcherEntry, padding)});
+}
+
+void Scene::updateLUB(size_t i) {
+	LUBLightEntry tempe;
+	tempe.vp = Light::smadjmat * dirsclights[i].getVP();
+	tempe.lsp = dirsclights[i].getLSP();
+	tempe.p = dirsclights[i].getPos();
+	tempe.c = dirsclights[i].getCol();
+	GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * i);
 }

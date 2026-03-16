@@ -12,7 +12,7 @@
 #define ST_MAX_DIR_LIGHTS 8u
 #define CAMERA_SENS 0.01f
 #define MOVEMENT_SENS 50.f
-#define MOVEMENT_CAP 2.f
+#define MOVEMENT_CAP 20.f
 
 #define VB_TRAIT_ALL (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT)
 
@@ -21,6 +21,81 @@ typedef struct DNSScenePCData {
 	glm::vec3 c_pos;
 	float padding;
 } DNSScenePCData;
+
+typedef struct SMPCData {
+	glm::mat4 vp, lsp;
+} SMPCData;
+
+typedef struct InputData {
+	glm::vec3 movementdir = glm::vec3(0);
+} InputData;
+
+#ifdef ST_TS_WIN
+#define STATS_N 64
+#define ST_STATS_N_BINS 10
+#define ST_STATS_BIN_MIN 55.f
+#define ST_STATS_BIN_MAX 65.f
+typedef struct StatsData {
+	size_t i;
+	uint64_t last_TOL, last_frame_done,    // timestamps
+		TOLs[STATS_N], frame_dones[STATS_N]; // time deltas
+	UIContainer* hist_bars[ST_STATS_N_BINS];
+	UIText* summary_text;
+} StatsData;
+
+void initStatsData(StatsData& sd) {
+	sd.last_TOL = SDL_GetTicks();
+	sd.last_frame_done = sd.last_TOL;
+	sd.i = 0;
+}
+
+void updateStatsData(StatsData& sd) {
+	sd.i++;
+	if (sd.i == STATS_N) {
+		sd.i = 0;
+		float tot_fps[STATS_N], mean_TOL, mean_frame_done;
+		for (size_t i = 0; i < STATS_N; i++) {
+			tot_fps[i] = 1000.f/(float)(sd.TOLs[i] + sd.frame_dones[i]);
+			mean_TOL += (float)sd.TOLs[i] / 1000.f;
+			mean_frame_done += (float)sd.frame_dones[i] / 1000.f;
+		}
+		mean_TOL /= STATS_N;
+		mean_frame_done /= STATS_N;
+		float mean = 0, var = 0;
+		for (size_t i = 0; i < STATS_N; i++) mean += tot_fps[i];
+		mean /= (float)STATS_N;
+		for (size_t i = 0; i < STATS_N; i++) var += pow(tot_fps[i] - mean, 2);
+		var /= (float)STATS_N - 1.f;
+		float beta = sqrt(var * 6 / pow(3.14, 2));
+		float mu = mean - beta * 0.5772;
+
+		size_t bin_counts[ST_STATS_N_BINS];
+		for (size_t j = 0; j < ST_STATS_N_BINS; j++) bin_counts[j] = 0;
+		for (size_t i = 0; i < STATS_N; i++) {
+			float bin_width = (ST_STATS_BIN_MAX - ST_STATS_BIN_MIN) / (float)ST_STATS_N_BINS, 
+						bin_min = ST_STATS_BIN_MIN, 
+						bin_max = bin_min + bin_width;
+			if (tot_fps[i] > ST_STATS_BIN_MIN && tot_fps[i] < ST_STATS_BIN_MAX)
+				bin_counts[(size_t)floor((tot_fps[i] - ST_STATS_BIN_MIN) / bin_width)]++;
+		}
+		for (size_t j = 0; j < ST_STATS_N_BINS; j++) sd.hist_bars[j]->setExt({sd.hist_bars[j]->getExt().x, -10 * (float)bin_counts[j]});
+
+		float fps_norm_pivot = sqrt(STATS_N/var)*(50.f-mean);
+		sd.summary_text->setText(
+			L"Avg. FPS: " + std::to_wstring(mean)
+			+ L"\nSD FPS: " + std::to_wstring(sqrt(var))
+			+ L"\nProb of falling below 50: " + std::to_wstring(0.5*erfc(-fps_norm_pivot/sqrt(2)))
+			+ L"\n" + std::to_wstring(mean_TOL/mean*100.f) + L"\% in CPU events,\n"
+			+ std::to_wstring(mean_frame_done/mean*100.f) + L"\% in rendering setup and execution");
+
+	}
+}
+#endif
+
+glm::vec3 apply(glm::mat4 m, glm::vec3 v) {
+	glm::vec4 u = m * glm::vec4(v.x, v.y, v.z, 1);
+	return glm::vec3(u.x, u.y, u.z) / u.w;
+}
 
 RenderPassInfo* createMainRenderPass(Scene& s, WindowInfo& w) {
 	VkRenderPass r;
@@ -229,7 +304,7 @@ size_t createSMInstancedPipeline(RenderPassInfo& rpi, DirectionalLight& l) {
 		0,
 		1, &dtbindings[0]
 	};
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(SMPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ VERTEX_BUFFER_TRAIT_POSITION);
 	p.depthtest = true;
 	p.extent = l.getShadowMap().extent;
@@ -239,6 +314,29 @@ size_t createSMInstancedPipeline(RenderPassInfo& rpi, DirectionalLight& l) {
 	Mesh::ungetVISCI(p.vertexinputstateci);
 	l.setSMPipeline(p);
 	return rpi.addPipeline(p, &l.getVP());
+}
+
+void initInput(InputHandler& ih, Scene& s, WindowInfo& w, InputData& id) {
+	ih.addHold(InputHold(SDL_SCANCODE_W, [&id, c = s.getCamera()] () { id.movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&id, c = s.getCamera()] () { id.movementdir -= c->getRight(); }));
+	ih.addHold(InputHold(SDL_SCANCODE_S, [&id, c = s.getCamera()] () { id.movementdir -= glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&id, c = s.getCamera()] () { id.movementdir += c->getRight(); }));
+
+	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_MOTION, [c = s.getCamera()] (const SDL_Event& e) {
+		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
+		return true;
+	}));
+	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_BUTTON_DOWN, [&w] (const SDL_Event& e) {
+		if (e.button.windowID == SDL_GetWindowID(w.getSDLWindow())) {
+			SDL_SetWindowRelativeMouseMode(w.getSDLWindow(), true);
+			return true;
+		}
+		return false;
+	}));
+	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_BUTTON_UP, [&w] (const SDL_Event& e) {
+		SDL_SetWindowRelativeMouseMode(w.getSDLWindow(), false);
+		return true;
+	}));
 }
 
 #ifdef ST_TS_WIN
@@ -286,6 +384,35 @@ size_t createTSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
+	p.cullmode = VK_CULL_MODE_NONE;
+	GH::createPipeline(p);
+	Mesh::ungetVISCI(p.vertexinputstateci);
+	return rpi.addPipeline(p, nullptr);
+}
+
+size_t createTSInstPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "tsinst";
+	VkDescriptorSetLayoutBinding dtbindings[1] {{
+			0,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT,
+			nullptr
+	}};
+	p.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		1, &dtbindings[0]
+	};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData)};
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_NORMAL));
+	p.depthtest = true;
+	p.extent = w.getSCExtent();
+	p.renderpass = rpi.getRenderPass();
+	p.cullmode = VK_CULL_MODE_BACK_BIT;
 	GH::createPipeline(p);
 	Mesh::ungetVISCI(p.vertexinputstateci);
 	return rpi.addPipeline(p, nullptr);
@@ -362,6 +489,10 @@ int main() {
 	ghii.dexts.push_back("VK_KHR_create_renderpass2"); 
 	ghii.dexts.push_back("VK_KHR_multiview"); 
 	ghii.dexts.push_back("VK_KHR_maintenance2"); 
+	ghii.dps = {};
+	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64});
+	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8});
+
 	GH gh(ghii);
 	gh.setShaderDirectory("../../resources/shaders/SPIRV/");
 	WindowInitInfo wii;
@@ -374,9 +505,6 @@ int main() {
 	wii.target_display = 1;
 	WindowInfo ts_w(wii);
 	Scene ts_s(ts_w);
-	ts_s.getCamera()->setPos(glm::vec3(10, 10, 0));
-	ts_s.getCamera()->setForward(glm::vec3(-1, -1, 0));
-	DNSScenePCData dns_ts_s_pc {ts_s.getCamera()->getVP(), ts_s.getCamera()->getPos()};
 #endif
 
 	/*
@@ -385,30 +513,56 @@ int main() {
 	RenderPassInfo* main_rp = createMainRenderPass(s, w);
 	size_t dnsp_idx = createDNSPipeline(*main_rp, s, w);
 	size_t dnsinstp_idx = createDNSInstancedPipeline(*main_rp, s, w);
-	s.getCamera()->setPos(glm::vec3(20, 20, 0));
-	s.getCamera()->setForward(glm::vec3(-1, -1, 0));
 	DNSScenePCData dns_s_pc {s.getCamera()->getVP(), s.getCamera()->getPos()};
 	main_rp->setScenePC(dnsp_idx, &dns_s_pc);
 	main_rp->setScenePC(dnsinstp_idx, &dns_s_pc);
 #ifdef ST_TS_WIN
 	RenderPassInfo* ts_rp = createTSRenderPass(ts_s, ts_w);
 	size_t ts_p_idx = createTSPipeline(*ts_rp, ts_s, ts_w);
+	size_t tsinst_p_idx = createTSInstPipeline(*ts_rp, ts_s, ts_w);
+	DNSScenePCData dns_ts_s_pc;
+	ts_rp->setScenePC(ts_p_idx, &dns_ts_s_pc);
+	ts_rp->setScenePC(tsinst_p_idx, &dns_ts_s_pc);
 	RenderPassInfo ui_rp = createUIRenderPass(ts_w);
 	size_t ui_p_idx = createUIPipeline(ui_rp, ts_s, ts_w);
-	ts_rp->setScenePC(ts_p_idx, &dns_ts_s_pc);
 
 	/*
 	 * UI Setup
 	 */
+	StatsData sd;
+	initStatsData(sd);
+
 	UIHandler ui(ui_rp.getRenderSet(ui_p_idx).pipeline, ts_w.getSCExtent());
 	UIContainer* stats = ui.addComponent(UIContainer());
 	stats->setBGCol({0.1, 0.1, 0.1, 0.7});
 	stats->setExt({600, (float)ts_w.getSCExtent().height});
-	UIText* frame_stats_text = stats->addChild(UIText(L"fps will go here"));
-	frame_stats_text->setBGCol({0, 0, 0, 0});
+	sd.summary_text = stats->addChild(UIText(L"fps will go here"));
+	sd.summary_text->setBGCol({0, 0, 0, 0});
 	UIImage* tex_mon = ui.addComponent(UIImage());
-	tex_mon->setPos({(float)ts_w.getSCExtent().width - 600, (float)ts_w.getSCExtent().height - 600});
-	tex_mon->setExt({600, 600});
+	tex_mon->setPos({(float)ts_w.getSCExtent().width - 600, (float)ts_w.getSCExtent().height});
+	tex_mon->setExt({600, -600});
+	UIContainer* hist = ui.addComponent(UIContainer());
+	hist->setBGCol({0.1, 0.1, 0.1, 0.7});
+	UIContainer* hist_area = hist->addChild(UIContainer());
+	hist_area->setBGCol({0.8, 0.8, 0.8, 0.7});
+	const float hist_width = 550, hist_margin = 50, bar_width = hist_width / (float)ST_STATS_N_BINS, 
+				text_width = (ST_STATS_BIN_MAX - ST_STATS_BIN_MIN) / (float)ST_STATS_N_BINS;
+	float text_low = ST_STATS_BIN_MIN;
+	for (size_t i = 0; i < ST_STATS_N_BINS; i++) {
+		sd.hist_bars[i] = hist_area->addChild(UIContainer());
+		sd.hist_bars[i]->setPos({(float)i * bar_width, hist_width});
+		sd.hist_bars[i]->setExt({bar_width, 0});
+		sd.hist_bars[i]->setBGCol({0.1, 0.7, 0.1, 1});
+		UIText* hist_text_temp = hist_area->addChild(UIText(std::to_wstring(text_low).substr(0, 4)));
+		text_low += text_width;
+		hist_text_temp->setPos(sd.hist_bars[i]->getPos());
+		hist_text_temp->setPos(hist_text_temp->getPos() - (UICoord){hist_text_temp->getExt().x / 2, 0});
+		hist_text_temp->setBGCol({0, 0, 0, 0});
+	}
+	hist_area->setPos({hist_margin, 0});
+	hist_area->setExt({hist_width, hist_width});
+	hist->setPos({(float)ts_w.getSCExtent().width - (hist_width + hist_margin), (float)ts_w.getSCExtent().height - (600 + hist_width + hist_margin)});
+	hist->setExt({hist_width + hist_margin, hist_width + hist_margin});
 #endif
 
 	/*
@@ -424,12 +578,20 @@ int main() {
 	/*
 	 * Lighting Setup
 	 */
-	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(
-		{{glm::vec3(0.01, 20, 0), glm::vec3(1), {1024, 1024}}, 
-		DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(-0.01, -20, 0)}));
+	DirectionalLightInitInfo kl_ii;
+	// kl_ii.super.p = glm::vec3(10, 20, 10);
+	kl_ii.super.p = glm::vec3(100, 200, 100);
+	kl_ii.super.sme = {1024, 1024};
+	kl_ii.f = glm::vec3(-10, -20, -10);
+	// kl_ii.sm_t = LIGHT_SM_TYPE_LISP;
+	kl_ii.sm_t = LIGHT_SM_TYPE_UNIFORM;
+	kl_ii.sm_dat = s.getCamera();
+	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(kl_ii));
 	RenderPassInfo* sm_rp = &s.getRenderPass(0);
 	size_t sm_p_idx = createSMPipeline(*sm_rp, *key_light);
 	size_t sminst_p_idx = createSMInstancedPipeline(*sm_rp, *key_light);
+	SMPCData sm_pc_d;
+	sm_rp->setScenePC(sminst_p_idx, &sm_pc_d);
 
 	/*
 	 * Textures
@@ -447,27 +609,13 @@ int main() {
 	VkDescriptorSet ds_temp;
 	const TextureSet& set = th.getSet("soil");
 	GH::createDS(main_rp->getRenderSet(dnsp_idx).pipeline, ds_temp);
+	s.hookupLightCatcher(&ground, ds_temp, {}, {0});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
-	s.hookupLightCatcher(&ground, ds_temp, {}, {0});
 	main_rp->addMesh(&ground, ds_temp, &ground.getModelMatrix(), dnsp_idx);
-#ifdef ST_VERBOSE_STORAGE
-	GH_LOG_RESOURCE_SIZE(Ground VB, ground.getVertexBuffer().size);
-	GH_LOG_RESOURCE_SIZE(Ground IB, ground.getIndexBuffer().size);
-	GH_LOG_RESOURCE_SIZE(Ground Diffuse, set.getTexture("diffuse").extent.width * set.getTexture("diffuse").extent.height * set.getTexture("diffuse").getPixelSize());
-	GH_LOG_RESOURCE_SIZE(Ground Normal, set.getTexture("normal").extent.width * set.getTexture("normal").extent.height * set.getTexture("normal").getPixelSize());
-	GH_LOG_RESOURCE_SIZE(Ground Specular, set.getTexture("specular").extent.width * set.getTexture("specular").extent.height * set.getTexture("specular").getPixelSize());
-#endif
 
-#ifdef ST_TS_WIN
-	ts_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), ts_p_idx);
-	// Mesh camera_frust("../../resources/models/objs/cube.obj");
-	ui.setTex(*tex_mon, key_light->getShadowMap(), ui_rp.getRenderSet(ui_p_idx).pipeline);
-
-#endif
-
-	const uint8_t trees_n = 50;
+	const uint8_t trees_n = 63;
 	const float trees_offset = 20, trees_range = 20;
 	std::vector<InstancedMeshData> trees_imdata(trees_n);
 	srand(0);
@@ -475,32 +623,39 @@ int main() {
 		trees_imdata[i].m = glm::mat4(1);
 		trees_imdata[i].m = glm::rotate(trees_imdata[i].m, glm::two_pi<float>()*(float)rand()/(float)RAND_MAX, glm::vec3(0, 1, 0));
 		trees_imdata[i].m = glm::translate(trees_imdata[i].m, glm::vec3(trees_offset, 0, 0) + trees_range * glm::vec3((float)rand() / (float)RAND_MAX, 0, 0));
+		// trees_imdata[i].m = glm::rotate(trees_imdata[i].m, (float)i * 0.3f, glm::vec3(0, 1, 0));
+		// trees_imdata[i].m = glm::translate(trees_imdata[i].m, glm::vec3((float)i*2, 0, 0));
 	}
 	InstancedMesh tree_body("resources/models/tree_body.obj", trees_imdata, VB_TRAIT_ALL);
 	GH::createDS(main_rp->getRenderSet(dnsinstp_idx).pipeline, ds_temp);
+	s.hookupLightCatcher(&tree_body, ds_temp, {}, {0});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
 	GH::updateDS(ds_temp, 6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
-	s.hookupLightCatcher(&tree_body, ds_temp, {}, {0});
 	main_rp->addMesh(&tree_body, ds_temp, nullptr, dnsinstp_idx);
 	GH::createDS(sm_rp->getRenderSet(sminst_p_idx).pipeline, ds_temp);
 	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
 	sm_rp->addMesh(&tree_body, ds_temp, nullptr, sminst_p_idx);
+
+	s.hookupShadowCaster(&ground, {0});
 	s.hookupShadowCaster(&tree_body, {0});
-#ifdef ST_VERBOSE_STORAGE
-	GH_LOG_RESOURCE_SIZE(Tree Body VB, tree_body.getVertexBuffer().size);
-	GH_LOG_RESOURCE_SIZE(Tree Body IB, tree_body.getIndexBuffer().size);
-	GH_LOG_RESOURCE_SIZE(Tree Body UB, tree_body.getInstanceUB().size);
-	GH_LOG_RESOURCE_SIZE(Tree Body Diffuse, set.getTexture("diffuse").extent.width * set.getTexture("diffuse").extent.height * set.getTexture("diffuse").getPixelSize());
-	GH_LOG_RESOURCE_SIZE(Tree Body Normal, set.getTexture("normal").extent.width * set.getTexture("normal").extent.height * set.getTexture("normal").getPixelSize());
-	GH_LOG_RESOURCE_SIZE(Tree Body Specular, set.getTexture("specular").extent.width * set.getTexture("specular").extent.height * set.getTexture("specular").getPixelSize());
+
+#ifdef ST_TS_WIN
+	ts_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), ts_p_idx);
+	ts_rp->addMesh(&tree_body, ds_temp, nullptr, tsinst_p_idx);
+	Mesh camera_frust("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
+	ts_rp->addMesh(&camera_frust, VK_NULL_HANDLE, &camera_frust.getModelMatrix(), ts_p_idx);
+	Mesh lisp_frust("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
+	ts_rp->addMesh(&lisp_frust, VK_NULL_HANDLE, &lisp_frust.getModelMatrix(), ts_p_idx);
+	ui.setTex(*tex_mon, key_light->getShadowMap(), ui_rp.getRenderSet(ui_p_idx).pipeline);
+	key_light->updateView();
+	key_light->updateProj();
+	dns_ts_s_pc.vp = key_light->getVP();
+	dns_ts_s_pc.c_pos = key_light->getPos();
 #endif
-	/*
-	InstancedMesh tree_leaves("resources/models/tree_leaves.obj", trees_imdata, VB_TRAIT_ALL);
-	s.hookupLightCatcher(&tree_leaves, ds_temp, {}, {0});
-	main_rp->addMesh(&tree_leaves, ds_temp, nullptr, dnsinstp_idx);
-	*/
+	sm_pc_d.vp = key_light->getVP();
+	s.updateLUB(0);
 
 	w.addTasks(s.getDrawTasks());
 
@@ -530,97 +685,54 @@ int main() {
 	 * Input
 	 */
 	InputHandler ih;
-	glm::vec3 movementdir;
-	bool no_jump;
-	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
-	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, c = s.getCamera()] () { movementdir -= c->getRight(); }));
-	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
-	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += c->getRight(); }));
-
-	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&ph, player_c, &no_jump] (const SDL_Event& e) {
-		if (e.key.scancode == SDL_SCANCODE_SPACE && !e.key.repeat && !no_jump) {
-			ph.addTimedForce({player_c, player_c->getMass() * glm::vec3(0, 20, 0), 0.2});
-			return true;
-		}
-		return false;
-	}));
-	player_ground_cp->setOnDecouple({[] (void* d) { *(bool*)d = true; }, &no_jump});
-	player_ground_cp->setOnCouple({[] (void* d) { *(bool*)d = false; }, &no_jump});
-
-	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_MOTION, [c = s.getCamera()] (const SDL_Event& e) {
-		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
-		return true;
-	}));
-	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_BUTTON_DOWN, [&w] (const SDL_Event& e) {
-		if (e.button.windowID == SDL_GetWindowID(w.getSDLWindow())) {
-			SDL_SetWindowRelativeMouseMode(w.getSDLWindow(), true);
-			return true;
-		}
-		return false;
-	}));
-	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_BUTTON_UP, [&w] (const SDL_Event& e) {
-		SDL_SetWindowRelativeMouseMode(w.getSDLWindow(), false);
-		return true;
-	}));
+	InputData id;
+	initInput(ih, s, w, id);
 
 	s.getCamera()->setPos(player_c->getPos());
 	dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
 
 	ph.start();
-#ifdef ST_TS_WIN
-	const size_t stats_n = 64;
-	size_t i = 0;
-	uint64_t last_TOL = SDL_GetTicks(), last_frame_done = last_TOL; // timestamps
-	uint64_t TOLs[stats_n], frame_dones[stats_n]; // time deltas
 
+	float theta = 0;
+
+#ifdef ST_TS_WIN
 	while (w.frameCallback() && ts_w.frameCallback()) {
 #else
-	while (w.frAameCallback()) {
+	while (w.frameCallback()) {
 #endif
 #ifdef ST_TS_WIN
-		frame_dones[i] = SDL_GetTicks() - last_TOL;
-		last_frame_done = SDL_GetTicks();
+		sd.frame_dones[sd.i] = SDL_GetTicks() - sd.last_TOL;
+		sd.last_frame_done = SDL_GetTicks();
 #endif
-		movementdir = glm::vec3(0);
+		id.movementdir = glm::vec3(0);
 		ih.update();
 		SDL_PumpEvents();
-		if (movementdir != glm::vec3(0) && glm::length(player_c->getVel()) < MOVEMENT_CAP) {
-			movementdir = glm::normalize(movementdir);
-			ph.addTimedForce({player_c, MOVEMENT_SENS * movementdir, 0});
+		if (id.movementdir != glm::vec3(0) && glm::length(player_c->getVel()) < MOVEMENT_CAP) {
+			id.movementdir = glm::normalize(id.movementdir);
+			ph.addTimedForce({player_c, MOVEMENT_SENS * id.movementdir, 0});
 		}
 
 		ph.update();
 
 		s.getCamera()->setPos(player_c->getPos());
 		dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
+
+		theta = (float)SDL_GetTicks() / 1000.f;
+		key_light->setPos(100.f * glm::vec3(sin(theta), 1, cos(theta)));
+		key_light->setForward(-glm::normalize(key_light->getPos()));
+		sm_pc_d.vp = key_light->getVP();
+		s.updateLUB(0);
+		dns_ts_s_pc.vp = key_light->getVP();
+		dns_ts_s_pc.c_pos = key_light->getPos();
+		
 #ifdef ST_TS_WIN
-		TOLs[i] = SDL_GetTicks() - last_frame_done;
-		last_TOL = SDL_GetTicks();
-		i++;
-		if (i == stats_n) {
-			uint64_t TOL_tot = 0, f_d_tot = 0;
-			float fps_avg = 0;
-			for (size_t x = 0; x < stats_n; x++) {
-				TOL_tot += TOLs[x];
-				f_d_tot += frame_dones[x];
-				fps_avg += 1000.f / (float)(TOLs[x] + frame_dones[x]);
-			}
-			float tot_avg = (float)(TOL_tot+f_d_tot) / (float)stats_n / 1000.f;
-			fps_avg /= (float)stats_n;
-			float fps_var = 0;
-			for (size_t x = 0; x < stats_n; x++) {
-				fps_var += pow(fps_avg - 1000.f/(float)(TOLs[x] + frame_dones[x]), 2);
-			}
-			fps_var /= (float)stats_n - 1.f;
-			float fps_norm_pivot = sqrt(stats_n/fps_var)*(50.f-fps_avg);
-			frame_stats_text->setText(
-				L"Avg. FPS: " + std::to_wstring(fps_avg)
-				+ L"\nSD FPS: " + std::to_wstring(sqrt(fps_var))
-				+ L"\nProb of falling below 50: " + std::to_wstring(0.5*erfc(-fps_norm_pivot/sqrt(2)))
-				+ L"\n" + std::to_wstring((float)TOL_tot/1000.f/(float)stats_n/tot_avg*100.f) + L"\% in CPU events,\n"
-				+ std::to_wstring((float)f_d_tot/1000.f/(float)stats_n/tot_avg*100.f) + L"\% in rendering setup and execution");
-			i = 0;
-		}
+		// key_light->updateView();
+		// key_light->updateProj();
+
+		camera_frust.setModelMatrix(glm::inverse(s.getCamera()->getVP()));
+		sd.TOLs[sd.i] = SDL_GetTicks() - sd.last_frame_done;
+		sd.last_TOL = SDL_GetTicks();
+		updateStatsData(sd);
 #endif
 	}
 
@@ -631,4 +743,4 @@ int main() {
 #endif
 
 	return 0;
-}
+	}

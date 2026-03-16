@@ -83,7 +83,7 @@ private:
 
 // TODO: consider using std430 for all below
 typedef struct LUBLightEntry {
-	glm::mat4 vp;
+	glm::mat4 vp, lsp;
 	alignas(16) glm::vec3 p, c;
 } LUBEntry;
 
@@ -149,6 +149,7 @@ public:
 	size_t getNumDirSCLights() const {return numdirsclights;}
 	const BufferInfo& getLUB() {return lightub;}
 	RenderPassInfo& getRenderPass(size_t i) {return *renderpasses[i];}
+	void updateLUB(size_t i);
 
 private:
 	Camera* camera;
