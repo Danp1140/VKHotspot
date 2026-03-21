@@ -1,41 +1,64 @@
 #include "Projection.h"
 
 /*
+ * ProjectionBase
+ */
+
+glm::vec3 ProjectionBase::apply(glm::mat4 A, glm::vec3 v) {
+	// TODO get rid of unnecesary dot prod on fourth row
+	glm::vec4 u = A * glm::vec4(v.x, v.y, v.z, 1);
+	return glm::vec3(u.x, u.y, u.z);
+}
+
+glm::vec3 ProjectionBase::applyHomo(glm::mat4 A, glm::vec3 v) {
+	glm::vec4 u = A * glm::vec4(v.x, v.y, v.z, 1);
+	return glm::vec3(u.x, u.y, u.z) / u.w;
+}
+
+/*
+ * PositionalProjectionBase
+ */
+
+void PositionalProjectionBase::setPos(const glm::vec3& p) {
+	position = p;
+	updateView();
+}
+
+/*
+ * DirectionalProjectionBase
+ */
+
+void DirectionalProjectionBase::setForward(const glm::vec3& f) {
+	forward = glm::normalize(f);
+	updateView();
+}
+
+/*
  * Camera
  */
 
 // -- Public --
 
 Camera::Camera() : 
-	position(glm::vec3(0, 0, 1)), 
-	forward(glm::vec3(0, 0, -1)),
 	fovy(glm::quarter_pi<float>()),
 	aspectratio(1),
 	nearclip(CAMERA_DEFAULT_NEAR_CLIP),
-	farclip(CAMERA_DEFAULT_FAR_CLIP) {
+	farclip(CAMERA_DEFAULT_FAR_CLIP),
+	PositionalProjectionBase(),
+	DirectionalProjectionBase() {
 	updateView();
 	updateProj();
 }
 
 Camera::Camera(glm::vec3 p, glm::vec3 f, float fov, float ar) : 
-	position(p), 
-	forward(f), 
 	fovy(fov), 
 	aspectratio(ar),
 	nearclip(CAMERA_DEFAULT_NEAR_CLIP),
-	farclip(CAMERA_DEFAULT_FAR_CLIP) {
+	farclip(CAMERA_DEFAULT_FAR_CLIP),
+	PositionalProjectionBase(p),
+	DirectionalProjectionBase(f) {
 	updateView();
 	updateProj();
-}
-
-void Camera::setPos(glm::vec3 p) {
-	position = p;
-	updateView();
-}
-
-void Camera::setForward(glm::vec3 f) {
-	forward = glm::normalize(f);
-	updateView();
 }
 
 void Camera::setFOVY(float f) {
@@ -43,205 +66,99 @@ void Camera::setFOVY(float f) {
 	updateProj();
 }
 
-void Camera::setFarClip(float f) {
-	farclip = f;
-	updateProj();
-}
-
 // -- Private --
 
 void Camera::updateView() {
-	right = glm::normalize(glm::vec3(-forward.z, 0, forward.x));
-	up = glm::cross(right, forward);
 	view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
 	vp = projection * view;
 }
 
-// starting with just a typical perspective cam
 void Camera::updateProj() {
 	projection = glm::perspectiveRH_ZO<float>(fovy, aspectratio, nearclip, farclip); 
-	// below adjusts for vulkan's lower-left viewport origin
-	// we could also flip the viewport in GH's pipeline create function, something to
-	// consider later
 	projection[1][1] *= -1;
 	vp = projection * view;
 }
 
-Light::Light(const LightInitInfo& i) :
-	position(i.p),
-	color(i.c) {
-	if (i.sme.width > 0 && i.sme.height > 0) {
-		shadowmap.extent = i.sme;
-		shadowmap.format = LIGHT_SHADOW_MAP_FORMAT;
-		shadowmap.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-		shadowmap.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-		// ^^^ transitioned to DEPTH_STENCIL_READ_ONLY_OPTIMAL after renderpass
-		// TODO: reuse one sampler
-		vkCreateSampler(GH::getLD(), &defaultshadowsamplerci, nullptr, &shadowmap.sampler);
-		GH::createImage(shadowmap);
-	}
-	else shadowmap = {};
-	focus[0] = glm::vec3(std::numeric_limits<float>::infinity());
-	focus[1] = glm::vec3(-std::numeric_limits<float>::infinity());
-}
+/*
+ * LightSMData
+ */
 
-Light::Light(glm::vec3 p, glm::vec3 c) : Light() {
-	position = p;
-	color = c;
-}
-
-Light::~Light() {
-	if (shadowmap.image != VK_NULL_HANDLE) {
-		vkDestroySampler(GH::getLD(), shadowmap.sampler, nullptr);
-		GH::destroyImage(shadowmap);
-	}
-}
-
-Light& Light::operator=(Light&& rhs) {
-	swap(*this, rhs);
-	rhs.shadowmap = {};
-	return *this;
-}
-
-void swap(Light& lhs, Light& rhs) {
-	std::swap(lhs.position, rhs.position);
-	std::swap(lhs.color, rhs.color);
-	std::swap(lhs.shadowmap, rhs.shadowmap);
-	std::swap(lhs.smpipeline, rhs.smpipeline);
-}
-
-glm::vec3 Light::apply(glm::mat4 A, glm::vec3 v) {
-	glm::vec4 u = A * glm::vec4(v.x, v.y, v.z, 1);
-	return glm::vec3(u.x, u.y, u.z);
-}
-
-glm::vec3 Light::applyHomo(glm::mat4 A, glm::vec3 v) {
-	glm::vec4 u = A * glm::vec4(v.x, v.y, v.z, 1);
-	return glm::vec3(u.x, u.y, u.z) / u.w;
-}
-
-void Light::addVecToFocus(const glm::vec3& v) {
+void LightSMData::addVecToFocus(const glm::vec3& v) {
 	for (uint8_t i = 0; i < 3; i++) {
 		focus[0][i] = std::min(focus[0][i], v[i]);
 		focus[1][i] = std::max(focus[1][i], v[i]);
 	}
 }
 
-DirectionalLight::DirectionalLight(const DirectionalLightInitInfo& i) : 
-	Light(i.super), 
-	type(i.t),
-	forward(i.f),
-	sm_type(i.sm_t),
-	sm_data(i.sm_dat) {
-	updateView();
-	updateProj();
+/*
+ * Light
+ */
+
+Light::Light(const LightInitInfo& i) : color(i.c) {}
+
+Light& Light::operator=(Light&& rhs) {
+	swap(*this, rhs);
+	return *this;
 }
 
-DirectionalLight::DirectionalLight(glm::vec3 p, glm::vec3 f, glm::vec3 c) : forward(f), Light(p, c) { 
+void swap(Light& lhs, Light& rhs) {
+	std::swap(lhs.color, rhs.color);
+	std::swap(lhs.sm_data, rhs.sm_data);
+}
+
+void Light::addVecToFocus(const glm::vec3& v, size_t i) {
+	sm_data[i].addVecToFocus(v);
+}
+
+/*
+ * DirectionalLight
+ */
+
+DirectionalLight::DirectionalLight(const DirectionalLightInitInfo& i) : 
+	Light(i.super) {
 	updateView();
 	updateProj();
 }
 
 DirectionalLight& DirectionalLight::operator=(DirectionalLight&& rhs) {
 	swap(*this, rhs);
-	rhs.shadowmap = {};
 	return *this;
 }
 
 void swap(DirectionalLight& lhs, DirectionalLight& rhs) {
 	swap(static_cast<Light&>(lhs), static_cast<Light&>(rhs));
-	std::swap(lhs.forward, rhs.forward);
-	std::swap(lhs.vp, rhs.vp);
-	std::swap(lhs.view, rhs.view);
-	std::swap(lhs.projection, rhs.projection);
-	std::swap(lhs.type, rhs.type);
-	std::swap(lhs.sm_type, rhs.sm_type);
-	std::swap(lhs.sm_data, rhs.sm_data);
 }
 
-void DirectionalLight::addVecToFocus(const glm::vec3& v) {
-	Light::addVecToFocus(v);
-	updateProj();
-}
+void DirectionalLight::updateSMDatum(size_t sm_i) {
+	glm::mat4 view = glm::lookAt<float>(glm::vec3(0), forward, glm::vec3(0, 1, 0));
+	sm_data[sm_i].setView(view);
 
-void DirectionalLight::setPos(glm::vec3 p) {
-	position = p;
-	updateView();
-	updateProj();
-}
-
-void DirectionalLight::setForward(glm::vec3 f) {
-	forward = f;
-	updateView();
-	updateProj();
-}
-
-void DirectionalLight::updateView() {
-	psm = glm::mat4(1);
-	if (sm_type == LIGHT_SM_TYPE_UNIFORM) {
-		if (!sm_data) return;
-		Camera* c = (Camera*)sm_data;
-		view = glm::lookAt<float>(position, position + forward, c->getForward());
-		// view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
-	}
-	else if (sm_type == LIGHT_SM_TYPE_PERSPECTIVE) {
-		Camera* c = (Camera*)sm_data;
-		// psm = c->getProj() * glm::lookAt(c->getPos() - 100.f * c->getForward(), c->getPos(), glm::vec3(0, 1, 0));
-		/*
-		glm::vec3 p = applyHomo(psm, glm::vec3(0));
-		glm::vec3 f = applyHomo(psm, forward);
-		view = glm::lookAt<float>(p, f, glm::vec3(0, 1, 0));
-		*/
-		glm::mat4 temp(1);
-		float n = 1;
-		float f = 100;
-		/*
-		temp[2][2] = f/ (f-n);
-		temp[2][3] = -f*n/(f-n);
-		temp[3][3] = 0;
-		temp[3][2] = -1;
-		*/
-		temp = glm::perspectiveRH_ZO<float>(1.57, 1, 1, 100);
-		view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0))
-		 	* temp * c->getView();
-		glm::vec4 test = view * glm::vec4(0, 0, 0, 1);
-		std::cout << test.x << ", " << test.y << ", " << test.z << ", " << test.w << std::endl;
-	}
-	else if (sm_type == LIGHT_SM_TYPE_LISP) {
-		Camera* c = (Camera*)sm_data;
-		glm::vec3 c_right = glm::cross(c->getForward(), glm::vec3(0, 1, 0));
-		glm::vec3 p_up = -forward;
-		glm::vec3 p_fwd = glm::cross(p_up, c_right);
-		// glm::vec3 p_pos = c->getPos() - n * p_fwd; 
-		// glm::mat4 psm_view = glm::lookAt(p_pos, p_fwd, p_up);
-		glm::vec3 up = glm::cross(c->getForward(), forward);
-		glm::mat4 psm_view = glm::lookAt(c->getPos(), forward, up);
-		float dp = glm::dot(c->getForward(), forward);
-		float singam = sqrt(1-dp*dp);
-		float n = (c->getNearClip()+sqrt(c->getNearClip()*c->getFarClip())) / singam;
-		glm::vec3 temp = apply(psm_view, focus[0]), ls_aabb[2] = {temp, temp};
-		for (uint8_t i = 1; i < 8; i++) {
-			temp = apply(psm_view, glm::vec3(focus[i % 2].x, focus[(uint8_t)floor(i/2) % 2].y, focus[(uint8_t)floor(i/4) % 2].z));
-			for (uint8_t j = 0; j < 3; j++) {
-				if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
-				if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
-			}
+	glm::vec3 temp = apply(view, sm_data[sm_i].focus[0]), ls_aabb[2] = {temp, temp};
+	for (uint8_t i = 1; i < 8; i++) {
+		temp = apply(view, glm::vec3(sm_data[sm_i].focus[i % 2].x, sm_data[sm_i].focus[(uint8_t)floor(i/2) % 2].y, sm_data[sm_i].focus[(uint8_t)floor(i/4) % 2].z));
+		for (uint8_t j = 0; j < 3; j++) {
+			if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
+			if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
 		}
-		float d = ls_aabb[1][1] - ls_aabb[0][1];
-		float f = n + d;
-		view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
-		std::cout << "n = " << n << ", f = " << f << std::endl;
-		// psm = glm::frustum<float>(-1, 1, -1, 1, n, f) * glm::lookAt(glm::vec3(0), p_fwd, glm::vec3(0, 1, 0));
-		psm = glm::frustum<float>(-1, 1, 1, -1, 100, 200);
-		psm[1][1] *= -1;
 	}
-	else if (sm_type == LIGHT_SM_TYPE_TRAPEZOID) FatalError("Trapezoidal SM not yet implemented").raise();
-	else FatalError("Unrecognized SM type").raise();
+	sm_data[sm_i].setProj(glm::ortho<float>(
+		ls_aabb[0].x, ls_aabb[1].x, 
+		ls_aabb[1].y, ls_aabb[0].y,
+		-(ls_aabb[0].z + 2 * (ls_aabb[1].z - ls_aabb[0].z)), -ls_aabb[0].z)); // negate & flip b/c we're looking in the -z direction?
+
+	sm_data[sm_i].updateProj()
+}
+
+/*
+void DirectionalLight::updateView() {
+	view = glm::lookAt<float>(glm::vec3(0), forward, glm::vec3(0, 1, 0));
 	vp = projection * view;
 }
+*/
 
+/*
 void DirectionalLight::updateProj() {
-	if (type == DIRECTIONAL_LIGHT_TYPE_CASCADE) {
+	if (sm_data.size() > 1) {
 		Camera* c = (Camera*)sm_data;
 		glm::mat4 ivp = glm::inverse(c->getVP());
 		glm::vec3 coord = glm::vec3(-1, -1, 0);
@@ -270,12 +187,12 @@ void DirectionalLight::updateProj() {
 		std::cout << ls_aabb[0].y << ", " << ls_aabb[1].y << "\n";
 		std::cout << ls_aabb[0].z << ", " << ls_aabb[1].z << "\n";
 	}
-	else if (type == DIRECTIONAL_LIGHT_TYPE_ORTHO) {
+	else {
 		// std::cout << "world-space focus: [<" << focus[0].x << ", " << focus[0].y << ", " << focus[0].z << ">, <";
 		// std::cout << focus[1].x << ", " << focus[1].y << ", " << focus[1].z << ">]\n";
-		glm::vec3 temp = apply(psm*view, focus[0]), ls_aabb[2] = {temp, temp};
+		glm::vec3 temp = apply(view, sm_data.focus[0]), ls_aabb[2] = {temp, temp};
 		for (uint8_t i = 1; i < 8; i++) {
-			temp = apply(psm*view, glm::vec3(focus[i % 2].x, focus[(uint8_t)floor(i/2) % 2].y, focus[(uint8_t)floor(i/4) % 2].z));
+			temp = apply(view, glm::vec3(sm_data.focus[i % 2].x, sm_data.focus[(uint8_t)floor(i/2) % 2].y, sm_data.focus[(uint8_t)floor(i/4) % 2].z));
 			for (uint8_t j = 0; j < 3; j++) {
 				if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
 				if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
@@ -295,10 +212,11 @@ void DirectionalLight::updateProj() {
 		// std::cout << "check test: [<" << test[0].x << ", " << test[0].y << ", " << test[0].z << ">, <";
 		// std::cout << test[1].x << ", " << test[1].y << ", " << test[1].z << ">]\n";
 	}
-	else if (type == DIRECTIONAL_LIGHT_TYPE_PERSP)
-		projection = glm::perspective<float>(0.78, (float)shadowmap.extent.width / (float)shadowmap.extent.height, 0.01, 100);
-	else FatalError("Unknown light projection type").raise();
+	// else if (type == DIRECTIONAL_LIGHT_TYPE_PERSP)
+	// 	projection = glm::perspective<float>(0.78, (float)sm_data.extent.width / (float)sm_data.extent.height, 0.01, 100);
+	// else FatalError("Unknown light projection type").raise();
 
 	// projection[1][1] *= -1;
 	vp = projection * view;
 }
+*/

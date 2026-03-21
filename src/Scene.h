@@ -11,10 +11,13 @@ struct RenderSet;
 // #define VKH_VERBOSE_DRAW_TASKS
 
 // for various reasons, these cannot get above 256
-#define SCENE_MAX_DIR_LIGHTS uint8_t(8) 
-#define SCENE_MAX_DIR_SHADOWCASTING_LIGHTS uint8_t(8)
+#define SCENE_MAX_DIR_LIGHTS ((uint8_t)8) 
+#define SCENE_MAX_SPOT_LIGHTS ((uint8_t)8)
+#define SCENE_MAX_POINT_LIGHTS ((uint8_t)8)
+#define SCENE_MAX_SC_LIGHTS ((uint8_t)8)
+#define SCENE_MAX_DIR_SHADOWCASTING_LIGHTS ((uint8_t)8)
 // this one can tho
-#define SCENE_MAX_SHADOWCATCHERS uint32_t(64)
+#define SCENE_MAX_SHADOWCATCHERS ((uint32_t)64)
 
 typedef struct ScenePCData {
 	glm::mat4 vp;
@@ -83,7 +86,7 @@ private:
 
 // TODO: consider using std430 for all below
 typedef struct LUBLightEntry {
-	glm::mat4 vp, lsp;
+	glm::mat4 vp;
 	alignas(16) glm::vec3 p, c;
 } LUBEntry;
 

@@ -189,7 +189,7 @@ RenderPassInfo* Scene::addRenderPass(const RenderPassInfo& r) {
 
 DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 	LUBLightEntry tempe;
-	if (l.getShadowMap().image == VK_NULL_HANDLE) {
+	if (l.getSMData().size() > 0) {
 		if (numdirlights == SCENE_MAX_DIR_LIGHTS) {
 			WarningError("Maximum directional lights exceeded, not adding\n").raise();
 			return nullptr;
@@ -198,7 +198,7 @@ DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 		numdirlights++;
 		
 		tempe.vp = Light::smadjmat * dirlights[numdirlights - 1].getVP();
-		tempe.p = dirlights[numdirlights - 1].getPos();
+		tempe.p = glm::vec3(0);
 		tempe.c = dirlights[numdirlights - 1].getCol();
 		GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), sizeof(LUBLightEntry) * (numdirlights - 1));
 
@@ -213,7 +213,7 @@ DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 	numdirsclights++;
 
 	tempe.vp = Light::smadjmat * dirsclights[numdirsclights - 1].getVP();
-	tempe.p = dirsclights[numdirsclights - 1].getPos();
+	tempe.p = glm::vec3(0);
 	tempe.c = dirsclights[numdirsclights - 1].getCol();
 	GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * (numdirsclights - 1));
 
@@ -232,7 +232,7 @@ DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
 	VkAttachmentReference attachref {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 	GH::createRenderPass(r, 1, &attachdesc, nullptr, nullptr, &attachref);
 
-	RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, nullptr, &dirsclights[numdirsclights - 1].getShadowMap(), {{1, 0}});
+	RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, nullptr, dirsclights[numdirsclights - 1].getSMData()[0].sm, {{1, 0}});
 
 	renderpasses.insert(renderpasses.begin(), rpi); 
 
@@ -243,7 +243,7 @@ void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlid
 	glm::mat4 tempm;
 	for (uint8_t i = 0; i < scdlidxs.size(); i++) {
 		for (uint8_t j = 0; j < 2; j++) {
-			dirsclights[scdlidxs[i]].addVecToFocus(Light::apply(m->getModelMatrix(), m->getAABB()[j]));
+			dirsclights[scdlidxs[i]].addVecToFocus(ProjectionBase::apply(m->getModelMatrix(), m->getAABB()[j]));
 		}
 		// pretty inefficient to write this so frequently, but shouldn't be done too frequently
 		// in typical draw loop
@@ -297,7 +297,7 @@ void Scene::updateLightCatcher(
 	// TODO: if we make incremental arrayds update func in GH, we only have to update one, theoretically
 	std::vector<VkDescriptorImageInfo> ii;
 	for (uint8_t i = 0; i < scdlidxs.size(); i++) 
-		ii.push_back(dirsclights[scdlidxs[i]].getShadowMap().getDII());
+		ii.push_back(dirsclights[scdlidxs[i]].getSMData()[0].sm->getDII());
 	for (uint8_t i = scdlidxs.size(); i < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS; i++) 
 		ii.push_back(GH::getBlankImage().getDII());
 	GH::updateArrayDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
@@ -309,8 +309,7 @@ void Scene::updateLightCatcher(
 void Scene::updateLUB(size_t i) {
 	LUBLightEntry tempe;
 	tempe.vp = Light::smadjmat * dirsclights[i].getVP();
-	tempe.lsp = dirsclights[i].getLSP();
-	tempe.p = dirsclights[i].getPos();
+	tempe.p = glm::vec3(0);
 	tempe.c = dirsclights[i].getCol();
 	GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * i);
 }
