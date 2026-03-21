@@ -329,7 +329,7 @@ class GH;
 
 typedef struct WindowInitInfo {
 	glm::vec2 p = glm::vec2(0),
-		s = glm::vec2(1);
+	s = glm::vec2(1);
 	const char* name = "";
 	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
 	int target_display = 0; // tries to open window on display n, really picks min(n, ndisplays - 1)

@@ -32,7 +32,7 @@ typedef struct InputData {
 
 #ifdef ST_TS_WIN
 #define STATS_N 64
-#define ST_STATS_N_BINS 10
+#define ST_STATS_N_BINS 5
 #define ST_STATS_BIN_MIN 55.f
 #define ST_STATS_BIN_MAX 65.f
 typedef struct StatsData {
@@ -53,14 +53,16 @@ void updateStatsData(StatsData& sd) {
 	sd.i++;
 	if (sd.i == STATS_N) {
 		sd.i = 0;
-		float tot_fps[STATS_N], mean_TOL, mean_frame_done;
+		float tot_fps[STATS_N], mean_TOL = 0, mean_frame_done = 0, mean_total = 0;
 		for (size_t i = 0; i < STATS_N; i++) {
 			tot_fps[i] = 1000.f/(float)(sd.TOLs[i] + sd.frame_dones[i]);
 			mean_TOL += (float)sd.TOLs[i] / 1000.f;
 			mean_frame_done += (float)sd.frame_dones[i] / 1000.f;
+			mean_total += (float)(sd.frame_dones[i] + sd.TOLs[i]) / 1000.f;
 		}
 		mean_TOL /= STATS_N;
 		mean_frame_done /= STATS_N;
+		mean_total /= STATS_N;
 		float mean = 0, var = 0;
 		for (size_t i = 0; i < STATS_N; i++) mean += tot_fps[i];
 		mean /= (float)STATS_N;
@@ -82,12 +84,11 @@ void updateStatsData(StatsData& sd) {
 
 		float fps_norm_pivot = sqrt(STATS_N/var)*(50.f-mean);
 		sd.summary_text->setText(
-			L"Avg. FPS: " + std::to_wstring(mean)
-			+ L"\nSD FPS: " + std::to_wstring(sqrt(var))
-			+ L"\nProb of falling below 50: " + std::to_wstring(0.5*erfc(-fps_norm_pivot/sqrt(2)))
-			+ L"\n" + std::to_wstring(mean_TOL/mean*100.f) + L"\% in CPU events,\n"
-			+ std::to_wstring(mean_frame_done/mean*100.f) + L"\% in rendering setup and execution");
-
+			L"Avg FPS: " + std::to_wstring(mean).substr(0, 4)
+			+ L"\nSD FPS: " + std::to_wstring(sqrt(var)).substr(0, 4)
+			+ L"\nP(FPS < 50): " + std::to_wstring(0.5*erfc(-fps_norm_pivot/sqrt(2))).substr(0, 6)
+			+ L"\n" + std::to_wstring(mean_TOL/mean_total*100.f).substr(0, 5) + L"\% misc\n"
+			+ std::to_wstring(mean_frame_done/mean_total*100.f).substr(0, 5) + L"\% graphics");
 	}
 }
 #endif
@@ -412,7 +413,8 @@ size_t createTSInstPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) 
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
-	p.cullmode = VK_CULL_MODE_BACK_BIT;
+	// p.cullmode = VK_CULL_MODE_BACK_BIT;
+	p.cullmode = VK_CULL_MODE_NONE;
 	GH::createPipeline(p);
 	Mesh::ungetVISCI(p.vertexinputstateci);
 	return rpi.addPipeline(p, nullptr);
@@ -536,7 +538,11 @@ int main() {
 	UIContainer* stats = ui.addComponent(UIContainer());
 	stats->setBGCol({0.1, 0.1, 0.1, 0.7});
 	stats->setExt({600, (float)ts_w.getSCExtent().height});
-	sd.summary_text = stats->addChild(UIText(L"fps will go here"));
+	UITextInitInfo tii = {};
+	tii.text = L"";
+	tii.size = 24;
+	tii.dpi = 144;
+	sd.summary_text = stats->addChild(UIText(tii));
 	sd.summary_text->setBGCol({0, 0, 0, 0});
 	UIImage* tex_mon = ui.addComponent(UIImage());
 	tex_mon->setPos({(float)ts_w.getSCExtent().width - 600, (float)ts_w.getSCExtent().height});
@@ -545,24 +551,35 @@ int main() {
 	hist->setBGCol({0.1, 0.1, 0.1, 0.7});
 	UIContainer* hist_area = hist->addChild(UIContainer());
 	hist_area->setBGCol({0.8, 0.8, 0.8, 0.7});
-	const float hist_width = 550, hist_margin = 50, bar_width = hist_width / (float)ST_STATS_N_BINS, 
+	const float hist_margin = 50, hist_width = 600 - 2*hist_margin, bar_width = hist_width / (float)ST_STATS_N_BINS, 
 				text_width = (ST_STATS_BIN_MAX - ST_STATS_BIN_MIN) / (float)ST_STATS_N_BINS;
 	float text_low = ST_STATS_BIN_MIN;
+	tii.size = 12;
 	for (size_t i = 0; i < ST_STATS_N_BINS; i++) {
 		sd.hist_bars[i] = hist_area->addChild(UIContainer());
 		sd.hist_bars[i]->setPos({(float)i * bar_width, hist_width});
 		sd.hist_bars[i]->setExt({bar_width, 0});
 		sd.hist_bars[i]->setBGCol({0.1, 0.7, 0.1, 1});
-		UIText* hist_text_temp = hist_area->addChild(UIText(std::to_wstring(text_low).substr(0, 4)));
+
+		tii.text = std::to_wstring(text_low).substr(0, 4);
+		UIText* hist_text_temp = hist_area->addChild(UIText(tii));
 		text_low += text_width;
 		hist_text_temp->setPos(sd.hist_bars[i]->getPos());
 		hist_text_temp->setPos(hist_text_temp->getPos() - (UICoord){hist_text_temp->getExt().x / 2, 0});
 		hist_text_temp->setBGCol({0, 0, 0, 0});
 	}
-	hist_area->setPos({hist_margin, 0});
+
+	UIText* hist_text_temp = hist_area->addChild(UIText(std::to_wstring(text_low).substr(0, 4)));
+	text_low += text_width;
+	hist_text_temp->setPos(sd.hist_bars[ST_STATS_N_BINS-1]->getPos() + (UICoord){bar_width, 0});
+	hist_text_temp->setPos(hist_text_temp->getPos() - (UICoord){hist_text_temp->getExt().x / 2, 0});
+	hist_text_temp->setBGCol({0, 0, 0, 0});
+
+	hist_area->setPos({hist_margin, hist_margin});
 	hist_area->setExt({hist_width, hist_width});
-	hist->setPos({(float)ts_w.getSCExtent().width - (hist_width + hist_margin), (float)ts_w.getSCExtent().height - (600 + hist_width + hist_margin)});
-	hist->setExt({hist_width + hist_margin, hist_width + hist_margin});
+
+	hist->setPos({(float)ts_w.getSCExtent().width - (hist_width + 2*hist_margin), (float)ts_w.getSCExtent().height - (600 + hist_width + 2*hist_margin)});
+	hist->setExt({hist_width + 2*hist_margin, hist_width + 2*hist_margin});
 #endif
 
 	/*
@@ -583,9 +600,11 @@ int main() {
 	kl_ii.super.p = glm::vec3(100, 200, 100);
 	kl_ii.super.sme = {1024, 1024};
 	kl_ii.f = glm::vec3(-10, -20, -10);
-	// kl_ii.sm_t = LIGHT_SM_TYPE_LISP;
 	kl_ii.sm_t = LIGHT_SM_TYPE_UNIFORM;
+	// kl_ii.sm_t = LIGHT_SM_TYPE_PERSPECTIVE;
+	// kl_ii.sm_t = LIGHT_SM_TYPE_LISP;
 	kl_ii.sm_dat = s.getCamera();
+	kl_ii.t = DIRECTIONAL_LIGHT_TYPE_CASCADE;
 	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(kl_ii));
 	RenderPassInfo* sm_rp = &s.getRenderPass(0);
 	size_t sm_p_idx = createSMPipeline(*sm_rp, *key_light);
@@ -717,19 +736,28 @@ int main() {
 		s.getCamera()->setPos(player_c->getPos());
 		dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
 
-		theta = (float)SDL_GetTicks() / 1000.f;
+		// theta = 0.01 * (float)SDL_GetTicks() / 1000.f;
+		theta = 0;
 		key_light->setPos(100.f * glm::vec3(sin(theta), 1, cos(theta)));
 		key_light->setForward(-glm::normalize(key_light->getPos()));
 		sm_pc_d.vp = key_light->getVP();
 		s.updateLUB(0);
 		dns_ts_s_pc.vp = key_light->getVP();
 		dns_ts_s_pc.c_pos = key_light->getPos();
+		/*
+		ts_s.getCamera()->setPos(glm::vec3(0, 50, 100));
+		ts_s.getCamera()->setForward(glm::vec3(0, -1, -2));
+		dns_ts_s_pc.vp = ts_s.getCamera()->getVP();
+		dns_ts_s_pc.c_pos = ts_s.getCamera()->getPos();
+		*/
+
 		
 #ifdef ST_TS_WIN
 		// key_light->updateView();
 		// key_light->updateProj();
 
-		camera_frust.setModelMatrix(glm::inverse(s.getCamera()->getVP()));
+		// camera_frust.setModelMatrix(glm::inverse(s.getCamera()->getVP()));
+		// lisp_frust.setModelMatrix(glm::inverse(key_light->getVP()));
 		sd.TOLs[sd.i] = SDL_GetTicks() - sd.last_frame_done;
 		sd.last_TOL = SDL_GetTicks();
 		updateStatsData(sd);

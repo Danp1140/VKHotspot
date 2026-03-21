@@ -1,7 +1,7 @@
 #include "GraphicsHandler.h"
 
 #define CAMERA_DEFAULT_NEAR_CLIP 1.f
-#define CAMERA_DEFAULT_FAR_CLIP 1000.f
+#define CAMERA_DEFAULT_FAR_CLIP 100.f
 
 class Camera {
 public:
@@ -18,6 +18,7 @@ public:
 	const glm::vec3& getPos() const {return position;}
 	float getFOVY() const {return fovy;}
 	float getNearClip() const {return nearclip;}
+	float getFarClip() const {return farclip;}
 
 	void setPos(glm::vec3 p);
 	/* 
@@ -110,6 +111,7 @@ private:
 
 typedef enum DirectionalLightType {
 	DIRECTIONAL_LIGHT_TYPE_ORTHO,
+	DIRECTIONAL_LIGHT_TYPE_CASCADE,
 	DIRECTIONAL_LIGHT_TYPE_PERSP
 } DirectionalLightType;
 
@@ -158,7 +160,7 @@ protected:
 	LightSMType sm_type;
 	void* sm_data;
 	glm::vec3 forward;
-	glm::mat4 view, projection, vp, lsp;
+	glm::mat4 view, projection, psm, vp, lsp;
 
 private:
 };

@@ -59,7 +59,7 @@ void Camera::updateView() {
 
 // starting with just a typical perspective cam
 void Camera::updateProj() {
-	projection = glm::perspective<float>(fovy, aspectratio, nearclip, farclip); 
+	projection = glm::perspectiveRH_ZO<float>(fovy, aspectratio, nearclip, farclip); 
 	// below adjusts for vulkan's lower-left viewport origin
 	// we could also flip the viewport in GH's pipeline create function, something to
 	// consider later
@@ -154,6 +154,7 @@ void swap(DirectionalLight& lhs, DirectionalLight& rhs) {
 	std::swap(lhs.vp, rhs.vp);
 	std::swap(lhs.view, rhs.view);
 	std::swap(lhs.projection, rhs.projection);
+	std::swap(lhs.type, rhs.type);
 	std::swap(lhs.sm_type, rhs.sm_type);
 	std::swap(lhs.sm_data, rhs.sm_data);
 }
@@ -176,22 +177,63 @@ void DirectionalLight::setForward(glm::vec3 f) {
 }
 
 void DirectionalLight::updateView() {
-	if (sm_type == LIGHT_SM_TYPE_UNIFORM) view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
-	else if (sm_type == LIGHT_SM_TYPE_PERSPECTIVE) FatalError("Perspective SM not yet implemented").raise();
+	psm = glm::mat4(1);
+	if (sm_type == LIGHT_SM_TYPE_UNIFORM) {
+		if (!sm_data) return;
+		Camera* c = (Camera*)sm_data;
+		view = glm::lookAt<float>(position, position + forward, c->getForward());
+		// view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
+	}
+	else if (sm_type == LIGHT_SM_TYPE_PERSPECTIVE) {
+		Camera* c = (Camera*)sm_data;
+		// psm = c->getProj() * glm::lookAt(c->getPos() - 100.f * c->getForward(), c->getPos(), glm::vec3(0, 1, 0));
+		/*
+		glm::vec3 p = applyHomo(psm, glm::vec3(0));
+		glm::vec3 f = applyHomo(psm, forward);
+		view = glm::lookAt<float>(p, f, glm::vec3(0, 1, 0));
+		*/
+		glm::mat4 temp(1);
+		float n = 1;
+		float f = 100;
+		/*
+		temp[2][2] = f/ (f-n);
+		temp[2][3] = -f*n/(f-n);
+		temp[3][3] = 0;
+		temp[3][2] = -1;
+		*/
+		temp = glm::perspectiveRH_ZO<float>(1.57, 1, 1, 100);
+		view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0))
+		 	* temp * c->getView();
+		glm::vec4 test = view * glm::vec4(0, 0, 0, 1);
+		std::cout << test.x << ", " << test.y << ", " << test.z << ", " << test.w << std::endl;
+	}
 	else if (sm_type == LIGHT_SM_TYPE_LISP) {
 		Camera* c = (Camera*)sm_data;
-		// TODO: clean up math and optimize n
 		glm::vec3 c_right = glm::cross(c->getForward(), glm::vec3(0, 1, 0));
 		glm::vec3 p_up = -forward;
 		glm::vec3 p_fwd = glm::cross(p_up, c_right);
-		float n = 10;
-		glm::vec3 p_pos = c->getPos() - n * p_fwd; 
-		// glm::mat4 psm_vp = glm::perspective<float>(1.57, 1, n - c->getNearClip(), n + 100) * glm::lookAt(p_pos, p_fwd, p_up);
-		glm::mat4 psm_vp = glm::lookAt(p_pos, p_fwd, p_up);
-		view = glm::lookAt<float>(
-				applyHomo(psm_vp, position), 
-				applyHomo(psm_vp, position + forward), 
-				applyHomo(psm_vp, glm::vec3(0, 1, 0))) * psm_vp;
+		// glm::vec3 p_pos = c->getPos() - n * p_fwd; 
+		// glm::mat4 psm_view = glm::lookAt(p_pos, p_fwd, p_up);
+		glm::vec3 up = glm::cross(c->getForward(), forward);
+		glm::mat4 psm_view = glm::lookAt(c->getPos(), forward, up);
+		float dp = glm::dot(c->getForward(), forward);
+		float singam = sqrt(1-dp*dp);
+		float n = (c->getNearClip()+sqrt(c->getNearClip()*c->getFarClip())) / singam;
+		glm::vec3 temp = apply(psm_view, focus[0]), ls_aabb[2] = {temp, temp};
+		for (uint8_t i = 1; i < 8; i++) {
+			temp = apply(psm_view, glm::vec3(focus[i % 2].x, focus[(uint8_t)floor(i/2) % 2].y, focus[(uint8_t)floor(i/4) % 2].z));
+			for (uint8_t j = 0; j < 3; j++) {
+				if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
+				if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
+			}
+		}
+		float d = ls_aabb[1][1] - ls_aabb[0][1];
+		float f = n + d;
+		view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
+		std::cout << "n = " << n << ", f = " << f << std::endl;
+		// psm = glm::frustum<float>(-1, 1, -1, 1, n, f) * glm::lookAt(glm::vec3(0), p_fwd, glm::vec3(0, 1, 0));
+		psm = glm::frustum<float>(-1, 1, 1, -1, 100, 200);
+		psm[1][1] *= -1;
 	}
 	else if (sm_type == LIGHT_SM_TYPE_TRAPEZOID) FatalError("Trapezoidal SM not yet implemented").raise();
 	else FatalError("Unrecognized SM type").raise();
@@ -199,12 +241,41 @@ void DirectionalLight::updateView() {
 }
 
 void DirectionalLight::updateProj() {
-	if (type == DIRECTIONAL_LIGHT_TYPE_ORTHO) {
-		std::cout << "world-space focus: [<" << focus[0].x << ", " << focus[0].y << ", " << focus[0].z << ">, <";
-		std::cout << focus[1].x << ", " << focus[1].y << ", " << focus[1].z << ">]\n";
-		glm::vec3 temp = apply(view, focus[0]), ls_aabb[2] = {temp, temp};
+	if (type == DIRECTIONAL_LIGHT_TYPE_CASCADE) {
+		Camera* c = (Camera*)sm_data;
+		glm::mat4 ivp = glm::inverse(c->getVP());
+		glm::vec3 coord = glm::vec3(-1, -1, 0);
+		glm::vec3 temp = applyHomo(ivp, coord);
+		temp = apply(view, temp);
+		glm::vec3 ls_aabb[2] = {temp, temp};
+		float f = 0.8;
 		for (uint8_t i = 1; i < 8; i++) {
-			temp = apply(view, glm::vec3(focus[i % 2].x, focus[(uint8_t)floor(i/2) % 2].y, focus[(uint8_t)floor(i/4) % 2].z));
+			coord.x = (i % 2 == 0) ? -1 : 1;
+			coord.y = ((i/2) % 2 == 0) ? -1 : 1;
+			coord.z = ((i/4) % 2 == 0) ? 0 : f;
+			temp = applyHomo(ivp, coord);
+			temp = apply(view, temp);
+			for (uint8_t j = 0; j < 3; j++) {
+				if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
+				if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
+			}
+		}
+		// ls_aabb[1].y = ls_aabb[0].y + (ls_aabb[1].y - ls_aabb[0].y) * f;
+		projection = glm::ortho<float>(
+			ls_aabb[0].x, ls_aabb[1].x,
+			ls_aabb[1].y, ls_aabb[0].y,
+			// -ls_aabb[1].z, -ls_aabb[0].z);
+			0, 200);
+		std::cout << ls_aabb[0].x << ", " << ls_aabb[1].x << "\n";
+		std::cout << ls_aabb[0].y << ", " << ls_aabb[1].y << "\n";
+		std::cout << ls_aabb[0].z << ", " << ls_aabb[1].z << "\n";
+	}
+	else if (type == DIRECTIONAL_LIGHT_TYPE_ORTHO) {
+		// std::cout << "world-space focus: [<" << focus[0].x << ", " << focus[0].y << ", " << focus[0].z << ">, <";
+		// std::cout << focus[1].x << ", " << focus[1].y << ", " << focus[1].z << ">]\n";
+		glm::vec3 temp = apply(psm*view, focus[0]), ls_aabb[2] = {temp, temp};
+		for (uint8_t i = 1; i < 8; i++) {
+			temp = apply(psm*view, glm::vec3(focus[i % 2].x, focus[(uint8_t)floor(i/2) % 2].y, focus[(uint8_t)floor(i/4) % 2].z));
 			for (uint8_t j = 0; j < 3; j++) {
 				if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
 				if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
@@ -212,17 +283,17 @@ void DirectionalLight::updateProj() {
 		}
 		// ls_aabb[0] -= LIGHT_SHADOW_AABB_FUDGE;
 		// ls_aabb[1] += LIGHT_SHADOW_AABB_FUDGE;
-		std::cout << "light-space ls_aabb: [<" << ls_aabb[0].x << ", " << ls_aabb[0].y << ", " << ls_aabb[0].z << ">, <";
-		std::cout << ls_aabb[1].x << ", " << ls_aabb[1].y << ", " << ls_aabb[1].z << ">]\n";
+		// std::cout << "light-space ls_aabb: [<" << ls_aabb[0].x << ", " << ls_aabb[0].y << ", " << ls_aabb[0].z << ">, <";
+		// std::cout << ls_aabb[1].x << ", " << ls_aabb[1].y << ", " << ls_aabb[1].z << ">]\n";
 		projection = glm::ortho<float>(
 			ls_aabb[0].x, ls_aabb[1].x, 
 			// ls_aabb[0].y, ls_aabb[1].y, 
 			ls_aabb[1].y, ls_aabb[0].y,
 			-(ls_aabb[0].z + 2 * (ls_aabb[1].z - ls_aabb[0].z)), -ls_aabb[0].z); // negate & flip b/c we're looking in the -z direction?
 			// -(ls_aabb[1].z + 2 * (ls_aabb[0].z - ls_aabb[1].z)), -ls_aabb[1].z); // negate & flip b/c we're looking in the -z direction?
-		glm::vec3 test[2] = {applyHomo(projection, ls_aabb[0]), applyHomo(projection, ls_aabb[1])};
-		std::cout << "check test: [<" << test[0].x << ", " << test[0].y << ", " << test[0].z << ">, <";
-			std::cout << test[1].x << ", " << test[1].y << ", " << test[1].z << ">]\n";
+		// glm::vec3 test[2] = {applyHomo(projection, ls_aabb[0]), applyHomo(projection, ls_aabb[1])};
+		// std::cout << "check test: [<" << test[0].x << ", " << test[0].y << ", " << test[0].z << ">, <";
+		// std::cout << test[1].x << ", " << test[1].y << ", " << test[1].z << ">]\n";
 	}
 	else if (type == DIRECTIONAL_LIGHT_TYPE_PERSP)
 		projection = glm::perspective<float>(0.78, (float)shadowmap.extent.width / (float)shadowmap.extent.height, 0.01, 100);
