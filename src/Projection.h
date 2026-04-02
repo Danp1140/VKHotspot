@@ -34,10 +34,15 @@ protected:
 	glm::vec3 position;
 };
 
+typedef struct DirectionalProjectionBaseInitInfo {
+	glm::vec3 f;
+} DirectionalProjectionBaseInitInfo;
+
 class DirectionalProjectionBase {
 public:
 	DirectionalProjectionBase() : forward(glm::vec3(0, 0, -1)) {}
 	DirectionalProjectionBase(const glm::vec3& f) : forward(f) {}
+	DirectionalProjectionBase(const DirectionalProjectionBaseInitInfo& ii) : forward(ii.f) {}
 
 	const glm::vec3& getForward() const {return forward;}
 
@@ -77,8 +82,23 @@ class LightSMData : public ProjectionBase {
 public:
 	void addVecToFocus(const glm::vec3& v);
 
+	const VkExtent2D& getExtent() const {return extent;}
+	const VkExtent2D& getOffset() const {return offset;}
+	VkViewport getViewport() const {return {(float)offset.width, (float)offset.height, (float)extent.width, (float)extent.height, 0, 1};}
+	VkRect2D getScissor() const {return {{(int32_t)offset.width, (int32_t)offset.height}, extent};}
+	glm::vec4 getUVExtOff(const VkExtent2D& sa_ext) const {return glm::vec4(
+			(float)extent.width/(float)sa_ext.width,
+			(float)extent.height/(float)sa_ext.width,
+			(float)offset.width/(float)sa_ext.width,
+			(float)offset.height/(float)sa_ext.width);}
+	const ImageInfo* getSM() const {return sm;}
+	const glm::vec3* getFocus() const {return &focus[0];}
+
 	void setView(const glm::mat4& v) {view = v;}
 	void setProj(const glm::mat4& p) {projection = p;}
+	void setExtent(const VkExtent2D& e) {extent = e;}
+	void setOffset(const VkExtent2D& o) {offset = o;}
+	void setSM(ImageInfo* s) {sm = s;}
 
 	void updateView() {vp = projection * view;}
 	void updateProj() {vp = projection * view;}
@@ -99,13 +119,17 @@ public:
 	Light() : Light((LightInitInfo){}) {}
 	Light(const LightInitInfo& i);
 
+	/*
 	Light& operator=(const Light& rhs) = delete;
 	Light& operator=(Light&& rhs);
+	*/
 
 	friend void swap(Light& lhs, Light& rhs);
 
 	const glm::vec3& getCol() const {return color;}
 	const std::vector<LightSMData>& getSMData() const {return sm_data;}
+
+	void addSMData(const LightSMData& d) {sm_data.push_back(d);}
 
 	void setCol(glm::vec3 c) {color = c;}
 
@@ -117,9 +141,6 @@ public:
 		0.f,  0.f,  1.f, 0.f,
 		0.5f, 0.5f, 0.f, 1.f
 	);
-
-protected:
-	std::vector<LightSMData> sm_data;
 
 	static constexpr VkSamplerCreateInfo defaultshadowsamplerci {
 		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -137,24 +158,32 @@ protected:
 		0., 0., 
 		VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
 		VK_FALSE
-	};	
+	};
+
+protected:
+	std::vector<LightSMData> sm_data;
 
 private:
 	glm::vec3 color; // intensity baked-in to color, this is not normalized in the shader
 };
 
 typedef struct DirectionalLightInitInfo {
-	LightInitInfo super = {};
+	LightInitInfo super_light = {};
+	DirectionalProjectionBaseInitInfo super_directional = {};
 } DirectionalLightInitInfo;
 
 class DirectionalLight : public Light, public DirectionalProjectionBase {
 public:
 	DirectionalLight() : DirectionalLight((DirectionalLightInitInfo){}) {}
-	DirectionalLight(const DirectionalLightInitInfo& i);
+	DirectionalLight(const DirectionalLightInitInfo& ii) : 
+		Light(ii.super_light), 
+		DirectionalProjectionBase(ii.super_directional) {}
 	~DirectionalLight() = default;
 
+	/*
 	DirectionalLight& operator=(const DirectionalLight& rhs) = delete;
 	DirectionalLight& operator=(DirectionalLight&& rhs);
+	*/
 
 	friend void swap(DirectionalLight& lhs, DirectionalLight& rhs);
 

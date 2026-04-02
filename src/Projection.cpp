@@ -21,7 +21,6 @@ glm::vec3 ProjectionBase::applyHomo(glm::mat4 A, glm::vec3 v) {
 
 void PositionalProjectionBase::setPos(const glm::vec3& p) {
 	position = p;
-	updateView();
 }
 
 /*
@@ -30,7 +29,6 @@ void PositionalProjectionBase::setPos(const glm::vec3& p) {
 
 void DirectionalProjectionBase::setForward(const glm::vec3& f) {
 	forward = glm::normalize(f);
-	updateView();
 }
 
 /*
@@ -82,7 +80,6 @@ void Camera::updateProj() {
 /*
  * LightSMData
  */
-
 void LightSMData::addVecToFocus(const glm::vec3& v) {
 	for (uint8_t i = 0; i < 3; i++) {
 		focus[0][i] = std::min(focus[0][i], v[i]);
@@ -96,10 +93,12 @@ void LightSMData::addVecToFocus(const glm::vec3& v) {
 
 Light::Light(const LightInitInfo& i) : color(i.c) {}
 
+/*
 Light& Light::operator=(Light&& rhs) {
 	swap(*this, rhs);
 	return *this;
 }
+*/
 
 void swap(Light& lhs, Light& rhs) {
 	std::swap(lhs.color, rhs.color);
@@ -114,16 +113,12 @@ void Light::addVecToFocus(const glm::vec3& v, size_t i) {
  * DirectionalLight
  */
 
-DirectionalLight::DirectionalLight(const DirectionalLightInitInfo& i) : 
-	Light(i.super) {
-	updateView();
-	updateProj();
-}
-
+/*
 DirectionalLight& DirectionalLight::operator=(DirectionalLight&& rhs) {
 	swap(*this, rhs);
 	return *this;
 }
+*/
 
 void swap(DirectionalLight& lhs, DirectionalLight& rhs) {
 	swap(static_cast<Light&>(lhs), static_cast<Light&>(rhs));
@@ -133,9 +128,9 @@ void DirectionalLight::updateSMDatum(size_t sm_i) {
 	glm::mat4 view = glm::lookAt<float>(glm::vec3(0), forward, glm::vec3(0, 1, 0));
 	sm_data[sm_i].setView(view);
 
-	glm::vec3 temp = apply(view, sm_data[sm_i].focus[0]), ls_aabb[2] = {temp, temp};
+	glm::vec3 temp = ProjectionBase::apply(view, sm_data[sm_i].getFocus()[0]), ls_aabb[2] = {temp, temp};
 	for (uint8_t i = 1; i < 8; i++) {
-		temp = apply(view, glm::vec3(sm_data[sm_i].focus[i % 2].x, sm_data[sm_i].focus[(uint8_t)floor(i/2) % 2].y, sm_data[sm_i].focus[(uint8_t)floor(i/4) % 2].z));
+		temp = ProjectionBase::apply(view, glm::vec3(sm_data[sm_i].getFocus()[i % 2].x, sm_data[sm_i].getFocus()[(uint8_t)floor(i/2) % 2].y, sm_data[sm_i].getFocus()[(uint8_t)floor(i/4) % 2].z));
 		for (uint8_t j = 0; j < 3; j++) {
 			if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
 			if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
@@ -146,7 +141,7 @@ void DirectionalLight::updateSMDatum(size_t sm_i) {
 		ls_aabb[1].y, ls_aabb[0].y,
 		-(ls_aabb[0].z + 2 * (ls_aabb[1].z - ls_aabb[0].z)), -ls_aabb[0].z)); // negate & flip b/c we're looking in the -z direction?
 
-	sm_data[sm_i].updateProj()
+	sm_data[sm_i].updateProj();
 }
 
 /*

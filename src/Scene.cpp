@@ -37,6 +37,11 @@ size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
 	return rendersets.size() - 1;
 }
 
+size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd, VkViewport vp, VkRect2D sc) {
+	rendersets.push_back({p, {}, {}, {}, nullptr, pcd, vp, sc});
+	return rendersets.size() - 1;
+}
+
 void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx) {
 	rendersets[pidx].meshes.push_back(m);
 	rendersets[pidx].objdss.push_back(ds);
@@ -153,17 +158,23 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 }
 
 Scene::Scene(float a) : 
-	numdirlights(0), 
-	numdirsclights(0),
-	numcatchers(0) {
+	n_dir_lights(0), 
+	n_catchers(0) {
 	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
 	lightub.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	lightub.size = sizeof(LUBData);
 	GH::createBuffer(lightub);
 	GH_LOG_RESOURCE_SIZE(lightub, lightub.size)
+	
+	shadow_atlas.extent = {8192, 8192};
+	shadow_atlas.format = LIGHT_SHADOW_MAP_FORMAT;
+	shadow_atlas.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	shadow_atlas.sampler = GH::getNearestSampler(); // TODO: change to a more appropriate sampler
+	GH::createImage(shadow_atlas);
 }
 
 Scene::~Scene() {
+	if (shadow_atlas.image != VK_NULL_HANDLE) GH::destroyImage(shadow_atlas);
 	if (lightub.buffer != VK_NULL_HANDLE) GH::destroyBuffer(lightub);
 	delete camera;
 	for (RenderPassInfo* r : renderpasses) {
@@ -187,59 +198,49 @@ RenderPassInfo* Scene::addRenderPass(const RenderPassInfo& r) {
 	return renderpasses.back();
 }
 
-DirectionalLight* Scene::addDirectionalLight(DirectionalLight&& l) {
-	LUBLightEntry tempe;
-	if (l.getSMData().size() > 0) {
-		if (numdirlights == SCENE_MAX_DIR_LIGHTS) {
-			WarningError("Maximum directional lights exceeded, not adding\n").raise();
-			return nullptr;
-		}
-		dirlights[numdirlights] = std::move(l);
-		numdirlights++;
-		
-		tempe.vp = Light::smadjmat * dirlights[numdirlights - 1].getVP();
-		tempe.p = glm::vec3(0);
-		tempe.c = dirlights[numdirlights - 1].getCol();
-		GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), sizeof(LUBLightEntry) * (numdirlights - 1));
-
-		return &dirlights[numdirlights - 1];
-	}
-
-	if (numdirsclights == SCENE_MAX_DIR_SHADOWCASTING_LIGHTS) {
-		WarningError("Maximum directional shadowcasting lights exceeded, not adding\n").raise();
+DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const std::vector<VkExtent2D>& sm_exts) {
+	if (n_dir_lights == SCENE_MAX_DIR_LIGHTS) {
+		WarningError("Maximum directional lights exceeded, not adding\n").raise();
 		return nullptr;
 	}
-	dirsclights[numdirsclights] = std::move(l);
-	numdirsclights++;
+	dir_lights[n_dir_lights] = l;
+	DirectionalLight& added = dir_lights[n_dir_lights];
 
-	tempe.vp = Light::smadjmat * dirsclights[numdirsclights - 1].getVP();
-	tempe.p = glm::vec3(0);
-	tempe.c = dirsclights[numdirsclights - 1].getCol();
-	GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * (numdirsclights - 1));
+	glm::vec4 vectors[2];
+	vectors[0] = glm::vec4(added.getCol().x, added.getCol().y, added.getCol().z, 0);
+	vectors[1] = glm::vec4(added.getForward().x, added.getForward().y, added.getForward().z, 0);
+	GH::updateBuffer(lightub, &vectors[0], 2*sizeof(glm::vec4), offsetof(LUBData, vectors) + n_dir_lights * 2 * sizeof(glm::vec4));
 
-	VkRenderPass r;
-	VkAttachmentDescription attachdesc {
-		0, 
-		LIGHT_SHADOW_MAP_FORMAT,
-		VK_SAMPLE_COUNT_1_BIT,
-		VK_ATTACHMENT_LOAD_OP_CLEAR,
-		VK_ATTACHMENT_STORE_OP_STORE,
-		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-	};
-	VkAttachmentReference attachref {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-	GH::createRenderPass(r, 1, &attachdesc, nullptr, nullptr, &attachref);
+	/*
+	for (size_t sm_i = 0; sm_i < l.getSMData().size(); sm_i++) {
+		if (n_sc_lights + 1 == SCENE_MAX_SC_LIGHTS) {
+			WarningError("Maximum shadowmaps lights exceeded, not adding\n").raise();
+			break;
+		}
+		SMEntry entry;
+		entry.vp = Light::smadjmat * l.getSMData()[sm_i].getVP();
+		entry.uv_ext_off = l.getUVExtOff(shadow_atlas.extent);
 
-	RenderPassInfo* rpi = new RenderPassInfo(r, 1, nullptr, nullptr, dirsclights[numdirsclights - 1].getSMData()[0].sm, {{1, 0}});
+		GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + n_sc_lights * sizeof(SMEntry));
+		n_sc_lights++;
+	}
+	*/
 
-	renderpasses.insert(renderpasses.begin(), rpi); 
-
-	return &dirsclights[numdirsclights - 1];
+	return &added;
 }
 
-void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs) {
+std::set<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd) {
+	std::set<size_t> res;
+	for (const LightSMData& smd : l.getSMData()) {
+		res.insert(rpi.addPipeline(p, pcd, smd.getViewport(), smd.getScissor()));
+	}
+	return res;
+}
+
+void Scene::addShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs) {
+	// for now: don't worry about focusing
+	// so, this func will do nothing right now
+	/*
 	glm::mat4 tempm;
 	for (uint8_t i = 0; i < scdlidxs.size(); i++) {
 		for (uint8_t j = 0; j < 2; j++) {
@@ -254,29 +255,41 @@ void Scene::hookupShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlid
 			sizeof(glm::mat4), 
 			offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * scdlidxs[i]);
 	}
+	*/
 }
 
-void Scene::hookupLightCatcher(
+uint32_t Scene::addLightCatcher(
 	const MeshBase* m, 
 	const VkDescriptorSet& ds, 
-	const std::vector<uint32_t>& dlidxs, 
-	const std::vector<uint32_t>& scdlidxs) {
-	if (numcatchers + 1 == SCENE_MAX_SHADOWCATCHERS) {
+	const std::vector<uint32_t>& d_l_idxs, 
+	const std::vector<uint32_t>& s_l_idxs, 
+	const std::vector<uint32_t>& p_l_idxs) {
+	if (n_catchers + 1 == SCENE_MAX_SHADOW_CATCHERS) {
 		WarningError("Max shadowcatchers reached, not adding").raise();
-		return;
+		return -1u;
 	}
-	numcatchers++;
 
-	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, ce)});
-	updateLightCatcher(m, ds, dlidxs, scdlidxs, numcatchers - 1);
+	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, catcher_entries)});
+	GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, offsetof(LUBData, catcher_entries), sizeof(LUBData) - offsetof(LUBData, catcher_entries)});
+	
+	updateLightCatcher(m, ds, d_l_idxs, s_l_idxs, p_l_idxs, n_catchers);
+
+	return n_catchers++;
 }
 
 void Scene::updateLightCatcher(
 		const MeshBase* m, 
 		const VkDescriptorSet& ds, 
-		const std::vector<uint32_t>& dlidxs, 
-		const std::vector<uint32_t>& scdlidxs,
+		const std::vector<uint32_t>& d_l_idxs, 
+		const std::vector<uint32_t>& s_l_idxs, 
+		const std::vector<uint32_t>& p_l_idxs,
 		uint32_t cidx) {
+	CatcherEntry entry;
+
+	entry.n_dir_lights = d_l_idxs.size();
+	memcpy(&entry.dir_light_idxs[0], d_l_idxs.data(), entry.n_dir_lights * sizeof(uint32_t));
+	GH::updateBuffer(lightub, &entry, sizeof(CatcherEntry), offsetof(LUBData, catcher_entries) + n_catchers * sizeof(CatcherEntry));
+	/*
 	LUBCatcherEntry tempe;
 	tempe.nscdls = scdlidxs.size();
 	memcpy(
@@ -304,8 +317,10 @@ void Scene::updateLightCatcher(
 	GH::updateDS(
 		ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
 		{}, {lightub.buffer, offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx, offsetof(LUBCatcherEntry, padding)});
+		*/
 }
 
+/*
 void Scene::updateLUB(size_t i) {
 	LUBLightEntry tempe;
 	tempe.vp = Light::smadjmat * dirsclights[i].getVP();
@@ -313,3 +328,4 @@ void Scene::updateLUB(size_t i) {
 	tempe.c = dirsclights[i].getCol();
 	GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * i);
 }
+*/

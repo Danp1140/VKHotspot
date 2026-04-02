@@ -159,6 +159,7 @@ typedef struct PipelineInfo {
 	VkSampleCountFlagBits msaasamples = VK_SAMPLE_COUNT_1_BIT;
 	// could /consider/ making this a RenderPassInfo ref to avoid redundant data like extent, msaa, etc
 	VkRenderPass renderpass;
+	bool dyn_viewport = false; // also implies dynamic scissor
 } PipelineInfo;
 
 typedef std::function<void (VkCommandBuffer&)> cbRecFunc;

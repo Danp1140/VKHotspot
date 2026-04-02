@@ -901,11 +901,6 @@ void GH::createPipeline (PipelineInfo& pi) {
 		return;
 	}
 
-	if (pi.extent.width == 0 || pi.extent.height == 0) {
-		WarningError("GH::createPipeline given a PipelineInfo struct with zero height or width\n").raise();
-		return;
-	}
-
 	uint32_t numshaderstages = 0;
 	char* shaderfilepaths[NUM_SHADER_STAGES_SUPPORTED];
 	std::string temp;
@@ -965,24 +960,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		0,
 		3
 	};
-	VkViewport viewporttemp {
-		0.0f, 0.0f,
-		float(pi.extent.width), float(pi.extent.height),
-		0.0f, 1.0f
-	};
-	VkRect2D scissortemp {
-		{0, 0},
-		pi.extent
-	};
-	VkPipelineViewportStateCreateInfo viewportstatecreateinfo {
-		VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		1,
-		&viewporttemp,
-		1,
-		&scissortemp
-	};
+
 	VkPipelineRasterizationStateCreateInfo rasterizationstatecreateinfo {
 		VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		nullptr,
@@ -1072,7 +1050,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		&pi.vertexinputstateci,
 		&inputassemblystatecreateinfo,
 		pi.stages & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT ? &tessstatecreateinfo : nullptr,
-		&viewportstatecreateinfo,
+		nullptr,
 		&rasterizationstatecreateinfo,
 		&multisamplestatecreateinfo,
 		&depthstencilstatecreateinfo,
@@ -1084,6 +1062,46 @@ void GH::createPipeline (PipelineInfo& pi) {
 		VK_NULL_HANDLE,
 		-1
 	};
+
+	VkPipelineViewportStateCreateInfo viewportstatecreateinfo;
+	viewportstatecreateinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportstatecreateinfo.pNext = nullptr; 
+	viewportstatecreateinfo.flags = 0; 
+	VkViewport viewporttemp;
+	VkRect2D scissortemp;
+	VkPipelineDynamicStateCreateInfo dynstatecreateinfo;
+	VkDynamicState dynstates[2];
+	if (!pi.dyn_viewport) {
+		viewporttemp = {
+			0.0f, 0.0f,
+			float(pi.extent.width), float(pi.extent.height),
+			0.0f, 1.0f
+		};
+		viewportstatecreateinfo.pViewports = &viewporttemp;
+		scissortemp = {
+			{0, 0},
+			pi.extent
+		};
+		viewportstatecreateinfo.pScissors = &scissortemp;
+		pipelinecreateinfo.pDynamicState = nullptr; // should be redundant but just checking
+	}
+	else {
+		viewportstatecreateinfo.pViewports = nullptr;
+		viewportstatecreateinfo.pScissors = nullptr;
+		dynstatecreateinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynstatecreateinfo.pNext = nullptr; 
+		dynstatecreateinfo.flags = 0; 
+		dynstates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+		dynstates[1] = VK_DYNAMIC_STATE_SCISSOR;
+		dynstatecreateinfo.dynamicStateCount = 2;
+		dynstatecreateinfo.pDynamicStates = &dynstates[0];
+		pipelinecreateinfo.pDynamicState = &dynstatecreateinfo;
+	}
+	viewportstatecreateinfo.viewportCount = 1;
+	viewportstatecreateinfo.scissorCount = 1;
+	pipelinecreateinfo.pViewportState = &viewportstatecreateinfo;
+
+	
 	vkCreateGraphicsPipelines(
 		logicaldevice,
 		VK_NULL_HANDLE,
@@ -1387,7 +1405,7 @@ void GH::createImage(ImageInfo& i) {
 	};
 	vkCreateImageView(logicaldevice, &imageviewci, nullptr, &i.view);
 
-	transitionImageLayout(i, finallayout);
+	if (finallayout != VK_IMAGE_LAYOUT_PREINITIALIZED) transitionImageLayout(i, finallayout);
 }
 
 void GH::destroyImage(ImageInfo& i) {
