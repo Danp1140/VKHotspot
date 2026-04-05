@@ -64,8 +64,6 @@ void Camera::setFOVY(float f) {
 	updateProj();
 }
 
-// -- Private --
-
 void Camera::updateView() {
 	view = glm::lookAt<float>(position, position + forward, glm::vec3(0, 1, 0));
 	vp = projection * view;
@@ -140,6 +138,8 @@ void DirectionalLight::updateSMDatum(size_t sm_i) {
 		ls_aabb[0].x, ls_aabb[1].x, 
 		ls_aabb[1].y, ls_aabb[0].y,
 		-(ls_aabb[0].z + 2 * (ls_aabb[1].z - ls_aabb[0].z)), -ls_aabb[0].z)); // negate & flip b/c we're looking in the -z direction?
+
+	sm_data[sm_i].setProj(glm::ortho<float>(-1, 1, 1, -1, 0, 1));
 
 	sm_data[sm_i].updateProj();
 }

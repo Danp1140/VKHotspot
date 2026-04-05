@@ -14,11 +14,11 @@ public:
 	static glm::vec3 apply(glm::mat4 A, glm::vec3 v);
 	static glm::vec3 applyHomo(glm::mat4 A, glm::vec3 v);
 
-protected:
-	glm::mat4 view, projection, vp;
-
 	virtual void updateView() = 0;
 	virtual void updateProj() = 0;
+
+protected:
+	glm::mat4 view, projection, vp;
 };
 
 class PositionalProjectionBase {
@@ -67,11 +67,11 @@ public:
 
 	void setFOVY(float f);
 
-private:
-	float fovy, aspectratio, nearclip, farclip;
-
 	void updateView();
 	void updateProj();
+
+private:
+	float fovy, aspectratio, nearclip, farclip;
 };
 
 #define LIGHT_SHADOW_MAP_FORMAT VK_FORMAT_D32_SFLOAT // consider more efficient formats...

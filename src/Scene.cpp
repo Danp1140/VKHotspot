@@ -159,7 +159,8 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 
 Scene::Scene(float a) : 
 	n_dir_lights(0), 
-	n_catchers(0) {
+	n_catchers(0),
+	sa_offset({0, 0}) {
 	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
 	lightub.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	lightub.size = sizeof(LUBData);
@@ -169,6 +170,7 @@ Scene::Scene(float a) :
 	shadow_atlas.extent = {8192, 8192};
 	shadow_atlas.format = LIGHT_SHADOW_MAP_FORMAT;
 	shadow_atlas.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	shadow_atlas.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	shadow_atlas.sampler = GH::getNearestSampler(); // TODO: change to a more appropriate sampler
 	GH::createImage(shadow_atlas);
 }
@@ -211,20 +213,26 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 	vectors[1] = glm::vec4(added.getForward().x, added.getForward().y, added.getForward().z, 0);
 	GH::updateBuffer(lightub, &vectors[0], 2*sizeof(glm::vec4), offsetof(LUBData, vectors) + n_dir_lights * 2 * sizeof(glm::vec4));
 
-	/*
-	for (size_t sm_i = 0; sm_i < l.getSMData().size(); sm_i++) {
+	for (size_t sm_i = 0; sm_i < sm_exts.size(); sm_i++) {
 		if (n_sc_lights + 1 == SCENE_MAX_SC_LIGHTS) {
 			WarningError("Maximum shadowmaps lights exceeded, not adding\n").raise();
 			break;
 		}
+		LightSMData smd;
+		smd.setExtent(sm_exts[sm_i]);
+		smd.setOffset(getSAZone(smd.getExtent()));
+		smd.setSM(&shadow_atlas);
+		added.addSMData(smd);
+
 		SMEntry entry;
-		entry.vp = Light::smadjmat * l.getSMData()[sm_i].getVP();
-		entry.uv_ext_off = l.getUVExtOff(shadow_atlas.extent);
+		entry.vp = Light::smadjmat * added.getSMData()[sm_i].getVP();
+		entry.uv_ext_off = added.getSMData()[sm_i].getUVExtOff(shadow_atlas.extent);
 
 		GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + n_sc_lights * sizeof(SMEntry));
 		n_sc_lights++;
 	}
-	*/
+
+	n_dir_lights++;
 
 	return &added;
 }
@@ -329,3 +337,20 @@ void Scene::updateLUB(size_t i) {
 	GH::updateBuffer(lightub, &tempe, sizeof(LUBLightEntry), offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * i);
 }
 */
+
+VkExtent2D Scene::getSAZone(VkExtent2D ext) {
+	VkExtent2D res = sa_offset;
+	if (sa_offset.width == 8192 - 1024) {
+		if (sa_offset.height == 8192 - 1024) {
+			FatalError("Out of SA space!!").raise();
+		}
+		else {
+			sa_offset.width = 0;
+			sa_offset.height += 1024;
+		}
+	}
+	else {
+		sa_offset.width += 1024;
+	}
+	return res;
+}

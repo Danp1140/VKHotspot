@@ -113,7 +113,7 @@ RenderPassInfo* createSMRenderPass(Scene& s, WindowInfo& w) {
 		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 		VK_ATTACHMENT_STORE_OP_DONT_CARE,
 		VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 	};
 	VkAttachmentReference a_r {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 	GH::createRenderPass(r, 1, &a_d, nullptr, nullptr, &a_r);
@@ -180,7 +180,7 @@ size_t createDNSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 		}, {
 			1,
 			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			ST_MAX_SC_LIGHTS,
+			1,
 			VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
 		}, {
@@ -285,6 +285,7 @@ size_t createDNSInstancedPipeline(RenderPassInfo& rpi, Scene& s, const WindowInf
 		7, &dtbindings[0]
 	};
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(DNSScenePCData), sizeof(uint32_t)};
 	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
@@ -534,14 +535,14 @@ int main() {
 	/*
 	 * Renderpasses & Pipelines
 	 */
+	RenderPassInfo* sm_rp = createSMRenderPass(s, w);
+
 	RenderPassInfo* main_rp = createMainRenderPass(s, w);
 	size_t dnsp_idx = createDNSPipeline(*main_rp, s, w);
 	size_t dnsinstp_idx = createDNSInstancedPipeline(*main_rp, s, w);
 	DNSScenePCData dns_s_pc {s.getCamera()->getVP(), s.getCamera()->getPos()};
 	main_rp->setScenePC(dnsp_idx, &dns_s_pc);
 	main_rp->setScenePC(dnsinstp_idx, &dns_s_pc);
-
-	RenderPassInfo* sm_rp = createSMRenderPass(s, w);
 
 #ifdef ST_TS_WIN
 	RenderPassInfo* ts_rp = createTSRenderPass(ts_s, ts_w);
@@ -646,14 +647,17 @@ int main() {
 	 * Meshes
 	 */
 	Mesh ground("resources/models/ground.obj", VB_TRAIT_ALL);
+	DNSObjectPCData ground_pcd = {0, ground.getModelMatrix()};
 	VkDescriptorSet ds_temp;
 	const TextureSet& set = th.getSet("soil");
 	GH::createDS(main_rp->getRenderSet(dnsp_idx).pipeline, ds_temp);
 	s.addLightCatcher(&ground, ds_temp, {0}, {}, {});
+	GH::updateDS(ds_temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, s.getShadowAtlas().getDII(), {});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
-	main_rp->addMesh(&ground, ds_temp, &ground.getModelMatrix(), dnsp_idx);
+	main_rp->addMesh(&ground, ds_temp, &ground_pcd, dnsp_idx);
+	for (size_t sm_p_i : sm_p_idxs) sm_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), sm_p_i);
 
 	const uint8_t trees_n = 63;
 	const float trees_offset = 20, trees_range = 20;
@@ -667,13 +671,15 @@ int main() {
 		// trees_imdata[i].m = glm::translate(trees_imdata[i].m, glm::vec3((float)i*2, 0, 0));
 	}
 	InstancedMesh tree_body("resources/models/tree_body.obj", trees_imdata, VB_TRAIT_ALL);
+	DNSObjectPCData tree_body_pcd = {1, tree_body.getModelMatrix()};
 	GH::createDS(main_rp->getRenderSet(dnsinstp_idx).pipeline, ds_temp);
 	s.addLightCatcher(&tree_body, ds_temp, {0}, {}, {});
+	GH::updateDS(ds_temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, s.getShadowAtlas().getDII(), {});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
 	GH::updateDS(ds_temp, 6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
-	main_rp->addMesh(&tree_body, ds_temp, nullptr, dnsinstp_idx);
+	// main_rp->addMesh(&tree_body, ds_temp, nullptr, dnsinstp_idx);
 	/*
 	GH::createDS(sm_rp->getRenderSet(sminst_p_idx).pipeline, ds_temp);
 	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
@@ -688,14 +694,12 @@ int main() {
 
 #ifdef ST_TS_WIN
 	ts_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), ts_p_idx);
+	GH::createDS(ts_rp->getRenderSet(tsinst_p_idx).pipeline, ds_temp);
+	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
 	ts_rp->addMesh(&tree_body, ds_temp, nullptr, tsinst_p_idx);
 	Mesh camera_frust("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
 	ts_rp->addMesh(&camera_frust, VK_NULL_HANDLE, &camera_frust.getModelMatrix(), ts_p_idx);
-	Mesh lisp_frust("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
-	ts_rp->addMesh(&lisp_frust, VK_NULL_HANDLE, &lisp_frust.getModelMatrix(), ts_p_idx);
-	ImageInfo lying_ii = s.getShadowAtlas();
-	lying_ii.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	ui.setTex(*tex_mon, lying_ii, ui_rp.getRenderSet(ui_p_idx).pipeline);
+	ui.setTex(*tex_mon, s.getShadowAtlas(), ui_rp.getRenderSet(ui_p_idx).pipeline);
 #endif
 
 	w.addTasks(s.getDrawTasks());
@@ -756,6 +760,8 @@ int main() {
 		ph.update();
 
 		s.getCamera()->setPos(player_c->getPos());
+		s.getCamera()->updateView();
+		s.getCamera()->updateProj();
 		dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
 
 #ifdef ST_TS_WIN
