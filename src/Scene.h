@@ -64,7 +64,7 @@ public:
 	// returns the index of the newly-added pipeline
 	size_t addPipeline(const PipelineInfo& p, const void* pcd);
 	size_t addPipeline(const PipelineInfo& p, const void* pcd, VkViewport vp, VkRect2D sc);
-	void setScenePC(size_t pidx, void* pcd) {rendersets[pidx].pcdata = pcd;}
+	void setScenePC(size_t pidx, const void* pcd) {rendersets[pidx].pcdata = pcd;}
 	void addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx);
 	void setUI(const UIHandler* u, size_t pidx); // TODO: prob get rid of this
 
@@ -95,18 +95,23 @@ typedef struct SMEntry {
 	glm::vec4 uv_ext_off;
 } SMData;
 
+// light counts are an array here and in LUB to ease alignment woes
 typedef struct CatcherEntry {
-	LightIndex n_dir_lights, n_spot_lights, n_point_lights;
+	LightIndex light_counts[4]; // dir, spot, pt, and padding 
 	// TODO: don't let any catcher have ALL lights
 	// there can be much more lights in the scene than one catcher is allowed to catch
 	alignas(16) LightIndex dir_light_idxs[SCENE_MAX_DIR_LIGHTS],
 		spot_light_idxs[SCENE_MAX_SPOT_LIGHTS],
 		point_light_idxs[SCENE_MAX_POINT_LIGHTS];
-} LUBCatcherEntry;
+} CatcherEntry;
 
+/*
+ * Below is unlikely to ever be instantiated on the CPU
+ * It is simply a framework for the buffer copies using sizeof and offsetof
+ */
 #define SCENE_UBO_MIN_OFFSET 256 // presumed
 typedef struct LUBData {
-	LightIndex n_dir_lights, n_spot_lights, n_point_lights, n_sc_lights;
+	LightIndex light_counts[4]; // dir, spot, pt, and padding 
 	// contains c, f, and p (as required for each)
 	// really only needs vec4 but UBOs must be padded here to 16 even in array
 	alignas(16) glm::vec4 vectors[2*SCENE_MAX_DIR_LIGHTS + 3*SCENE_MAX_SPOT_LIGHTS + 2*SCENE_MAX_POINT_LIGHTS];
@@ -131,7 +136,7 @@ public:
 	// if we wanted to make updateLUB priv, we'd need some sort of check-out,
 	// check-in func, but even then its still up to the user to check the ptr back in
 	DirectionalLight* addDirectionalLight(const DirectionalLight& l, const std::vector<VkExtent2D>& sm_exts);
-	std::set<size_t> addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd);
+	std::vector<size_t> addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd);
 
 	void addShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs);
 	// gotta update three descriptor sets: LUB, SM array, and CUB
@@ -150,6 +155,7 @@ public:
 		const std::vector<uint32_t>& s_l_idxs, 
 		const std::vector<uint32_t>& p_l_idxs,
 		uint32_t cidx);
+	void updateSMD(Light& l, size_t smd_idx);
 
 	// TODO: func to add light to catcher
 	// really just needs to update that catcher's cub; lub should already be updated
@@ -167,8 +173,7 @@ private:
 	DirectionalLight dir_lights[SCENE_MAX_DIR_LIGHTS];
 	SpotLight spot_lights[SCENE_MAX_SPOT_LIGHTS];
 	PointLight point_lights[SCENE_MAX_POINT_LIGHTS];
-	uint8_t sc_light_idxs[SCENE_MAX_SC_LIGHTS];
-	uint8_t n_dir_lights, n_spot_lights, n_point_lights, n_sc_lights;
+	LightIndex n_dir_lights, n_spot_lights, n_point_lights, n_sc_lights;
 	uint32_t n_catchers;
 	BufferInfo lightub;
 	ImageInfo shadow_atlas;

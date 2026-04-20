@@ -433,7 +433,7 @@ typedef struct GHInitInfo {
 		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
 	};
 	uint32_t nds = 16;
-	VkPhysicalDeviceFeatures pdfeats = {};
+	VkPhysicalDeviceFeatures2 pdfeats = {.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext=nullptr, .features={}};
 } GHInitInfo;
 
 class GH {
@@ -552,7 +552,7 @@ private:
 
 	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, [l] 
 	// and hardware to use 
-	void initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures& f);
+	void initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures2& f);
 	void terminateDevicesAndQueues();
 
 	void initCommandPools();

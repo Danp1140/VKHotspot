@@ -81,6 +81,7 @@ private:
 class LightSMData : public ProjectionBase {
 public:
 	void addVecToFocus(const glm::vec3& v);
+	void clearFocus();
 
 	const VkExtent2D& getExtent() const {return extent;}
 	const VkExtent2D& getOffset() const {return offset;}
@@ -88,9 +89,9 @@ public:
 	VkRect2D getScissor() const {return {{(int32_t)offset.width, (int32_t)offset.height}, extent};}
 	glm::vec4 getUVExtOff(const VkExtent2D& sa_ext) const {return glm::vec4(
 			(float)extent.width/(float)sa_ext.width,
-			(float)extent.height/(float)sa_ext.width,
+			(float)extent.height/(float)sa_ext.height,
 			(float)offset.width/(float)sa_ext.width,
-			(float)offset.height/(float)sa_ext.width);}
+			(float)offset.height/(float)sa_ext.height);}
 	const ImageInfo* getSM() const {return sm;}
 	const glm::vec3* getFocus() const {return &focus[0];}
 
@@ -128,12 +129,15 @@ public:
 
 	const glm::vec3& getCol() const {return color;}
 	const std::vector<LightSMData>& getSMData() const {return sm_data;}
+	LightSMData& getSMDatum(size_t i) {return sm_data[i];}
 
 	void addSMData(const LightSMData& d) {sm_data.push_back(d);}
 
 	void setCol(glm::vec3 c) {color = c;}
 
 	void addVecToFocus(const glm::vec3& v, size_t i);
+
+	virtual void updateSMDatum(size_t sm_i) = 0;
 
 	static const glm::mat4 constexpr smadjmat = glm::mat4(
 		0.5f, 0.f,  0.f, 0.f,
@@ -180,11 +184,6 @@ public:
 		DirectionalProjectionBase(ii.super_directional) {}
 	~DirectionalLight() = default;
 
-	/*
-	DirectionalLight& operator=(const DirectionalLight& rhs) = delete;
-	DirectionalLight& operator=(DirectionalLight&& rhs);
-	*/
-
 	friend void swap(DirectionalLight& lhs, DirectionalLight& rhs);
 
 	void updateSMDatum(size_t sm_i);
@@ -193,9 +192,11 @@ private:
 };
 
 class SpotLight : public Light, public PositionalProjectionBase, public DirectionalProjectionBase {
-
+public:
+	void updateSMDatum(size_t sm_i) {}
 };
 
 class PointLight : public Light, public PositionalProjectionBase {
-
+public:
+	void updateSMDatum(size_t sm_i) {}
 };

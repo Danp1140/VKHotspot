@@ -302,7 +302,7 @@ PipelineInfo createSMPipeline(RenderPassInfo& rpi) {
 	p.shaderfilepathprefix = "shadowmap";
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
-	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ VERTEX_BUFFER_TRAIT_POSITION); // TODO: we're leaking this
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ VERTEX_BUFFER_TRAIT_POSITION);
 	p.depthtest = true;
 	p.cullmode = VK_CULL_MODE_FRONT_BIT;
 	p.renderpass = rpi.getRenderPass();
@@ -361,6 +361,21 @@ void initInput(InputHandler& ih, Scene& s, WindowInfo& w, InputData& id) {
 		SDL_SetWindowRelativeMouseMode(w.getSDLWindow(), false);
 		return true;
 	}));
+}
+
+void updateCascade(Scene& s, Light& l, size_t smd_idx) {
+	LightSMData& smd = l.getSMDatum(smd_idx);
+	smd.clearFocus();
+	glm::mat4 vp_inv = glm::inverse(s.getCamera()->getVP());
+	glm::vec2 z_range;
+	if (smd_idx == 0) z_range = glm::vec2(0, 0.7);
+	else z_range = glm::vec2(0.7, 1);
+	for (float x = -1; x < 2; x += 2)
+	for (float y = -1; y < 2; y += 2)
+	for (float z = z_range.x; z <= z_range.y; z += z_range.y) {
+		smd.addVecToFocus(ProjectionBase::applyHomo(vp_inv, glm::vec3(x, y, z)));
+	}
+	s.updateSMD(l, smd_idx);
 }
 
 #ifdef ST_TS_WIN
@@ -514,9 +529,15 @@ int main() {
 	ghii.dexts.push_back("VK_KHR_create_renderpass2"); 
 	ghii.dexts.push_back("VK_KHR_multiview"); 
 	ghii.dexts.push_back("VK_KHR_maintenance2"); 
+	ghii.dexts.push_back("VK_KHR_uniform_buffer_standard_layout"); 
 	ghii.dps = {};
 	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64});
 	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8});
+	VkPhysicalDeviceUniformBufferStandardLayoutFeatures ubo_std_layout;
+	ubo_std_layout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES;
+	ubo_std_layout.pNext = nullptr;
+	ubo_std_layout.uniformBufferStandardLayout = VK_TRUE;
+	ghii.pdfeats.pNext = &ubo_std_layout;
 
 	GH gh(ghii);
 	gh.setShaderDirectory("../../resources/shaders/SPIRV/");
@@ -622,17 +643,17 @@ int main() {
 	 * Lighting Setup
 	 */
 	DirectionalLightInitInfo kl_ii;
-	kl_ii.super_light.c = glm::vec3(1, 1, 0.8);
+	// kl_ii.super_light.c = glm::normalize(glm::vec3(1, 1, 0.8));
+	kl_ii.super_light.c = glm::normalize(glm::vec3(1));
 	kl_ii.super_directional.f = glm::normalize(glm::vec3(-1));
 	
-	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(kl_ii), {{1024, 1024}});
+	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(kl_ii), {{1024, 1024}, {1024, 1024}});
 	PipelineInfo sm_pipeline = createSMPipeline(*sm_rp); // added several times to different render sets w/ different dyn viewport/scissor
-	std::set<size_t> sm_p_idxs = s.addSMPipeline(*key_light, sm_pipeline, *sm_rp, nullptr);
-	// size_t sminst_p_idx = createSMInstancedPipeline(*sm_rp, *key_light);
-	/*
-	SMPCData sm_pc_d;
-	sm_rp->setScenePC(sminst_p_idx, &sm_pc_d);
-	*/
+	std::vector<size_t> sm_p_idxs = s.addSMPipeline(*key_light, sm_pipeline, *sm_rp, nullptr);
+	for (size_t i = 0; i < sm_p_idxs.size(); i++) sm_rp->setScenePC(sm_p_idxs[i], &key_light->getSMDatum(i).getVP()); 
+	PipelineInfo sminst_pipeline = createSMInstancedPipeline(*sm_rp); // added several times to different render sets w/ different dyn viewport/scissor
+	std::vector<size_t> sminst_p_idxs = s.addSMPipeline(*key_light, sminst_pipeline, *sm_rp, nullptr);
+	for (size_t i = 0; i < sminst_p_idxs.size(); i++) sm_rp->setScenePC(sminst_p_idxs[i], &key_light->getSMDatum(i).getVP()); 
 
 	/*
 	 * Textures
@@ -652,7 +673,6 @@ int main() {
 	const TextureSet& set = th.getSet("soil");
 	GH::createDS(main_rp->getRenderSet(dnsp_idx).pipeline, ds_temp);
 	s.addLightCatcher(&ground, ds_temp, {0}, {}, {});
-	GH::updateDS(ds_temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, s.getShadowAtlas().getDII(), {});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
@@ -674,23 +694,14 @@ int main() {
 	DNSObjectPCData tree_body_pcd = {1, tree_body.getModelMatrix()};
 	GH::createDS(main_rp->getRenderSet(dnsinstp_idx).pipeline, ds_temp);
 	s.addLightCatcher(&tree_body, ds_temp, {0}, {}, {});
-	GH::updateDS(ds_temp, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, s.getShadowAtlas().getDII(), {});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
 	GH::updateDS(ds_temp, 6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
-	// main_rp->addMesh(&tree_body, ds_temp, nullptr, dnsinstp_idx);
-	/*
-	GH::createDS(sm_rp->getRenderSet(sminst_p_idx).pipeline, ds_temp);
+	main_rp->addMesh(&tree_body, ds_temp, nullptr, dnsinstp_idx);
+	GH::createDS(sminst_pipeline, ds_temp);
 	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
-	sm_rp->addMesh(&tree_body, ds_temp, nullptr, sminst_p_idx);
-	*/
-
-	std::cout << "find a way to add some points to the light volume!!\n";
-	/*
-	s.hookupShadowCaster(&ground, {0});
-	s.hookupShadowCaster(&tree_body, {0});
-	*/
+	for (size_t sm_p_i : sminst_p_idxs) sm_rp->addMesh(&tree_body, ds_temp, nullptr, sm_p_i);
 
 #ifdef ST_TS_WIN
 	ts_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), ts_p_idx);
@@ -700,6 +711,7 @@ int main() {
 	Mesh camera_frust("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
 	ts_rp->addMesh(&camera_frust, VK_NULL_HANDLE, &camera_frust.getModelMatrix(), ts_p_idx);
 	ui.setTex(*tex_mon, s.getShadowAtlas(), ui_rp.getRenderSet(ui_p_idx).pipeline);
+	dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
 #endif
 
 	w.addTasks(s.getDrawTasks());
@@ -763,8 +775,12 @@ int main() {
 		s.getCamera()->updateView();
 		s.getCamera()->updateProj();
 		dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
+		camera_frust.setModelMatrix(glm::inverse(s.getCamera()->getVP()));
+		updateCascade(s, *key_light, 0);
+		updateCascade(s, *key_light, 1);
 
 #ifdef ST_TS_WIN
+		dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
 		sd.TOLs[sd.i] = SDL_GetTicks() - sd.last_frame_done;
 		sd.last_TOL = SDL_GetTicks();
 		updateStatsData(sd);

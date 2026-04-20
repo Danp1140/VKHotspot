@@ -568,7 +568,7 @@ void GH::terminateDebug() {
 	destroyDebugMessenger(instance, debugmessenger, nullptr);
 }
 
-void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures& f) {
+void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures2& f) {
 	uint32_t numphysicaldevices = -1u,
 			 numqueuefamilies;
 	vkEnumeratePhysicalDevices(instance, &numphysicaldevices, &physicaldevice);
@@ -618,23 +618,19 @@ void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysica
 				 + std::string(" not supported by physical device")).raise();
 		}
 	}
-	VkPhysicalDeviceFeatures physicaldevicefeatures = f;
-	// TODO: this should prob be disabled by default
-	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
-	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
+	VkPhysicalDeviceFeatures2 physical_device_features = f;
 /*
 	VkPhysicalDevicePortabilitySubsetFeaturesKHR portpdf {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
 	portpdf.mutableComparisonSamplers = VK_TRUE;
 */
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		// &portpdf,
-		nullptr,
+		&physical_device_features,
 		0,
 		1, &queuecreateinfo,
 		0, nullptr,
 		static_cast<uint32_t>(deviceexts.size()), deviceexts.data(),
-		&physicaldevicefeatures
+		nullptr
 	};
 	vkCreateDevice(physicaldevice, &devicecreateinfo, nullptr, &logicaldevice);
 

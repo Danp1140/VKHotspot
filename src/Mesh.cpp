@@ -414,6 +414,10 @@ void InstancedMesh::recordDraw(
 	};
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.pipeline.dyn_viewport) {
+		vkCmdSetViewport(c, 0, 1, &rs.viewport);
+		vkCmdSetScissor(c, 0, 1, &rs.scissor);
+	}
 	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
 		vkCmdBindDescriptorSets(
 			c,

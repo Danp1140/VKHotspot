@@ -78,11 +78,17 @@ void Camera::updateProj() {
 /*
  * LightSMData
  */
+
 void LightSMData::addVecToFocus(const glm::vec3& v) {
 	for (uint8_t i = 0; i < 3; i++) {
 		focus[0][i] = std::min(focus[0][i], v[i]);
 		focus[1][i] = std::max(focus[1][i], v[i]);
 	}
+}
+
+void LightSMData::clearFocus() {
+	focus[0] = glm::vec3(std::numeric_limits<float>::infinity());
+	focus[1] = -glm::vec3(std::numeric_limits<float>::infinity());
 }
 
 /*
@@ -139,7 +145,7 @@ void DirectionalLight::updateSMDatum(size_t sm_i) {
 		ls_aabb[1].y, ls_aabb[0].y,
 		-(ls_aabb[0].z + 2 * (ls_aabb[1].z - ls_aabb[0].z)), -ls_aabb[0].z)); // negate & flip b/c we're looking in the -z direction?
 
-	sm_data[sm_i].setProj(glm::ortho<float>(-1, 1, 1, -1, 0, 1));
+	// sm_data[sm_i].setProj(glm::ortho<float>(-100, 100, 100, -100, -100, 50));
 
 	sm_data[sm_i].updateProj();
 }

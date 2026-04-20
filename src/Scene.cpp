@@ -21,7 +21,13 @@ RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D e
 }
 
 void RenderPassInfo::destroy() {
-	for (RenderSet r : rendersets) GH::destroyPipeline(r.pipeline);
+	std::set<VkPipeline> destroyed;
+	for (RenderSet r : rendersets) {
+		if (!destroyed.contains(r.pipeline.pipeline)) {
+			GH::destroyPipeline(r.pipeline);
+			destroyed.insert(r.pipeline.pipeline);
+		}
+	}
 	if (framebuffers) {
 		if (framebuffers[0] == framebuffers[1]) vkDestroyFramebuffer(GH::getLD(), framebuffers[0], nullptr);
 		else {
@@ -167,15 +173,16 @@ Scene::Scene(float a) :
 	GH::createBuffer(lightub);
 	GH_LOG_RESOURCE_SIZE(lightub, lightub.size)
 	
-	shadow_atlas.extent = {8192, 8192};
+	shadow_atlas.extent = {2048, 2048};
 	shadow_atlas.format = LIGHT_SHADOW_MAP_FORMAT;
 	shadow_atlas.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	shadow_atlas.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	shadow_atlas.sampler = GH::getNearestSampler(); // TODO: change to a more appropriate sampler
+	vkCreateSampler(GH::getLD(), &Light::defaultshadowsamplerci, nullptr, &shadow_atlas.sampler); 
 	GH::createImage(shadow_atlas);
 }
 
 Scene::~Scene() {
+	if (shadow_atlas.sampler != VK_NULL_HANDLE) vkDestroySampler(GH::getLD(), shadow_atlas.sampler, nullptr);
 	if (shadow_atlas.image != VK_NULL_HANDLE) GH::destroyImage(shadow_atlas);
 	if (lightub.buffer != VK_NULL_HANDLE) GH::destroyBuffer(lightub);
 	delete camera;
@@ -224,23 +231,22 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 		smd.setSM(&shadow_atlas);
 		added.addSMData(smd);
 
-		SMEntry entry;
-		entry.vp = Light::smadjmat * added.getSMData()[sm_i].getVP();
-		entry.uv_ext_off = added.getSMData()[sm_i].getUVExtOff(shadow_atlas.extent);
-
-		GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + n_sc_lights * sizeof(SMEntry));
+		updateSMD(added, sm_i);
+		
 		n_sc_lights++;
 	}
 
 	n_dir_lights++;
+	GH::updateBuffer(lightub, &n_dir_lights, sizeof(uint32_t), offsetof(LUBData, light_counts));
+	std::cout << "updateBuf w/ light count " << (int)n_dir_lights << std::endl;
 
 	return &added;
 }
 
-std::set<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd) {
-	std::set<size_t> res;
+std::vector<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd) {
+	std::vector<size_t> res;
 	for (const LightSMData& smd : l.getSMData()) {
-		res.insert(rpi.addPipeline(p, pcd, smd.getViewport(), smd.getScissor()));
+		res.push_back(rpi.addPipeline(p, pcd, smd.getViewport(), smd.getScissor()));
 	}
 	return res;
 }
@@ -278,7 +284,8 @@ uint32_t Scene::addLightCatcher(
 	}
 
 	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, catcher_entries)});
-	GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, offsetof(LUBData, catcher_entries), sizeof(LUBData) - offsetof(LUBData, catcher_entries)});
+	GH::updateDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shadow_atlas.getDII(), {});
+	GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, offsetof(LUBData, catcher_entries), SCENE_MAX_SHADOW_CATCHERS *  sizeof(CatcherEntry)});
 	
 	updateLightCatcher(m, ds, d_l_idxs, s_l_idxs, p_l_idxs, n_catchers);
 
@@ -294,38 +301,18 @@ void Scene::updateLightCatcher(
 		uint32_t cidx) {
 	CatcherEntry entry;
 
-	entry.n_dir_lights = d_l_idxs.size();
-	memcpy(&entry.dir_light_idxs[0], d_l_idxs.data(), entry.n_dir_lights * sizeof(uint32_t));
-	GH::updateBuffer(lightub, &entry, sizeof(CatcherEntry), offsetof(LUBData, catcher_entries) + n_catchers * sizeof(CatcherEntry));
-	/*
-	LUBCatcherEntry tempe;
-	tempe.nscdls = scdlidxs.size();
-	memcpy(
-		&tempe.scdlidxs[0], 
-		scdlidxs.data(), 
-		sizeof(uint32_t) * std::min(tempe.nscdls, (uint32_t)SCENE_MAX_DIR_SHADOWCASTING_LIGHTS));
-	tempe.ndls = dlidxs.size();
-	memcpy(
-		&tempe.dlidxs[0], 
-		dlidxs.data(), 
-		sizeof(uint32_t) * std::min(tempe.ndls, (uint32_t)SCENE_MAX_DIR_LIGHTS));
-	GH::updateBuffer(
-		lightub, 
-		&tempe, 
-		offsetof(LUBCatcherEntry, padding), 
-		offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx);
+	entry.light_counts[0] = d_l_idxs.size();
+	memcpy(&entry.dir_light_idxs[0], d_l_idxs.data(), entry.light_counts[0] * sizeof(uint32_t));
+	GH::updateBuffer(lightub, &entry, sizeof(CatcherEntry), offsetof(LUBData, catcher_entries) + cidx * sizeof(CatcherEntry));
+}
 
-	// TODO: if we make incremental arrayds update func in GH, we only have to update one, theoretically
-	std::vector<VkDescriptorImageInfo> ii;
-	for (uint8_t i = 0; i < scdlidxs.size(); i++) 
-		ii.push_back(dirsclights[scdlidxs[i]].getSMData()[0].sm->getDII());
-	for (uint8_t i = scdlidxs.size(); i < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS; i++) 
-		ii.push_back(GH::getBlankImage().getDII());
-	GH::updateArrayDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, std::move(ii));
-	GH::updateDS(
-		ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 
-		{}, {lightub.buffer, offsetof(LUBData, ce) + sizeof(LUBCatcherEntry) * cidx, offsetof(LUBCatcherEntry, padding)});
-		*/
+void Scene::updateSMD(Light& l, size_t smd_idx) {
+	l.updateSMDatum(smd_idx);
+	SMEntry entry;
+	entry.vp = Light::smadjmat * l.getSMData()[smd_idx].getVP();
+	entry.uv_ext_off = l.getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);
+
+	GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + smd_idx * sizeof(SMEntry));
 }
 
 /*
@@ -340,8 +327,8 @@ void Scene::updateLUB(size_t i) {
 
 VkExtent2D Scene::getSAZone(VkExtent2D ext) {
 	VkExtent2D res = sa_offset;
-	if (sa_offset.width == 8192 - 1024) {
-		if (sa_offset.height == 8192 - 1024) {
+	if (sa_offset.width == 2048 - 1024) {
+		if (sa_offset.height == 2048 - 1024) {
 			FatalError("Out of SA space!!").raise();
 		}
 		else {
