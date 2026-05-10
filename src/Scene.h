@@ -138,7 +138,14 @@ public:
 	DirectionalLight* addDirectionalLight(const DirectionalLight& l, const std::vector<VkExtent2D>& sm_exts);
 	std::vector<size_t> addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd);
 
-	void addShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs);
+	/*
+	 * Adds the MeshBase m's world-space AABB to the world-space AABBs of lights at given indices.
+	 * Adds to each SM datum.
+	 * It is implied that each light is shadowcasting (has at least one SM datum), but if not nothing happens
+	 * (but it wastes a bit of processing).
+	 * Does not update view or projection matrices.
+	 */
+	void addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& scdlidxs);
 	// gotta update three descriptor sets: LUB, SM array, and CUB
 	// diff btwn below two functions is that hookup increments numcatchers and 
 	// writes LUB DS. both with write SM array and CUB DS
@@ -155,7 +162,15 @@ public:
 		const std::vector<uint32_t>& s_l_idxs, 
 		const std::vector<uint32_t>& p_l_idxs,
 		uint32_t cidx);
+	/*
+	 * Calls updateSMDatum on light l's smd_idxth SM datum and updates corresponding LUB SMEntry.
+	 * Presumes a valid index.
+	 */
 	void updateSMD(Light& l, size_t smd_idx);
+	/*
+	 * Same as updateSMD but provides updateSMDatum with 8 points of camera frust from depths[0] to depths[1] (0–1).
+	 */
+	void updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths);
 
 	// TODO: func to add light to catcher
 	// really just needs to update that catcher's cub; lub should already be updated
@@ -173,13 +188,11 @@ private:
 	DirectionalLight dir_lights[SCENE_MAX_DIR_LIGHTS];
 	SpotLight spot_lights[SCENE_MAX_SPOT_LIGHTS];
 	PointLight point_lights[SCENE_MAX_POINT_LIGHTS];
-	LightIndex n_dir_lights, n_spot_lights, n_point_lights, n_sc_lights;
+	LightIndex n_dir_lights, n_spot_lights, n_point_lights, n_sc_lights, n_sc_dir_lights;
 	uint32_t n_catchers;
 	BufferInfo lightub;
 	ImageInfo shadow_atlas;
 	VkExtent2D sa_offset;
-	void* cub_redund; // used to accomodate UBO offset alignment, re-writing data that is already there 
-	size_t cub_alignment;
 
 	VkDescriptorSetLayout dsl;
 	VkDescriptorSet ds;

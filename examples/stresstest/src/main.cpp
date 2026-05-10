@@ -368,11 +368,19 @@ void updateCascade(Scene& s, Light& l, size_t smd_idx) {
 	smd.clearFocus();
 	glm::mat4 vp_inv = glm::inverse(s.getCamera()->getVP());
 	glm::vec2 z_range;
-	if (smd_idx == 0) z_range = glm::vec2(0, 0.7);
-	else z_range = glm::vec2(0.7, 1);
+	glm::vec4 temp = s.getCamera()->getProj() * glm::vec4(0, 0, -((float)smd_idx / 3) * s.getCamera()->getFarClip() - s.getCamera()->getNearClip(), 1);
+	z_range.x = temp.z / temp.w;
+	temp = s.getCamera()->getProj() * glm::vec4(0, 0, -(((float)smd_idx + 1) / 3) * s.getCamera()->getFarClip(), 1);
+	z_range.y = temp.z / temp.w;
+	std::cout << z_range.x << ", " << z_range.y << '\n';
+	/*
+	if (smd_idx == 0) z_range = glm::vec2(0.1, 0.8);
+	else if (smd_idx == 1) z_range = glm::vec2(0.8, 0.9);
+	else z_range = glm::vec2(0.9, 1);
+	*/
 	for (float x = -1; x < 2; x += 2)
 	for (float y = -1; y < 2; y += 2)
-	for (float z = z_range.x; z <= z_range.y; z += z_range.y) {
+	for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
 		smd.addVecToFocus(ProjectionBase::applyHomo(vp_inv, glm::vec3(x, y, z)));
 	}
 	s.updateSMD(l, smd_idx);
@@ -644,10 +652,10 @@ int main() {
 	 */
 	DirectionalLightInitInfo kl_ii;
 	// kl_ii.super_light.c = glm::normalize(glm::vec3(1, 1, 0.8));
-	kl_ii.super_light.c = glm::normalize(glm::vec3(1));
+	kl_ii.super_light.c = glm::normalize(glm::vec3(0.5));
 	kl_ii.super_directional.f = glm::normalize(glm::vec3(-1));
 	
-	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(kl_ii), {{1024, 1024}, {1024, 1024}});
+	DirectionalLight* key_light = s.addDirectionalLight(DirectionalLight(kl_ii), {{1024, 1024}, {1024, 1024}, {1024, 1024}});
 	PipelineInfo sm_pipeline = createSMPipeline(*sm_rp); // added several times to different render sets w/ different dyn viewport/scissor
 	std::vector<size_t> sm_p_idxs = s.addSMPipeline(*key_light, sm_pipeline, *sm_rp, nullptr);
 	for (size_t i = 0; i < sm_p_idxs.size(); i++) sm_rp->setScenePC(sm_p_idxs[i], &key_light->getSMDatum(i).getVP()); 
@@ -673,6 +681,7 @@ int main() {
 	const TextureSet& set = th.getSet("soil");
 	GH::createDS(main_rp->getRenderSet(dnsp_idx).pipeline, ds_temp);
 	s.addLightCatcher(&ground, ds_temp, {0}, {}, {});
+	s.addShadowCaster(&ground, {0});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
@@ -694,6 +703,7 @@ int main() {
 	DNSObjectPCData tree_body_pcd = {1, tree_body.getModelMatrix()};
 	GH::createDS(main_rp->getRenderSet(dnsinstp_idx).pipeline, ds_temp);
 	s.addLightCatcher(&tree_body, ds_temp, {0}, {}, {});
+	s.addShadowCaster(&tree_body, {0});
 	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
 	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
@@ -776,8 +786,14 @@ int main() {
 		s.getCamera()->updateProj();
 		dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
 		camera_frust.setModelMatrix(glm::inverse(s.getCamera()->getVP()));
+		/*
 		updateCascade(s, *key_light, 0);
 		updateCascade(s, *key_light, 1);
+		updateCascade(s, *key_light, 2);
+		*/
+		s.updateSMDCascade(*key_light, 0, glm::vec2(0, 0.21));
+		s.updateSMDCascade(*key_light, 1, glm::vec2(0.2, 0.31));
+		s.updateSMDCascade(*key_light, 2, glm::vec2(0.3, 1));
 
 #ifdef ST_TS_WIN
 		dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();

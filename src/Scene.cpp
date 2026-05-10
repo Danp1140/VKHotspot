@@ -165,6 +165,8 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 
 Scene::Scene(float a) : 
 	n_dir_lights(0), 
+	n_sc_lights(0),
+	n_sc_dir_lights(0),
 	n_catchers(0),
 	sa_offset({0, 0}) {
 	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
@@ -172,6 +174,8 @@ Scene::Scene(float a) :
 	lightub.size = sizeof(LUBData);
 	GH::createBuffer(lightub);
 	GH_LOG_RESOURCE_SIZE(lightub, lightub.size)
+	std::vector<LightIndex> sm_blank(3*SCENE_MAX_SC_LIGHTS, (LightIndex)-1);
+	GH::updateBuffer(lightub, sm_blank.data(), sm_blank.size(), offsetof(LUBData, sm_idxs));
 	
 	shadow_atlas.extent = {2048, 2048};
 	shadow_atlas.format = LIGHT_SHADOW_MAP_FORMAT;
@@ -220,20 +224,29 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 	vectors[1] = glm::vec4(added.getForward().x, added.getForward().y, added.getForward().z, 0);
 	GH::updateBuffer(lightub, &vectors[0], 2*sizeof(glm::vec4), offsetof(LUBData, vectors) + n_dir_lights * 2 * sizeof(glm::vec4));
 
-	for (size_t sm_i = 0; sm_i < sm_exts.size(); sm_i++) {
-		if (n_sc_lights + 1 == SCENE_MAX_SC_LIGHTS) {
-			WarningError("Maximum shadowmaps lights exceeded, not adding\n").raise();
-			break;
-		}
-		LightSMData smd;
-		smd.setExtent(sm_exts[sm_i]);
-		smd.setOffset(getSAZone(smd.getExtent()));
-		smd.setSM(&shadow_atlas);
-		added.addSMData(smd);
+	if (sm_exts.size() > 0) {
+		uint32_t sm_idxs[sm_exts.size()];
 
-		updateSMD(added, sm_i);
-		
-		n_sc_lights++;
+		for (size_t sm_i = 0; sm_i < sm_exts.size(); sm_i++) {
+			if (n_sc_lights + 1 == SCENE_MAX_SC_LIGHTS) {
+				WarningError("Maximum shadowmaps lights exceeded, not adding\n").raise();
+				break;
+			}
+			LightSMData smd;
+			smd.setExtent(sm_exts[sm_i]);
+			smd.setOffset(getSAZone(smd.getExtent()));
+			smd.setSM(&shadow_atlas);
+			added.addSMData(smd);
+
+			updateSMD(added, sm_i);
+
+			sm_idxs[sm_i] = n_dir_lights;
+			
+			n_sc_lights++;
+		}
+
+		GH::updateBuffer(lightub, &sm_idxs[0], sm_exts.size()*sizeof(LightIndex), offsetof(LUBData, sm_idxs) + n_sc_dir_lights * sizeof(LightIndex));
+		n_sc_dir_lights += sm_exts.size();
 	}
 
 	n_dir_lights++;
@@ -251,25 +264,19 @@ std::vector<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, 
 	return res;
 }
 
-void Scene::addShadowCaster(const MeshBase* m, std::vector<uint32_t>&& scdlidxs) {
-	// for now: don't worry about focusing
-	// so, this func will do nothing right now
-	/*
-	glm::mat4 tempm;
-	for (uint8_t i = 0; i < scdlidxs.size(); i++) {
-		for (uint8_t j = 0; j < 2; j++) {
-			dirsclights[scdlidxs[i]].addVecToFocus(ProjectionBase::apply(m->getModelMatrix(), m->getAABB()[j]));
+void Scene::addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& dl_idxs) {
+	for (uint8_t i = 0; i < dl_idxs.size(); i++) {
+		glm::vec3 temp = ProjectionBase::apply(m->getModelMatrix(), m->getAABB()[0]);
+		for (uint8_t j = 1; j < 8; j++) {
+			temp = ProjectionBase::apply(m->getModelMatrix(), glm::vec3(
+						m->getAABB()[j % 2].x, 
+						m->getAABB()[(uint8_t)floor(j/2) % 2].y, 
+						m->getAABB()[(uint8_t)floor(j/4) % 2].z));
+			for (uint8_t k = 0; k < dir_lights[dl_idxs[i]].getSMData().size(); k++) {
+				dir_lights[dl_idxs[i]].getSMDatum(k).addVecToFocus(temp);
+			}
 		}
-		// pretty inefficient to write this so frequently, but shouldn't be done too frequently
-		// in typical draw loop
-		tempm = Light::smadjmat * dirsclights[scdlidxs[i]].getVP();
-		GH::updateBuffer(
-			lightub, 
-			&tempm, 
-			sizeof(glm::mat4), 
-			offsetof(LUBData, scdle) + sizeof(LUBLightEntry) * scdlidxs[i]);
 	}
-	*/
 }
 
 uint32_t Scene::addLightCatcher(
@@ -307,7 +314,30 @@ void Scene::updateLightCatcher(
 }
 
 void Scene::updateSMD(Light& l, size_t smd_idx) {
-	l.updateSMDatum(smd_idx);
+	l.updateSMDatum(smd_idx, camera->getForward(), nullptr);
+	SMEntry entry;
+	entry.vp = Light::smadjmat * l.getSMData()[smd_idx].getVP();
+	entry.uv_ext_off = l.getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);
+
+	GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + smd_idx * sizeof(SMEntry));
+}
+
+void Scene::updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths) {
+	glm::vec3 cam_points[8]; uint8_t count = 0;
+	glm::mat4 vp_inv = glm::inverse(camera->getVP());
+	glm::vec2 z_range;
+	glm::vec4 temp = camera->getProj() * glm::vec4(0, 0, -glm::mix(camera->getNearClip(), camera->getFarClip(), depths[0]), 1);
+	z_range.x = temp.z / temp.w;
+	temp = camera->getProj() * glm::vec4(0, 0, -glm::mix(camera->getNearClip(), camera->getFarClip(), depths[1]), 1);
+	z_range.y = temp.z / temp.w;
+	for (float x = -1; x < 2; x += 2)
+	for (float y = -1; y < 2; y += 2)
+	for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
+		cam_points[count] = ProjectionBase::applyHomo(vp_inv, glm::vec3(x, y, z));
+		count++;
+	}
+
+	l.updateSMDatum(smd_idx, camera->getForward(), &cam_points[0]);
 	SMEntry entry;
 	entry.vp = Light::smadjmat * l.getSMData()[smd_idx].getVP();
 	entry.uv_ext_off = l.getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);

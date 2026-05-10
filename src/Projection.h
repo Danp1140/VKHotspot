@@ -137,7 +137,7 @@ public:
 
 	void addVecToFocus(const glm::vec3& v, size_t i);
 
-	virtual void updateSMDatum(size_t sm_i) = 0;
+	virtual void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) = 0;
 
 	static const glm::mat4 constexpr smadjmat = glm::mat4(
 		0.5f, 0.f,  0.f, 0.f,
@@ -186,17 +186,17 @@ public:
 
 	friend void swap(DirectionalLight& lhs, DirectionalLight& rhs);
 
-	void updateSMDatum(size_t sm_i);
+	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB);
 
 private:
 };
 
 class SpotLight : public Light, public PositionalProjectionBase, public DirectionalProjectionBase {
 public:
-	void updateSMDatum(size_t sm_i) {}
+	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {}
 };
 
 class PointLight : public Light, public PositionalProjectionBase {
 public:
-	void updateSMDatum(size_t sm_i) {}
+	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {}
 };

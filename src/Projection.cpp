@@ -128,24 +128,41 @@ void swap(DirectionalLight& lhs, DirectionalLight& rhs) {
 	swap(static_cast<Light&>(lhs), static_cast<Light&>(rhs));
 }
 
-void DirectionalLight::updateSMDatum(size_t sm_i) {
-	glm::mat4 view = glm::lookAt<float>(glm::vec3(0), forward, glm::vec3(0, 1, 0));
+void DirectionalLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
+	glm::mat4 view = glm::lookAt<float>(glm::vec3(0), forward, up);
 	sm_data[sm_i].setView(view);
 
-	glm::vec3 temp = ProjectionBase::apply(view, sm_data[sm_i].getFocus()[0]), ls_aabb[2] = {temp, temp};
+	glm::vec3 temp = ProjectionBase::apply(view, sm_data[sm_i].getFocus()[0]);
+	glm::vec3 ls_aabb[2] = {temp, temp};
 	for (uint8_t i = 1; i < 8; i++) {
-		temp = ProjectionBase::apply(view, glm::vec3(sm_data[sm_i].getFocus()[i % 2].x, sm_data[sm_i].getFocus()[(uint8_t)floor(i/2) % 2].y, sm_data[sm_i].getFocus()[(uint8_t)floor(i/4) % 2].z));
+		temp = ProjectionBase::apply(view, glm::vec3(
+					sm_data[sm_i].getFocus()[i % 2].x, 
+					sm_data[sm_i].getFocus()[(uint8_t)floor(i/2) % 2].y, 
+					sm_data[sm_i].getFocus()[(uint8_t)floor(i/4) % 2].z));
 		for (uint8_t j = 0; j < 3; j++) {
 			if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
 			if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
 		}
 	}
+	if (cam_AABB) {
+		temp = ProjectionBase::apply(view, cam_AABB[0]);
+		glm::vec3 ls_cam_aabb[2] = {temp, temp};
+		for (uint8_t i = 1; i < 8; i++) {
+			temp = ProjectionBase::apply(view, cam_AABB[i]);
+			for (uint8_t j = 0; j < 3; j++) {
+				if (temp[j] < ls_cam_aabb[0][j]) ls_cam_aabb[0][j] = temp[j];
+				if (temp[j] > ls_cam_aabb[1][j]) ls_cam_aabb[1][j] = temp[j];
+			}
+		}
+		ls_aabb[0].x = ls_cam_aabb[0].x;
+		ls_aabb[1].x = ls_cam_aabb[1].x;
+		ls_aabb[0].y = ls_cam_aabb[0].y;
+		ls_aabb[1].y = ls_cam_aabb[1].y;
+	}
 	sm_data[sm_i].setProj(glm::ortho<float>(
-		ls_aabb[0].x, ls_aabb[1].x, 
+		ls_aabb[0].x, ls_aabb[1].x,
 		ls_aabb[1].y, ls_aabb[0].y,
-		-(ls_aabb[0].z + 2 * (ls_aabb[1].z - ls_aabb[0].z)), -ls_aabb[0].z)); // negate & flip b/c we're looking in the -z direction?
-
-	// sm_data[sm_i].setProj(glm::ortho<float>(-100, 100, 100, -100, -100, 50));
+		ls_aabb[0].z, ls_aabb[1].z));
 
 	sm_data[sm_i].updateProj();
 }
