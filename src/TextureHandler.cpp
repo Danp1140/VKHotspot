@@ -63,6 +63,10 @@ TextureSet::TextureSet(const char* d, VkSampler s) {
 			GH::createImage(*dst);
 			GH::updateImage(*dst, buffer);
 
+#ifdef VERBOSE_TEXTURESET_OBJECTS
+			std::cout << "creating image " << dst->image << std::endl;
+#endif
+
 			free(buffer);
 			png_image_free(&i);
 		}
@@ -74,7 +78,12 @@ TextureSet::~TextureSet() {
 	std::cout << this << " ~TextureSet()" << std::endl;
 #endif
 	for (auto& [_, t] : textures) {
-		if (t.image != VK_NULL_HANDLE) GH::destroyImage(t);
+		if (t.image != VK_NULL_HANDLE) {
+#ifdef VERBOSE_TEXTURESET_OBJECTS
+			std::cout << "destroying image " << t.image << std::endl;
+#endif
+			GH::destroyImage(t);
+		}
 	}
 }
 

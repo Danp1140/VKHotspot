@@ -126,6 +126,10 @@ void Mesh::recordDraw(
 	};
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.pipeline.dyn_viewport) {
+		vkCmdSetViewport(c, 0, 1, &rs.viewport);
+		vkCmdSetScissor(c, 0, 1, &rs.scissor);
+	}
 	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
 		vkCmdBindDescriptorSets(
 			c,
@@ -270,7 +274,7 @@ void Mesh::loadOBJ(const char* fp) {
 			for (auto& v: vertidx) vertexindices.push_back(v - 1);
 			for (auto& n: normidx) normalindices.push_back(n - 1);
 			for (auto& u: uvidx) uvindices.push_back(u - 1);
-		}
+		} 
 	}
 	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	vertexbuffer.size = getVertexBufferElementSize() * vertexindices.size();
@@ -342,8 +346,10 @@ InstancedMesh::InstancedMesh(InstancedMesh&& rvalue) :
 	rvalue.instanceub = {};
 }
 
-InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
-	loadOBJ(fp);
+InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : 
+	InstancedMesh(fp, m, VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
+
+InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, VertexBufferTraits t) : Mesh(fp, t) {
 	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	instanceub.size = m.size() * sizeof(InstancedMeshData);
 	GH::createBuffer(instanceub);
@@ -353,8 +359,8 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) :
 	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
 	glm::vec4 temp;
 	for (const InstancedMeshData& imd : m) {
-		for (uint8_t i = 0; i < 2; i++) {
-			temp = glm::vec4(initialaabb[i], 1);
+		for (uint8_t i = 0; i < 8; i++) {
+			glm::vec4 temp(initialaabb[i % 2].x, initialaabb[(uint8_t)floor(i/2) % 2].y, initialaabb[(uint8_t)floor(i/4) % 2].z, 1);
 			temp = imd.m * temp;
 			addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
 		}
@@ -392,6 +398,7 @@ void InstancedMesh::recordDraw(
 		RenderSet rs,
 		size_t rsidx,
 		VkCommandBuffer& c) const {
+	if (cullingub.buffer != VK_NULL_HANDLE && cullingub.size == 0) return;
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
@@ -407,6 +414,10 @@ void InstancedMesh::recordDraw(
 	};
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.pipeline.dyn_viewport) {
+		vkCmdSetViewport(c, 0, 1, &rs.viewport);
+		vkCmdSetScissor(c, 0, 1, &rs.scissor);
+	}
 	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
 		vkCmdBindDescriptorSets(
 			c,
@@ -433,8 +444,13 @@ void InstancedMesh::recordDraw(
 			rs.objpcdata[rsidx]);
 	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
 	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
-	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
+	if (cullingub.buffer == VK_NULL_HANDLE) {
+		vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
+	}
+	else {
+		vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), cullingub.size / sizeof(size_t), 0, 0, 0);
+	}
+	// vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
 

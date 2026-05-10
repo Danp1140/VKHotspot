@@ -19,24 +19,25 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo(WindowInitInfo&& i) {
+WindowInfo::WindowInfo(const WindowInitInfo& i) {
 	// TODO: decompose into more init funcs
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
 		FatalError(std::string("SDL found no displays. From SDL_GetError:\n") + SDL_GetError()).raise();
 	}
-	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(displays[0]);
+	const int disp_id = displays[std::min(i.target_display, ndisplays - 1)];
+	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(disp_id);
 	// TODO: use SDL_GetWindowWMInfo for system-dependent window info [l]
 	SDL_free(displays);
 
 	sdlwindow = SDL_CreateWindow(
 		i.name, 
 		displaymode->w * i.s.x, displaymode->h * i.s.y, 
-		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-	SDL_SetWindowPosition(
-		sdlwindow,
-		displaymode->w * i.p.x, displaymode->h * (1 - i.s.y));
+		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_MAXIMIZED);
+	SDL_Rect bounds;
+	SDL_GetDisplayBounds(disp_id, &bounds);
+	SDL_SetWindowPosition(sdlwindow, bounds.x + displaymode->w * i.p.x, bounds.y + displaymode->h * (1 - i.s.y));
 
 	sdlwindowid = SDL_GetWindowID(sdlwindow);
 
@@ -429,7 +430,7 @@ const char* GH::shaderdir = "../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 ImageInfo GH::blankimage = {};
 
-GH::GH(GHInitInfo&& i) {
+GH::GH(const GHInitInfo& i) {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		FatalError(
 			std::string("SDL3 Initialization Failed! From SDL_GetError():\n") 
@@ -567,7 +568,7 @@ void GH::terminateDebug() {
 	destroyDebugMessenger(instance, debugmessenger, nullptr);
 }
 
-void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures& f) {
+void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures2& f) {
 	uint32_t numphysicaldevices = -1u,
 			 numqueuefamilies;
 	vkEnumeratePhysicalDevices(instance, &numphysicaldevices, &physicaldevice);
@@ -617,23 +618,19 @@ void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysica
 				 + std::string(" not supported by physical device")).raise();
 		}
 	}
-	VkPhysicalDeviceFeatures physicaldevicefeatures = f;
-	// TODO: this should prob be disabled by default
-	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
-	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
+	VkPhysicalDeviceFeatures2 physical_device_features = f;
 /*
 	VkPhysicalDevicePortabilitySubsetFeaturesKHR portpdf {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
 	portpdf.mutableComparisonSamplers = VK_TRUE;
 */
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		// &portpdf,
-		nullptr,
+		&physical_device_features,
 		0,
 		1, &queuecreateinfo,
 		0, nullptr,
 		static_cast<uint32_t>(deviceexts.size()), deviceexts.data(),
-		&physicaldevicefeatures
+		nullptr
 	};
 	vkCreateDevice(physicaldevice, &devicecreateinfo, nullptr, &logicaldevice);
 
@@ -707,7 +704,7 @@ void GH::terminateSamplers() {
 	vkDestroySampler(logicaldevice, nearestsampler, nullptr);
 }
 
-void GH::initDescriptorPoolsAndSetLayouts(GHInitInfo&& i) {
+void GH::initDescriptorPoolsAndSetLayouts(const GHInitInfo& i) {
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
@@ -900,11 +897,6 @@ void GH::createPipeline (PipelineInfo& pi) {
 		return;
 	}
 
-	if (pi.extent.width == 0 || pi.extent.height == 0) {
-		WarningError("GH::createPipeline given a PipelineInfo struct with zero height or width\n").raise();
-		return;
-	}
-
 	uint32_t numshaderstages = 0;
 	char* shaderfilepaths[NUM_SHADER_STAGES_SUPPORTED];
 	std::string temp;
@@ -964,24 +956,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		0,
 		3
 	};
-	VkViewport viewporttemp {
-		0.0f, 0.0f,
-		float(pi.extent.width), float(pi.extent.height),
-		0.0f, 1.0f
-	};
-	VkRect2D scissortemp {
-		{0, 0},
-		pi.extent
-	};
-	VkPipelineViewportStateCreateInfo viewportstatecreateinfo {
-		VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		1,
-		&viewporttemp,
-		1,
-		&scissortemp
-	};
+
 	VkPipelineRasterizationStateCreateInfo rasterizationstatecreateinfo {
 		VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		nullptr,
@@ -1071,7 +1046,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		&pi.vertexinputstateci,
 		&inputassemblystatecreateinfo,
 		pi.stages & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT ? &tessstatecreateinfo : nullptr,
-		&viewportstatecreateinfo,
+		nullptr,
 		&rasterizationstatecreateinfo,
 		&multisamplestatecreateinfo,
 		&depthstencilstatecreateinfo,
@@ -1083,6 +1058,46 @@ void GH::createPipeline (PipelineInfo& pi) {
 		VK_NULL_HANDLE,
 		-1
 	};
+
+	VkPipelineViewportStateCreateInfo viewportstatecreateinfo;
+	viewportstatecreateinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportstatecreateinfo.pNext = nullptr; 
+	viewportstatecreateinfo.flags = 0; 
+	VkViewport viewporttemp;
+	VkRect2D scissortemp;
+	VkPipelineDynamicStateCreateInfo dynstatecreateinfo;
+	VkDynamicState dynstates[2];
+	if (!pi.dyn_viewport) {
+		viewporttemp = {
+			0.0f, 0.0f,
+			float(pi.extent.width), float(pi.extent.height),
+			0.0f, 1.0f
+		};
+		viewportstatecreateinfo.pViewports = &viewporttemp;
+		scissortemp = {
+			{0, 0},
+			pi.extent
+		};
+		viewportstatecreateinfo.pScissors = &scissortemp;
+		pipelinecreateinfo.pDynamicState = nullptr; // should be redundant but just checking
+	}
+	else {
+		viewportstatecreateinfo.pViewports = nullptr;
+		viewportstatecreateinfo.pScissors = nullptr;
+		dynstatecreateinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynstatecreateinfo.pNext = nullptr; 
+		dynstatecreateinfo.flags = 0; 
+		dynstates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+		dynstates[1] = VK_DYNAMIC_STATE_SCISSOR;
+		dynstatecreateinfo.dynamicStateCount = 2;
+		dynstatecreateinfo.pDynamicStates = &dynstates[0];
+		pipelinecreateinfo.pDynamicState = &dynstatecreateinfo;
+	}
+	viewportstatecreateinfo.viewportCount = 1;
+	viewportstatecreateinfo.scissorCount = 1;
+	pipelinecreateinfo.pViewportState = &viewportstatecreateinfo;
+
+	
 	vkCreateGraphicsPipelines(
 		logicaldevice,
 		VK_NULL_HANDLE,
@@ -1386,7 +1401,7 @@ void GH::createImage(ImageInfo& i) {
 	};
 	vkCreateImageView(logicaldevice, &imageviewci, nullptr, &i.view);
 
-	transitionImageLayout(i, finallayout);
+	if (finallayout != VK_IMAGE_LAYOUT_PREINITIALIZED) transitionImageLayout(i, finallayout);
 }
 
 void GH::destroyImage(ImageInfo& i) {

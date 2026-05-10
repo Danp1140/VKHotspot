@@ -3,6 +3,7 @@
 
 // TODO: do we need this??? should p be up to user, as with selectively enabled exts
 #define VK_ENABLE_BETA_EXTENSIONS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
@@ -159,6 +160,7 @@ typedef struct PipelineInfo {
 	VkSampleCountFlagBits msaasamples = VK_SAMPLE_COUNT_1_BIT;
 	// could /consider/ making this a RenderPassInfo ref to avoid redundant data like extent, msaa, etc
 	VkRenderPass renderpass;
+	bool dyn_viewport = false; // also implies dynamic scissor
 } PipelineInfo;
 
 typedef std::function<void (VkCommandBuffer&)> cbRecFunc;
@@ -329,9 +331,10 @@ class GH;
 
 typedef struct WindowInitInfo {
 	glm::vec2 p = glm::vec2(0),
-		s = glm::vec2(1);
+	s = glm::vec2(1);
 	const char* name = "";
 	VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT;
+	int target_display = 0; // tries to open window on display n, really picks min(n, ndisplays - 1)
 } WindowInitInfo;
 
 class WindowInfo {
@@ -349,7 +352,7 @@ public:
 	 * - Monitor
 	 */
 	WindowInfo() : WindowInfo((WindowInitInfo){}) {}
-	WindowInfo(WindowInitInfo&& i);
+	WindowInfo(const WindowInitInfo& i);
 	/* p & s are normalized position & size  */
 	// TODO: phase out
 	WindowInfo(glm::vec2 p, glm::vec2 s) : WindowInfo({.p = p, .s = s}) {}
@@ -376,6 +379,7 @@ public:
 	const ImageInfo* const getDepthBuffer() const {return &depthbuffer;}
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
 	uint32_t getNumSCIs() const {return numscis;}
+	SDL_Window* getSDLWindow() {return sdlwindow;}
 
 private:
 	SDL_Window* sdlwindow;
@@ -430,13 +434,13 @@ typedef struct GHInitInfo {
 		{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
 	};
 	uint32_t nds = 16;
-	VkPhysicalDeviceFeatures pdfeats = {};
+	VkPhysicalDeviceFeatures2 pdfeats = {.sType=VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext=nullptr, .features={}};
 } GHInitInfo;
 
 class GH {
 public:
 	GH() : GH((GHInitInfo){}) {}
-	GH(GHInitInfo&& i);
+	GH(const GHInitInfo& i);
 	~GH();
 
 	static void createRenderPass(
@@ -549,7 +553,7 @@ private:
 
 	// TODO: As in initVulkanInstance, remove hard-coding and dynamically find best extensions, queue families, [l] 
 	// and hardware to use 
-	void initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures& f);
+	void initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures2& f);
 	void terminateDevicesAndQueues();
 
 	void initCommandPools();
@@ -558,7 +562,7 @@ private:
 	void initSamplers();
 	void terminateSamplers();
 
-	static void initDescriptorPoolsAndSetLayouts(GHInitInfo&& i);
+	static void initDescriptorPoolsAndSetLayouts(const GHInitInfo& i);
 	static void terminateDescriptorPoolsAndSetLayouts();
 
 	static void transitionImageLayout(ImageInfo& i, VkImageLayout newlayout);

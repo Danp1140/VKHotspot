@@ -36,6 +36,7 @@ public:
 	void setPos(glm::vec3 p);
 	void setRot(glm::quat r);
 	void setScale(glm::vec3 s);
+	void setModelMatrix(const glm::mat4& m) {model = m;}
 
 protected:
 	glm::vec3 aabb[2]; // min, then max, note that this is pre-model matrix
@@ -56,9 +57,9 @@ typedef enum VertexBufferTraitBits {
 	VERTEX_BUFFER_TRAIT_POSITION = 0x01,
 	VERTEX_BUFFER_TRAIT_UV = 0x02,
 	VERTEX_BUFFER_TRAIT_NORMAL = 0x04,
-	VERTEX_BUFFER_TRAIT_TANGENT = 0x10,
-	VERTEX_BUFFER_TRAIT_BITANGENT = 0x20,
-	VERTEX_BUFFER_TRAIT_WEIGHT = 0x40,
+	VERTEX_BUFFER_TRAIT_TANGENT = 0x08,
+	VERTEX_BUFFER_TRAIT_BITANGENT = 0x10,
+	VERTEX_BUFFER_TRAIT_WEIGHT = 0x20,
 } VertexBufferTraitBits;
 typedef uint8_t VertexBufferTraits;
 #define MAX_VERTEX_BUFFER_NUM_TRAITS 6
@@ -121,11 +122,16 @@ typedef struct InstancedMeshData {
 	glm::mat4 m;
 } InstancedMeshData;
 
+typedef struct IMCullingData {
+	size_t i;
+} IMCullingData;
+
 class InstancedMesh : public Mesh {
 public:
 	InstancedMesh() = default;
 	InstancedMesh(const InstancedMesh& lvalue) = delete;
 	InstancedMesh(InstancedMesh&& rvalue);
+	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, VertexBufferTraits t);
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
 
@@ -154,7 +160,7 @@ public:
 		VkCommandBuffer& c) const;
 
 private:
-	BufferInfo instanceub;
+	BufferInfo instanceub, cullingub;
 };
 
 typedef bool(*LODFunc)(Mesh&, void*);
