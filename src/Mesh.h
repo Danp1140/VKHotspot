@@ -6,6 +6,7 @@
 #include "GraphicsHandler.h"
 class MeshBase;
 class Mesh;
+class InstancedMesh;
 #include "Scene.h"
 
 class MeshBase {
@@ -38,8 +39,13 @@ public:
 	void setScale(glm::vec3 s);
 	void setModelMatrix(const glm::mat4& m) {model = m;}
 
+	void enableDraw() {draw = true;}
+	void disableDraw() {draw = false;}
+	bool shouldDraw() const {return draw;}
+
 protected:
 	glm::vec3 aabb[2]; // min, then max, note that this is pre-model matrix
+	bool draw;
 
 private:
 	glm::vec3 position, scale;

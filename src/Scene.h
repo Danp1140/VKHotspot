@@ -7,6 +7,7 @@
 #include "Projection.h"
 struct RenderSet;
 #include "Mesh.h"
+#include "Geometry.h"
 #include "UIHandler.h"
 
 // #define VKH_VERBOSE_DRAW_TASKS

@@ -79,13 +79,15 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 #ifdef VKH_VERBOSE_DRAW_TASKS
 			std::cout << "Mesh " << &m << std::endl;
 #endif
-			tasks.emplace_back(
-				[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
-				(uint8_t scii, VkCommandBuffer& c) {
-				// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
-				// window scis
-				m->recordDraw(fb[scii % ns], rp, r, counter, c);
-			});
+			if (m->shouldDraw()) {
+				tasks.emplace_back(
+					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
+					(uint8_t scii, VkCommandBuffer& c) {
+					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
+					// window scis
+					m->recordDraw(fb[scii % ns], rp, r, counter, c);
+				});
+			}
 			counter++;
 		}
 		if (r.ui) {

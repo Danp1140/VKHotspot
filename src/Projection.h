@@ -1,3 +1,6 @@
+#ifndef PROJECTION_H
+#define PROJECTION_H
+
 #include "GraphicsHandler.h"
 
 typedef enum ProjectionType {
@@ -200,3 +203,4 @@ class PointLight : public Light, public PositionalProjectionBase {
 public:
 	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {}
 };
+#endif
