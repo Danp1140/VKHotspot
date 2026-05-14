@@ -698,9 +698,10 @@ int main() {
 	Mesh camera_frust("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
 	ts_rp->addMesh(&camera_frust, VK_NULL_HANDLE, &camera_frust.getModelMatrix(), ts_p_idx);
 	ui.setTex(*tex_mon, s.getShadowAtlas(), ui_rp.getRenderSet(ui_p_idx).pipeline);
-	dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
+	// dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
+	dns_ts_s_pc.vp = s.getCamera()->getProj() * glm::lookAt(glm::vec3(25), glm::vec3(-1), glm::vec3(0, 1, 0));
 	Mesh cube1("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
-	ts_rp->addMesh(&cube1, VK_NULL_HANDLE, &camera_frust.getModelMatrix(), ts_p_idx);
+	ts_rp->addMesh(&cube1, VK_NULL_HANDLE, &cube1.getModelMatrix(), ts_p_idx);
 	Octree ts_octree({&cube1}, {}, 1);
 	std::map<const MeshBase*, bool> cull_frust;
 	ts_octree.frustumCull(s.getCamera()->getVP(), cull_frust);
@@ -776,7 +777,7 @@ int main() {
 #ifdef ST_TS_WIN
 		ts_octree.frustumCull(s.getCamera()->getVP(), cull_frust);
 
-		dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
+		// dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
 		sd.TOLs[sd.i] = SDL_GetTicks() - sd.last_frame_done;
 		sd.last_TOL = SDL_GetTicks();
 		updateStatsData(sd);

@@ -74,6 +74,9 @@ void Octree::frustumCull(const glm::mat4& f, std::map<const MeshBase*, bool>& cu
 	else {
 		for (uint8_t i = 0; i < 8; i++) {
 			if (children[i].intersectsFrust(f)) children[i].frustumCull(f, cull_map);
+			else {
+				children[i].cull(cull_map);
+			}
 		}
 	}
 }
@@ -123,4 +126,14 @@ bool Octree::intersectsFrust(const glm::mat4& f) {
 		}
 	}
 	return false;
+}
+
+void Octree::cull(std::map<const MeshBase*, bool>& cull_map) {
+	if (depth == 0) {
+		std::cout << "culling meshes\n";
+		for (Mesh* m : meshes) cull_map[m] = false;
+	}
+	else {
+		for (uint8_t i = 0; i < 8; i++) children[i].cull(cull_map);
+	}
 }

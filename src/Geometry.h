@@ -40,5 +40,6 @@ private:
 
 	void calculateChildren();
 	bool intersectsFrust(const glm::mat4& f);
+	void cull(std::map<const MeshBase*, bool>& cull_map);
 };
 #endif
