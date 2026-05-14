@@ -41,7 +41,8 @@ bool AABB::overlaps(const AABB& other) {
 Octree::Octree(const std::vector<Mesh*> m, const std::vector<InstancedMesh*> im, uint8_t d) :
 	meshes(m),
 	inst_meshes(im),
-	depth(d) {
+	depth(d),
+	children(nullptr) {
 	for (const MeshBase* m : meshes) {
 		aabb.add(m->getAABB()[0]);
 		aabb.add(m->getAABB()[1]);
@@ -54,28 +55,34 @@ Octree::Octree(const AABB& a, const std::vector<Mesh*> m, const std::vector<Inst
 	aabb(a),
 	meshes(m),
 	inst_meshes(im),
-	depth(d) {
+	depth(d),
+	children(nullptr) {
 	calculateChildren();
 }
 
 Octree::~Octree() {
-	if (children) delete[] children;
+	if (children) {
+		delete[] children;
+		children = nullptr;
+	}
 }
 
-void Octree::frustumCull(const glm::mat4& f) {
+void Octree::frustumCull(const glm::mat4& f, std::map<const MeshBase*, bool>& cull_map) {
 	if (depth == 0) {
-		for (Mesh* m : meshes) m->enableDraw();
-		// all meshes should draw
+		for (Mesh* m : meshes) cull_map[m] = true;
 	}
 	else {
 		for (uint8_t i = 0; i < 8; i++) {
-			if (children[i].intersectsFrust(f)) children[i].frustumCull(f);
+			if (children[i].intersectsFrust(f)) children[i].frustumCull(f, cull_map);
 		}
 	}
 }
 
 void Octree::calculateChildren() {
-	if (children) delete[] children;
+	if (children) {
+		delete[] children;
+		children = nullptr;
+	}
 	if (depth == 0) {
 		children = nullptr;
 		return;

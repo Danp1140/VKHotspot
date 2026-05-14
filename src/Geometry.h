@@ -1,6 +1,9 @@
 #ifndef GEOMETRY_H
 #define GEOMETRY_H
 
+class AABB;
+class Octree;
+
 #include "Projection.h"
 #include "Mesh.h"
 
@@ -22,10 +25,11 @@ class Octree {
 public:
 	Octree() : aabb(), depth(0), children(nullptr) {}
 	Octree(const std::vector<Mesh*> m, const std::vector<InstancedMesh*> im, uint8_t d);
+	// TODO: consider making below constructor private
 	Octree(const AABB& a, const std::vector<Mesh*> m, const std::vector<InstancedMesh*> im, uint8_t d);
 	~Octree();
 
-	void frustumCull(const glm::mat4& f);
+	void frustumCull(const glm::mat4& f, std::map<const MeshBase*, bool>& cull_map);
 
 private:
 	AABB aabb;

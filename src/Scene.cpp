@@ -8,7 +8,8 @@ RenderPassInfo::RenderPassInfo(
 	std::vector<VkClearValue>&& c) : 
 		renderpass(r), 
 		numscis(nsci),
-		clears(c) {
+		clears(c),
+		cull_map(nullptr) {
 	extent = d ? d->extent : (ms ? ms->extent : scis[0].extent);
 	// TODO: fix up createFBs to make more sense and perhaps be more flexible with attachment order
 	// nsci should really be called something else
@@ -16,7 +17,7 @@ RenderPassInfo::RenderPassInfo(
 }
 
 RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx) :
-	renderpass(r), numscis(nsci), extent(ext), clears(c) {
+	renderpass(r), numscis(nsci), extent(ext), clears(c), cull_map(nullptr) {
 	createFBs(numscis, sci_att_idx, att);
 }
 
@@ -79,7 +80,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 #ifdef VKH_VERBOSE_DRAW_TASKS
 			std::cout << "Mesh " << &m << std::endl;
 #endif
-			if (m->shouldDraw()) {
+			if (!cull_map || (*cull_map)[m]) {
 				tasks.emplace_back(
 					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
 					(uint8_t scii, VkCommandBuffer& c) {

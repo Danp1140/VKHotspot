@@ -4,9 +4,7 @@
 #include <vector>
 #include <map>
 #include <set>
-#include "Projection.h"
 struct RenderSet;
-#include "Mesh.h"
 #include "Geometry.h"
 #include "UIHandler.h"
 
@@ -78,6 +76,8 @@ public:
 	const std::vector<VkClearValue>& getClears() const {return clears;}
 	cbRecTaskRenderPassTemplate getRPT() const;
 
+	void enableFrustumCulling(std::map<const MeshBase*, bool>* cm) {cull_map = cm;}
+
 private:
 	VkRenderPass renderpass;
 	VkFramebuffer* framebuffers;
@@ -85,6 +85,7 @@ private:
 	std::vector<RenderSet> rendersets;
 	VkExtent2D extent;
 	std::vector<VkClearValue> clears;
+	std::map<const MeshBase*, bool>* cull_map;
 
 	// TODO: see if you can make this interface more intuitive
 	void createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* r, const ImageInfo* d);
