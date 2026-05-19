@@ -29,8 +29,7 @@ glm::vec3 AABB::getCenter() const {
 bool AABB::overlaps(const AABB& other) {
 	bool res = false;
 	for (uint8_t i = 0; i < 3; i++) {
-		if ((bounds[0][i] > other.getBounds()[0][i] && bounds[0][i] < other.getBounds()[1][i])
-				|| (bounds[1][i] > other.getBounds()[0][i] && bounds[1][i] < other.getBounds()[1][i])) {
+		if (!(bounds[1][i] < other.bounds[0][i] || other.bounds[1][i] < bounds[0][i])) {
 			res = true;
 			break;
 		}
@@ -67,13 +66,13 @@ Octree::~Octree() {
 	}
 }
 
-void Octree::frustumCull(const glm::mat4& f, std::map<const MeshBase*, bool>& cull_map) {
+void Octree::frustumCull(const glm::mat4& v, const glm::mat4& p, std::map<const MeshBase*, bool>& cull_map) {
 	if (depth == 0) {
 		for (Mesh* m : meshes) cull_map[m] = true;
 	}
 	else {
 		for (uint8_t i = 0; i < 8; i++) {
-			if (children[i].intersectsFrust(f)) children[i].frustumCull(f, cull_map);
+			if (children[i].intersectsFrust(v, p)) children[i].frustumCull(v, p, cull_map);
 			else {
 				children[i].cull(cull_map);
 			}
@@ -113,27 +112,90 @@ void Octree::calculateChildren() {
 	}
 }
 
-bool Octree::intersectsFrust(const glm::mat4& f) {
-	glm::vec3 temp;
-	for (uint8_t i = 0; i < 8; i++) {
-		temp = glm::vec3(
-			aabb.getBounds()[i % 2].x, 
-			aabb.getBounds()[(uint8_t)floor(i/2) % 2].y, 
-			aabb.getBounds()[(uint8_t)floor(i/4) % 2].z);
-		temp = ProjectionBase::applyHomo(f, temp);
-		for (uint8_t j = 0; j < 3; j++) {
-			if (temp[j] >= -1 && temp[j] <= 1) return true;
-		}
+bool Octree::intersectsFrust(const glm::mat4& v, const glm::mat4& p) {
+	glm::mat4 p_inv = glm::inverse(p);
+	glm::vec3 frust_edges[4] = {
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(-1, -1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(-1, -1, -1))),
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(-1, 1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(-1, 1, -1))),
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(1, -1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(1, -1, -1))),
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(1, 1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(1, 1, -1)))
+	};
+	glm::vec3 cube_faces[3] = {
+		glm::normalize(ProjectionBase::apply(v, glm::vec3(1, 0, 0))),
+		glm::normalize(ProjectionBase::apply(v, glm::vec3(0, 1, 0))),
+		glm::normalize(ProjectionBase::apply(v, glm::vec3(0, 0, 1)))
+	};
+	glm::vec3 frust_faces[5] = {
+		glm::vec3(0, 0, 1),
+		glm::cross(frust_edges[0], glm::vec3(0, 1, 0)),
+		glm::cross(frust_edges[0], glm::vec3(1, 0, 0)),
+		glm::cross(frust_edges[3], glm::vec3(0, 1, 0)),
+		glm::cross(frust_edges[3], glm::vec3(1, 0, 0))
+	};
+	glm::vec3 axes[26] = {
+		cube_faces[0],
+		cube_faces[1],
+		cube_faces[2],
+		frust_faces[0],
+		frust_faces[1],
+		frust_faces[2],
+		frust_faces[3],
+		frust_faces[4],
+		glm::cross(cube_faces[0], glm::vec3(0, 1, 0)),
+		glm::cross(cube_faces[1], glm::vec3(0, 1, 0)),
+		glm::cross(cube_faces[2], glm::vec3(0, 1, 0)),
+		glm::cross(cube_faces[0], glm::vec3(1, 0, 0)),
+		glm::cross(cube_faces[1], glm::vec3(1, 0, 0)),
+		glm::cross(cube_faces[2], glm::vec3(1, 0, 0)),
+		glm::cross(cube_faces[0], frust_edges[0]),
+		glm::cross(cube_faces[1], frust_edges[0]),
+		glm::cross(cube_faces[2], frust_edges[0]),
+		glm::cross(cube_faces[0], frust_edges[1]),
+		glm::cross(cube_faces[1], frust_edges[1]),
+		glm::cross(cube_faces[2], frust_edges[1]),
+		glm::cross(cube_faces[0], frust_edges[2]),
+		glm::cross(cube_faces[1], frust_edges[2]),
+		glm::cross(cube_faces[2], frust_edges[2]),
+		glm::cross(cube_faces[0], frust_edges[3]),
+		glm::cross(cube_faces[1], frust_edges[3]),
+		glm::cross(cube_faces[2], frust_edges[3]),
+	};
+	for (uint8_t i = 0; i < 26; i++) {
+		if (axisTest(axes[i], v, p_inv)) return false;
 	}
-	return false;
+	return true;
 }
 
 void Octree::cull(std::map<const MeshBase*, bool>& cull_map) {
 	if (depth == 0) {
-		std::cout << "culling meshes\n";
 		for (Mesh* m : meshes) cull_map[m] = false;
 	}
 	else {
 		for (uint8_t i = 0; i < 8; i++) children[i].cull(cull_map);
 	}
+}
+
+bool Octree::axisTest(glm::vec3 a, const glm::mat4& v, const glm::mat4& p_inv) {
+	float temp = glm::dot(a, ProjectionBase::apply(v, aabb.getBounds()[0]));
+	float aabb_bounds[2] = {temp, temp};
+	for (uint8_t i = 1; i < 8; i++) {
+		temp = glm::dot(a, ProjectionBase::apply(v, glm::vec3(
+			aabb.getBounds()[i % 2].x, 
+			aabb.getBounds()[(uint8_t)floor(i/2) % 2].y, 
+			aabb.getBounds()[(uint8_t)floor(i/4) % 2].z)));
+		aabb_bounds[0] = fmin(aabb_bounds[0], temp);
+		aabb_bounds[1] = fmax(aabb_bounds[1], temp);
+	}
+	temp = glm::dot(a, ProjectionBase::applyHomo(p_inv, glm::vec3(-1)));
+	float f_bounds[2] = {temp, temp};
+	for (uint8_t i = 1; i < 8; i++) {
+		temp = glm::dot(a, ProjectionBase::applyHomo(p_inv, glm::vec3(
+			i % 2 == 0 ? -1 : 1, 
+			(uint8_t)floor(i/2) % 2 == 0 ? -1 : 1, 
+			(uint8_t)floor(i/4) % 2 == 0 ? -1 : 1)));
+		f_bounds[0] = fmin(f_bounds[0], temp);
+		f_bounds[1] = fmax(f_bounds[1], temp);
+	}
+
+	return aabb_bounds[1] < f_bounds[0] || f_bounds[1] < aabb_bounds[0];
 }

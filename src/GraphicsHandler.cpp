@@ -218,7 +218,7 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t, size_t i) {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
 			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask(
-				[scii, f = t.data.ft] (VkCommandBuffer& c) {f(scii, c);})
+				[scii, f = t.data.ft] (VkCommandBuffer& c) {return f(scii, c);})
 			);
 		}
 	}
@@ -331,9 +331,10 @@ void WindowInfo::processRecordingTasks(
 					&secondarycbset.back());
 			}
 		}
-		collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
-		recfunc(secondarycbset[bufferidx]);
-		bufferidx++;
+		if (recfunc(secondarycbset[bufferidx])) {
+			collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
+			bufferidx++;
+		}
 	}
 }
 

@@ -163,7 +163,7 @@ typedef struct PipelineInfo {
 	bool dyn_viewport = false; // also implies dynamic scissor
 } PipelineInfo;
 
-typedef std::function<void (VkCommandBuffer&)> cbRecFunc;
+typedef std::function<bool (VkCommandBuffer&)> cbRecFunc;
 
 typedef enum cbRecTaskType {
 		CB_REC_TASK_TYPE_UNINITIALIZED,
@@ -245,7 +245,7 @@ typedef struct cbCollectInfo {
 	} data;
 } cbCollectInfo;
 
-typedef std::function<void (uint8_t, VkCommandBuffer&)> cbRecFuncTemplate;
+typedef std::function<bool (uint8_t, VkCommandBuffer&)> cbRecFuncTemplate;
 
 typedef struct cbRecTaskRenderPassTemplate {
 	VkRenderPass rp;

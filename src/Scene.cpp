@@ -80,13 +80,15 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 #ifdef VKH_VERBOSE_DRAW_TASKS
 			std::cout << "Mesh " << &m << std::endl;
 #endif
-			if (cull_map) {
+			if (cull_map && cull_map->contains(m)) {
 				tasks.emplace_back(
 					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis, cm = cull_map] 
 					(uint8_t scii, VkCommandBuffer& c) {
 					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
 					// window scis
-					if ((*cm)[m]) m->recordDraw(fb[scii % ns], rp, r, counter, c);
+					if (!(*cm)[m]) return false;
+					m->recordDraw(fb[scii % ns], rp, r, counter, c);
+					return true;
 				});
 			}
 			else {
@@ -96,6 +98,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
 					// window scis
 					m->recordDraw(fb[scii % ns], rp, r, counter, c);
+					return true;
 				});
 
 			}
@@ -109,6 +112,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 				[ui = r.ui, &rp = renderpass, &fb = framebuffers, ns = numscis]
 				(uint8_t scii, VkCommandBuffer& c) {
 				ui->recordDraw(fb[scii % ns], rp, c);
+				return true;
 			});
 		}
 #ifdef VKH_VERBOSE_DRAW_TASKS

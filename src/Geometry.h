@@ -29,7 +29,7 @@ public:
 	Octree(const AABB& a, const std::vector<Mesh*> m, const std::vector<InstancedMesh*> im, uint8_t d);
 	~Octree();
 
-	void frustumCull(const glm::mat4& f, std::map<const MeshBase*, bool>& cull_map);
+	void frustumCull(const glm::mat4& v, const glm::mat4& p, std::map<const MeshBase*, bool>& cull_map);
 
 private:
 	AABB aabb;
@@ -39,7 +39,18 @@ private:
 	std::vector<InstancedMesh*> inst_meshes;
 
 	void calculateChildren();
-	bool intersectsFrust(const glm::mat4& f);
+	/*
+	 * Calculates whether this octree node collides with a given frustum matrix
+	 * using the separating axis theorem in view space.
+	 */
+	bool intersectsFrust(const glm::mat4& v, const glm::mat4& p);
 	void cull(std::map<const MeshBase*, bool>& cull_map);
+
+	/*
+	 * a is pre-normalized axis to test against in view space
+	 *
+	 * returns: true if they DO NOT INTERSECT, false otherwise
+	 */
+	bool axisTest(glm::vec3 a, const glm::mat4& v, const glm::mat4& p_inv);
 };
 #endif

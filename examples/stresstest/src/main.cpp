@@ -704,7 +704,7 @@ int main() {
 	ts_rp->addMesh(&cube1, VK_NULL_HANDLE, &cube1.getModelMatrix(), ts_p_idx);
 	Octree ts_octree({&cube1}, {}, 1);
 	std::map<const MeshBase*, bool> cull_frust;
-	ts_octree.frustumCull(s.getCamera()->getVP(), cull_frust);
+	ts_octree.frustumCull(s.getCamera()->getView(), s.getCamera()->getProj(), cull_frust);
 	ts_rp->enableFrustumCulling(&cull_frust);
 #endif
 
@@ -716,6 +716,7 @@ int main() {
 	ts_w.addTask(cbRecTaskTemplate([&ui, rp = ui_rp.getRenderPass(), fb = ui_rp.getFramebuffers()]
 		(uint8_t scii, VkCommandBuffer& c) {
 		ui.recordDraw(fb[scii], rp, c); // might need to mod fb idx against ui's own scii count
+		return true;
 	}));
 #endif
 	
@@ -775,7 +776,7 @@ int main() {
 		s.updateSMDCascade(*key_light, 2, glm::vec2(0.3, 1));
 
 #ifdef ST_TS_WIN
-		ts_octree.frustumCull(s.getCamera()->getVP(), cull_frust);
+		ts_octree.frustumCull(s.getCamera()->getView(), s.getCamera()->getProj(), cull_frust);
 
 		// dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
 		sd.TOLs[sd.i] = SDL_GetTicks() - sd.last_frame_done;
