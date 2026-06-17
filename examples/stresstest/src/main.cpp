@@ -664,6 +664,7 @@ int main() {
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
 	main_rp->addMesh(&ground, ds_temp, &ground_pcd, dnsp_idx);
 	for (size_t sm_p_i : sm_p_idxs) sm_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), sm_p_i);
+	VkDescriptorSet ds_save = ds_temp;
 
 	const uint8_t trees_n = 63;
 	const float trees_offset = 20, trees_range = 20;
@@ -702,10 +703,17 @@ int main() {
 	dns_ts_s_pc.vp = s.getCamera()->getProj() * glm::lookAt(glm::vec3(25), glm::vec3(-1), glm::vec3(0, 1, 0));
 	Mesh cube1("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
 	ts_rp->addMesh(&cube1, VK_NULL_HANDLE, &cube1.getModelMatrix(), ts_p_idx);
+	Mesh cube2("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
+	cube2.setPos(glm::vec3(3, 0, 0));
+	ts_rp->addMesh(&cube2, VK_NULL_HANDLE, &cube2.getModelMatrix(), ts_p_idx);
+	Mesh cube3("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
+	cube3.setPos(glm::vec3(0, 0, 3));
+	ts_rp->addMesh(&cube3, VK_NULL_HANDLE, &cube3.getModelMatrix(), ts_p_idx);
 	Octree ts_octree({&cube1}, {}, 1);
 	std::map<const MeshBase*, bool> cull_frust;
 	ts_octree.frustumCull(s.getCamera()->getView(), s.getCamera()->getProj(), cull_frust);
 	ts_rp->enableFrustumCulling(&cull_frust);
+	main_rp->enableFrustumCulling(&cull_frust);
 #endif
 
 	w.addTasks(s.getDrawTasks());
@@ -776,6 +784,7 @@ int main() {
 		s.updateSMDCascade(*key_light, 2, glm::vec2(0.3, 1));
 
 #ifdef ST_TS_WIN
+		cull_frust.clear();
 		ts_octree.frustumCull(s.getCamera()->getView(), s.getCamera()->getProj(), cull_frust);
 
 		// dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();

@@ -86,6 +86,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 					(uint8_t scii, VkCommandBuffer& c) {
 					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
 					// window scis
+					if (!(*cm)[m]) std::cout << "culling mesh\n";
 					if (!(*cm)[m]) return false;
 					m->recordDraw(fb[scii % ns], rp, r, counter, c);
 					return true;

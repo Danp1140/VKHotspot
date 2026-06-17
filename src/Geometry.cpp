@@ -27,21 +27,53 @@ glm::vec3 AABB::getCenter() const {
 }
 
 bool AABB::overlaps(const AABB& other) {
-	bool res = false;
 	for (uint8_t i = 0; i < 3; i++) {
-		if (!(bounds[1][i] < other.bounds[0][i] || other.bounds[1][i] < bounds[0][i])) {
-			res = true;
-			break;
-		}
+		if (bounds[1][i] < other.bounds[0][i] || other.bounds[1][i] < bounds[0][i]) 
+			return false;
+	}
+	return true;
+}
+
+AABB AABB::apply(const glm::mat4& m) {
+	AABB res;
+	for (uint8_t i = 0; i < 8; i++) {
+		res.add(ProjectionBase::apply(m, glm::vec3(
+			bounds[i % 2].x, 
+			bounds[(uint8_t)floor(i/2) % 2].y, 
+			bounds[(uint8_t)floor(i/4) % 2].z)));
 	}
 	return res;
+}
+
+Octree::Octree(const Octree& lvalue) :
+	aabb(lvalue.aabb),
+	depth(lvalue.depth),
+	children(nullptr),
+	meshes(lvalue.meshes),
+	inst_meshes(lvalue.inst_meshes),
+	flags(OCTREE_FLAG_BITS_NONE) {
+	if (lvalue.children) {
+		children = new Octree[8];
+		memcpy(children, lvalue.children, 8*sizeof(Octree));
+	}
+}
+
+Octree::Octree(Octree&& rvalue) :
+	aabb(std::move(rvalue.aabb)),
+	depth(std::move(rvalue.depth)),
+	children(rvalue.children),
+	meshes(std::move(rvalue.meshes)),
+	inst_meshes(std::move(rvalue.inst_meshes)),
+	flags(OCTREE_FLAG_BITS_NONE) {
+	rvalue.children = nullptr;
 }
 
 Octree::Octree(const std::vector<Mesh*> m, const std::vector<InstancedMesh*> im, uint8_t d) :
 	meshes(m),
 	inst_meshes(im),
 	depth(d),
-	children(nullptr) {
+	children(nullptr),
+	flags(OCTREE_FLAG_BITS_NONE) {
 	for (const MeshBase* m : meshes) {
 		aabb.add(m->getAABB()[0]);
 		aabb.add(m->getAABB()[1]);
@@ -55,7 +87,8 @@ Octree::Octree(const AABB& a, const std::vector<Mesh*> m, const std::vector<Inst
 	meshes(m),
 	inst_meshes(im),
 	depth(d),
-	children(nullptr) {
+	children(nullptr),
+	flags(OCTREE_FLAG_BITS_NONE) {
 	calculateChildren();
 }
 
@@ -66,30 +99,54 @@ Octree::~Octree() {
 	}
 }
 
+Octree& Octree::operator=(Octree&& rhs) {
+	swap(*this, rhs);
+	return *this;
+}
+
+void swap(Octree& lhs, Octree& rhs) {
+	std::swap(lhs.aabb, rhs.aabb);
+	std::swap(lhs.depth, rhs.depth);
+	std::swap(lhs.children, rhs.children);
+	std::swap(lhs.meshes, rhs.meshes);
+	std::swap(lhs.inst_meshes, rhs.inst_meshes);
+	std::swap(lhs.flags, rhs.flags);
+}
+
 void Octree::frustumCull(const glm::mat4& v, const glm::mat4& p, std::map<const MeshBase*, bool>& cull_map) {
-	if (depth == 0) {
-		for (Mesh* m : meshes) cull_map[m] = true;
-	}
-	else {
-		for (uint8_t i = 0; i < 8; i++) {
-			if (children[i].intersectsFrust(v, p)) children[i].frustumCull(v, p, cull_map);
-			else {
-				children[i].cull(cull_map);
+	if (depth == 0 && children || depth != 0 && !children)
+		FatalError("Corrupted octree").raise();
+	for (uint8_t i = 0; i < 8; i++) {
+		if (containedByFrust(v, p)) {
+			flags = OCTREE_FLAG_BITS_NONE_CULLED;
+			cullNone(cull_map);
+		}
+		else if (intersectsFrust(v, p)) {
+			if (depth == 0) {
+				flags  = OCTREE_FLAG_BITS_NONE_CULLED;
+				cullNone(cull_map);
 			}
+			else {
+				flags = OCTREE_FLAG_BITS_NONE;
+				for (uint8_t i = 0; i < 8; i++)
+					children[i].frustumCull(v, p, cull_map);
+			}
+		}
+		else {
+			flags = OCTREE_FLAG_BITS_ALL_CULLED;
+			cullAll(cull_map);
 		}
 	}
 }
 
 void Octree::calculateChildren() {
-	if (children) {
-		delete[] children;
-		children = nullptr;
-	}
 	if (depth == 0) {
 		children = nullptr;
 		return;
 	}
-	children = new Octree[8];
+	if (!children) {
+		children = new Octree[8];
+	}
 	std::vector<Mesh*> next_meshes;
 	AABB next_aabb;
 	for (uint8_t i = 0; i < 8; i++) {
@@ -102,8 +159,7 @@ void Octree::calculateChildren() {
 		next_aabb.add(aabb.getCenter());
 
 		for (Mesh* m : meshes) {
-			// if in node n, add to that nodes constructor list
-			if (next_aabb.overlaps(AABB(m->getAABB()[0], m->getAABB()[1]))) {
+			if (next_aabb.overlaps(AABB(m->getAABB()[0], m->getAABB()[1]).apply(m->getModelMatrix()))) {
 				next_meshes.push_back(m);
 			}
 		}
@@ -166,13 +222,40 @@ bool Octree::intersectsFrust(const glm::mat4& v, const glm::mat4& p) {
 	return true;
 }
 
-void Octree::cull(std::map<const MeshBase*, bool>& cull_map) {
+bool Octree::containedByFrust(const glm::mat4& v, const glm::mat4& p) {
+	glm::mat4 vp = p * v;
+	glm::vec3 temp;
+	for (uint8_t i = 0; i < 8; i++) {
+		temp = ProjectionBase::apply(vp, glm::vec3(
+			aabb.getBounds()[i % 2].x, 
+			aabb.getBounds()[(uint8_t)floor(i/2) % 2].y, 
+			aabb.getBounds()[(uint8_t)floor(i/4) % 2].z));
+		for (uint8_t j = 0; j < 3; j++) {
+			if (temp[j] > 1 || temp[j] < -1) return false;
+		}
+	}
+	return true;
+}
+
+void Octree::cullAll(std::map<const MeshBase*, bool>& cull_map) {
+	if (depth == 0 && children || depth != 0 && !children)
+		FatalError("Corrupted octree").raise();
+	if (flags & OCTREE_FLAG_BITS_ALL_CULLED) return;
 	if (depth == 0) {
-		for (Mesh* m : meshes) cull_map[m] = false;
+		std::cout << "culling d0 node\n";
+		for (Mesh* m : meshes) {
+			if (!cull_map.contains(m)) {
+				cull_map.insert({m, false});
+			}
+		}
 	}
 	else {
-		for (uint8_t i = 0; i < 8; i++) children[i].cull(cull_map);
+		for (uint8_t i = 0; i < 8; i++) children[i].cullAll(cull_map);
 	}
+	flags |= OCTREE_FLAG_BITS_ALL_CULLED;
+}
+
+void Octree::cullNone(std::map<const MeshBase*, bool>& cull_map) {
 }
 
 bool Octree::axisTest(glm::vec3 a, const glm::mat4& v, const glm::mat4& p_inv) {
