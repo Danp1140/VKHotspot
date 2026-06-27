@@ -178,6 +178,7 @@ public:
 	Camera* getCamera() {return camera;}
 	const DirectionalLight* getDirLights() const {return dir_lights;}
 	size_t getNumDirLights() const {return n_dir_lights;}
+	size_t getNumSCLights() const {return n_sc_lights;}
 	const BufferInfo& getLUB() {return lightub;}
 	RenderPassInfo& getRenderPass(size_t i) {return *renderpasses[i];}
 	const ImageInfo& getShadowAtlas() {return shadow_atlas;}

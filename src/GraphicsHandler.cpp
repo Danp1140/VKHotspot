@@ -426,7 +426,7 @@ BufferInfo GH::scratchbuffer = {
 	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 	0
 };
-const char* GH::shaderdir = "../resources/shaders/SPIRV/";
+const char* GH::shaderdir = "../../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 ImageInfo GH::blankimage = {};
 
