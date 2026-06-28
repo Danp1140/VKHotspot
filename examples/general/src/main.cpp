@@ -8,6 +8,16 @@
 #define MOVEMENT_SENS 0.75f
 #define FOV_SENS 0.05f
 
+typedef struct [[gnu::packed]] DNSScenePCData {
+	glm::mat4 vp;
+	glm::vec3 c_pos;
+} DNSScenePCData;
+
+typedef struct [[gnu::packed]] DNSObjectPCData {
+	uint32_t catcher_idx;
+	glm::mat4 m;
+} DNSObjectPCData;
+
 typedef struct POMPCData {
 	glm::mat4 vp;
 	glm::vec4 c_p;
@@ -18,7 +28,7 @@ PipelineInfo createSMPipelineTemplate(RenderPassInfo* rpi) {
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "shadowmap";
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(MeshPCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	// p.cullmode = VK_CULL_MODE_FRONT_BIT;
@@ -43,7 +53,7 @@ size_t createShadowReceivePipeline(Scene& s, const WindowInfo& w, RenderPassInfo
 		}, {
 			1,
 			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			SCENE_MAX_DIR_LIGHTS,
+			1,
 			VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
 		}, {
@@ -60,8 +70,8 @@ size_t createShadowReceivePipeline(Scene& s, const WindowInfo& w, RenderPassInfo
 		0,
 		3, &bindings[0]
 	};
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(DNSScenePCData), sizeof(DNSObjectPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
@@ -451,6 +461,8 @@ int main() {
 	size_t pom_pidx = createPOMPipeline(s, w, main_rp);
 	main_rp->setScenePC(pom_pidx, &pompcdat);
 	size_t shadowcatch_pidx = createShadowReceivePipeline(s, w, main_rp);
+	DNSScenePCData sc_scene_pcd;
+	main_rp->setScenePC(shadowcatch_pidx, &sc_scene_pcd);
 	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), default_pidx);
 	RenderPassInfo uirpi = createUIRPI(w);
 
@@ -500,6 +512,7 @@ int main() {
 	// new
 	PipelineInfo sm_pipeline = createSMPipelineTemplate(sm_rp); // added several times to different render sets w/ different dyn viewport/scissor
 	std::vector<size_t> sm_p_idxs = s.addSMPipeline(*sl, sm_pipeline, *sm_rp, nullptr);
+	std::cout << sm_p_idxs.size() << "\n";
 	for (size_t i = 0; i < sm_p_idxs.size(); i++) sm_rp->setScenePC(sm_p_idxs[i], &sl->getSMDatum(i).getVP()); 
 
 	/*
@@ -514,12 +527,14 @@ int main() {
 
 	Mesh plane("../../resources/models/objs/plane.obj");
 	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
-	s.addLightCatcher(&plane, temp, {0, 1}, {}, {});
-	main_rp->addMesh(&plane, temp, &plane.getModelMatrix(), shadowcatch_pidx); // plane receives shadows
+	DNSObjectPCData plane_pcd = {s.addLightCatcher(&plane, temp, {0, 1}, {}, {}), plane.getModelMatrix()};
+	main_rp->addMesh(&plane, temp, &plane_pcd, shadowcatch_pidx); // plane receives shadows
 
+	/*
 	Mesh plane2("../../resources/models/objs/plane.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT);
 	plane2.setPos(glm::vec3(20, 0, 0));
 	main_rp->addMesh(&plane2, VK_NULL_HANDLE, &plane2.getModelMatrix(), 3);
+	*/
 
 	std::vector<LODFuncData> tempfd;
 	LODMesh suz = createLODSuzanne(s, tempfd);
@@ -529,13 +544,13 @@ int main() {
 	GH::createDS(s.getRenderPass(1).getRenderSet(2).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
 	*/
-	main_rp->addMesh(&suz, temp, &suz.getModelMatrix(), shadowcatch_pidx);
+	main_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), default_pidx);
 	s.addShadowCaster(&suz, {0});
 	m.setPos(glm::vec3(-5, 10, -5));
 	s.addShadowCaster(&m, {0});
 
 	Mesh tree("resources/models/tree.obj");
-	main_rp->addMesh(&tree, temp, &tree.getModelMatrix(), shadowcatch_pidx);
+	main_rp->addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), default_pidx);
 	tree.setPos(glm::vec3(-10, 0, 0));
 	tree.setScale(glm::vec3(4, 2, 4));
 	s.addShadowCaster(&tree, {0});
@@ -632,9 +647,15 @@ int main() {
 		if (movementdir != glm::vec3(0)) {
 			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
 			s.getCamera()->setForward(-s.getCamera()->getPos());
+			
 
 			pompcdat = (POMPCData) {s.getCamera()->getVP(), glm::vec4(s.getCamera()->getPos().x, s.getCamera()->getPos().y, s.getCamera()->getPos().z, 1)};
 		}
+		s.getCamera()->updateView();
+		s.getCamera()->updateProj();
+		sc_scene_pcd.vp = s.getCamera()->getVP();
+		sc_scene_pcd.c_pos = s.getCamera()->getPos();
+		s.updateSMDCascade(*sl, 0, glm::vec2(0, 1));
 		// can't just do in loop cuz need time;
 		volumetrics.updatePC((temp_pc_dat){s.getCamera()->getVP(), sl->getSMDatum(0).getVP(), glm::inverse(s.getCamera()->getVP()), s.getCamera()->getPos(), (float)SDL_GetTicks() / 1000.f});
 
@@ -666,7 +687,7 @@ int main() {
 			frametimes.clear();
 		}
 
-		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
+		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);	
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
 		// plane.setPos(plc->getPos());
@@ -678,7 +699,3 @@ int main() {
 
 	return 0;
 }
-
-/*
- * Left off: need to adapt this lighting code to the stock shader which uses DNS maps and more light bindings
- */
