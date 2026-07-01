@@ -15,6 +15,14 @@ glm::vec3 ProjectionBase::applyHomo(glm::mat4 A, glm::vec3 v) {
 	return glm::vec3(u.x, u.y, u.z) / u.w;
 }
 
+glm::mat4 ProjectionBase::ortho(float l, float r, float b, float t, float n, float f) {
+	return glm::mat4(
+		2 / (r-l), 0, 0, 0, // 1st col 
+		0, 2 / (t-b), 0, 0, // 2nd col
+		0, 0, 1 / (f-n), 0, // 3rd col
+		(r+l)/(r-l), (t+b)/(b-t), n/(f-n), 1); // 4th col
+}
+
 /*
  * PositionalProjectionBase
  */
@@ -130,6 +138,7 @@ void swap(DirectionalLight& lhs, DirectionalLight& rhs) {
 
 void DirectionalLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 	glm::mat4 view = glm::lookAt<float>(glm::vec3(0), forward, up);
+
 	sm_data[sm_i].setView(view);
 
 	glm::vec3 temp = ProjectionBase::apply(view, sm_data[sm_i].getFocus()[0]);
@@ -159,82 +168,19 @@ void DirectionalLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_A
 		ls_aabb[0].y = ls_cam_aabb[0].y;
 		ls_aabb[1].y = ls_cam_aabb[1].y;
 	}
-	sm_data[sm_i].setProj(glm::ortho<float>(
+	/*
+	sm_data[sm_i].setProj(glm::orthoRH_ZO<float>(
 		ls_aabb[0].x, ls_aabb[1].x,
 		ls_aabb[1].y, ls_aabb[0].y,
 		ls_aabb[0].z, ls_aabb[1].z));
+		*/
+	sm_data[sm_i].setProj(ProjectionBase::ortho(
+		ls_aabb[0].x, ls_aabb[1].x,
+		ls_aabb[0].y, ls_aabb[1].y,
+		ls_aabb[0].z, ls_aabb[1].z));
+
+	std::cout << ls_aabb[0].z << "\n";
+	std::cout << ls_aabb[1].z << "\n";
 
 	sm_data[sm_i].updateProj();
 }
-
-/*
-void DirectionalLight::updateView() {
-	view = glm::lookAt<float>(glm::vec3(0), forward, glm::vec3(0, 1, 0));
-	vp = projection * view;
-}
-*/
-
-/*
-void DirectionalLight::updateProj() {
-	if (sm_data.size() > 1) {
-		Camera* c = (Camera*)sm_data;
-		glm::mat4 ivp = glm::inverse(c->getVP());
-		glm::vec3 coord = glm::vec3(-1, -1, 0);
-		glm::vec3 temp = applyHomo(ivp, coord);
-		temp = apply(view, temp);
-		glm::vec3 ls_aabb[2] = {temp, temp};
-		float f = 0.8;
-		for (uint8_t i = 1; i < 8; i++) {
-			coord.x = (i % 2 == 0) ? -1 : 1;
-			coord.y = ((i/2) % 2 == 0) ? -1 : 1;
-			coord.z = ((i/4) % 2 == 0) ? 0 : f;
-			temp = applyHomo(ivp, coord);
-			temp = apply(view, temp);
-			for (uint8_t j = 0; j < 3; j++) {
-				if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
-				if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
-			}
-		}
-		// ls_aabb[1].y = ls_aabb[0].y + (ls_aabb[1].y - ls_aabb[0].y) * f;
-		projection = glm::ortho<float>(
-			ls_aabb[0].x, ls_aabb[1].x,
-			ls_aabb[1].y, ls_aabb[0].y,
-			// -ls_aabb[1].z, -ls_aabb[0].z);
-			0, 200);
-		std::cout << ls_aabb[0].x << ", " << ls_aabb[1].x << "\n";
-		std::cout << ls_aabb[0].y << ", " << ls_aabb[1].y << "\n";
-		std::cout << ls_aabb[0].z << ", " << ls_aabb[1].z << "\n";
-	}
-	else {
-		// std::cout << "world-space focus: [<" << focus[0].x << ", " << focus[0].y << ", " << focus[0].z << ">, <";
-		// std::cout << focus[1].x << ", " << focus[1].y << ", " << focus[1].z << ">]\n";
-		glm::vec3 temp = apply(view, sm_data.focus[0]), ls_aabb[2] = {temp, temp};
-		for (uint8_t i = 1; i < 8; i++) {
-			temp = apply(view, glm::vec3(sm_data.focus[i % 2].x, sm_data.focus[(uint8_t)floor(i/2) % 2].y, sm_data.focus[(uint8_t)floor(i/4) % 2].z));
-			for (uint8_t j = 0; j < 3; j++) {
-				if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
-				if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
-			}
-		}
-		// ls_aabb[0] -= LIGHT_SHADOW_AABB_FUDGE;
-		// ls_aabb[1] += LIGHT_SHADOW_AABB_FUDGE;
-		// std::cout << "light-space ls_aabb: [<" << ls_aabb[0].x << ", " << ls_aabb[0].y << ", " << ls_aabb[0].z << ">, <";
-		// std::cout << ls_aabb[1].x << ", " << ls_aabb[1].y << ", " << ls_aabb[1].z << ">]\n";
-		projection = glm::ortho<float>(
-			ls_aabb[0].x, ls_aabb[1].x, 
-			// ls_aabb[0].y, ls_aabb[1].y, 
-			ls_aabb[1].y, ls_aabb[0].y,
-			-(ls_aabb[0].z + 2 * (ls_aabb[1].z - ls_aabb[0].z)), -ls_aabb[0].z); // negate & flip b/c we're looking in the -z direction?
-			// -(ls_aabb[1].z + 2 * (ls_aabb[0].z - ls_aabb[1].z)), -ls_aabb[1].z); // negate & flip b/c we're looking in the -z direction?
-		// glm::vec3 test[2] = {applyHomo(projection, ls_aabb[0]), applyHomo(projection, ls_aabb[1])};
-		// std::cout << "check test: [<" << test[0].x << ", " << test[0].y << ", " << test[0].z << ">, <";
-		// std::cout << test[1].x << ", " << test[1].y << ", " << test[1].z << ">]\n";
-	}
-	// else if (type == DIRECTIONAL_LIGHT_TYPE_PERSP)
-	// 	projection = glm::perspective<float>(0.78, (float)sm_data.extent.width / (float)sm_data.extent.height, 0.01, 100);
-	// else FatalError("Unknown light projection type").raise();
-
-	// projection[1][1] *= -1;
-	vp = projection * view;
-}
-*/

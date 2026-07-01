@@ -54,10 +54,6 @@ void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* 
 	rendersets[pidx].objpcdata.push_back(pc);
 }
 
-void RenderPassInfo::setUI(const UIHandler* u, size_t pidx) {
-	rendersets[pidx].ui = u;
-}
-
 std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 	std::vector<cbRecTaskTemplate> tasks;
 	tasks.emplace_back(getRPT());
@@ -77,7 +73,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 		counter = 0;
 		for (const MeshBase* m : r.meshes) {
 #ifdef VKH_VERBOSE_DRAW_TASKS
-			std::cout << "Mesh " << &m << std::endl;
+			std::cout << "Mesh " << m << std::endl;
 #endif
 			tasks.emplace_back(
 				[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
@@ -87,16 +83,6 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 				m->recordDraw(fb[scii % ns], rp, r, counter, c);
 			});
 			counter++;
-		}
-		if (r.ui) {
-#ifdef VKH_VERBOSE_DRAW_TASKS
-			std::cout << "UI " << r.ui << std::endl;
-#endif
-			tasks.emplace_back(
-				[ui = r.ui, &rp = renderpass, &fb = framebuffers, ns = numscis]
-				(uint8_t scii, VkCommandBuffer& c) {
-				ui->recordDraw(fb[scii % ns], rp, c);
-			});
 		}
 #ifdef VKH_VERBOSE_DRAW_TASKS
 		std::cout << "}" << std::endl;
@@ -265,9 +251,9 @@ std::vector<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, 
 }
 
 void Scene::addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& dl_idxs) {
+	glm::vec3 temp;
 	for (uint8_t i = 0; i < dl_idxs.size(); i++) {
-		glm::vec3 temp = ProjectionBase::apply(m->getModelMatrix(), m->getAABB()[0]);
-		for (uint8_t j = 1; j < 8; j++) {
+		for (uint8_t j = 0; j < 8; j++) { 
 			temp = ProjectionBase::apply(m->getModelMatrix(), glm::vec3(
 						m->getAABB()[j % 2].x, 
 						m->getAABB()[(uint8_t)floor(j/2) % 2].y, 
@@ -277,6 +263,9 @@ void Scene::addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& dl_i
 			}
 		}
 	}
+	std::cout << "new AABB\n";
+	std::cout << dir_lights[0].getSMDatum(0).getFocus()[0].x << "\n";
+	std::cout << dir_lights[0].getSMDatum(0).getFocus()[1].x << "\n";
 }
 
 uint32_t Scene::addLightCatcher(

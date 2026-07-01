@@ -6,7 +6,7 @@
 #include <random>
 
 #define MOVEMENT_SENS 0.75f
-#define FOV_SENS 0.05f
+#define ZOOM_SENS 0.1f
 
 typedef struct [[gnu::packed]] DNSScenePCData {
 	glm::mat4 vp;
@@ -161,7 +161,7 @@ RenderPassInfo* createMainRP(Scene& s, const WindowInfo& w, PPStep& pproc) {
 size_t createDefaultPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "default";
+	p.shaderfilepathprefix = "viewport";
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
@@ -450,20 +450,18 @@ int main() {
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
 	PPStep volumetrics(&w, "vol");
 
-	Mesh m("../../resources/models/objs/cube.obj");
 	POMPCData pompcdat;
 	RenderPassInfo* sm_rp = createSMRenderPass(s, w);
 
 	RenderPassInfo* main_rp = createMainRP(s, w, volumetrics);
-	size_t default_pidx = createDefaultPipeline(s, w, main_rp);
-	size_t instanced_pidx = createInstancedPipeline(s, w, main_rp);
+	const size_t default_pidx = createDefaultPipeline(s, w, main_rp);
+	const size_t instanced_pidx = createInstancedPipeline(s, w, main_rp);
 	// size_t textured_pidx = createTexturedPipeline(s, w, main_rp);
-	size_t pom_pidx = createPOMPipeline(s, w, main_rp);
+	const size_t pom_pidx = createPOMPipeline(s, w, main_rp);
 	main_rp->setScenePC(pom_pidx, &pompcdat);
-	size_t shadowcatch_pidx = createShadowReceivePipeline(s, w, main_rp);
+	const size_t shadowcatch_pidx = createShadowReceivePipeline(s, w, main_rp);
 	DNSScenePCData sc_scene_pcd;
 	main_rp->setScenePC(shadowcatch_pidx, &sc_scene_pcd);
-	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), default_pidx);
 	RenderPassInfo uirpi = createUIRPI(w);
 
 	/*
@@ -495,29 +493,35 @@ int main() {
 	camtext->setPos(UICoord(1000, w.getSCExtent().height));
 	UIText* fpstext = ui.addComponent(UIText());
 	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
-	// s.getRenderPass(1).setUI(&ui, 0);
+	UIImage* tex_mon = ui.addComponent(UIImage());
+	tex_mon->setPos({(float)w.getSCExtent().width - 600, (float)w.getSCExtent().height});
+	tex_mon->setExt({600, -600});
+	ui.setTex(*tex_mon, s.getShadowAtlas(), uirpi.getRenderSet(0).pipeline);
 
 	/*
 	 * Lighting
 	 */
-
 	DirectionalLightInitInfo l_ii;
-	l_ii.super_light.c = glm::vec3(1, 1, 0);
-	l_ii.super_directional.f = glm::vec3(1, -1, 0);
+	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(1, 0, 0));
+	l_ii.super_directional.f = glm::normalize(glm::vec3(1, -1, 0));
 	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight(l_ii), {{1024, 1024}});
-	l_ii.super_light.c = glm::vec3(0, 0, 1);
-	l_ii.super_directional.f = glm::vec3(0, -1, 1);
+	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(0, 1, 0));
+	l_ii.super_directional.f = glm::normalize(glm::vec3(0, -1, 1));
 	DirectionalLight* noshad = s.addDirectionalLight(DirectionalLight(l_ii), {});
 
-	// new
-	PipelineInfo sm_pipeline = createSMPipelineTemplate(sm_rp); // added several times to different render sets w/ different dyn viewport/scissor
+	PipelineInfo sm_pipeline = createSMPipelineTemplate(sm_rp); 
 	std::vector<size_t> sm_p_idxs = s.addSMPipeline(*sl, sm_pipeline, *sm_rp, nullptr);
-	std::cout << sm_p_idxs.size() << "\n";
 	for (size_t i = 0; i < sm_p_idxs.size(); i++) sm_rp->setScenePC(sm_p_idxs[i], &sl->getSMDatum(i).getVP()); 
 
 	/*
 	 * Misc Mesh Instantiation
 	 */
+	// Physics cube
+	Mesh m("../../resources/models/objs/cube.obj");
+	m.setPos(glm::vec3(-5, 10, -5));
+	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), default_pidx);
+
+	// Cube ring
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
 	VkDescriptorSet temp;
@@ -525,6 +529,7 @@ int main() {
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
 	main_rp->addMesh(&im, temp, nullptr, instanced_pidx);
 
+	// Ground Plane
 	Mesh plane("../../resources/models/objs/plane.obj");
 	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
 	DNSObjectPCData plane_pcd = {s.addLightCatcher(&plane, temp, {0, 1}, {}, {}), plane.getModelMatrix()};
@@ -536,32 +541,36 @@ int main() {
 	main_rp->addMesh(&plane2, VK_NULL_HANDLE, &plane2.getModelMatrix(), 3);
 	*/
 
+	// LOD Suzanne
 	std::vector<LODFuncData> tempfd;
 	LODMesh suz = createLODSuzanne(s, tempfd);
-	/*
-	TextureSet t("../resources/textures/uvgrid");
-	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
-	GH::createDS(s.getRenderPass(1).getRenderSet(2).pipeline, temp);
-	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
-	*/
-	main_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), default_pidx);
-	s.addShadowCaster(&suz, {0});
-	m.setPos(glm::vec3(-5, 10, -5));
-	s.addShadowCaster(&m, {0});
+	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
+	DNSObjectPCData suz_pcd = {s.addLightCatcher(&suz, temp, {0, 1}, {}, {}), suz.getModelMatrix()};
+	main_rp->addMesh(&suz, temp, &suz_pcd, shadowcatch_pidx);
+	// main_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), default_pidx);
 
-	Mesh tree("resources/models/tree.obj");
-	main_rp->addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), default_pidx);
+	// Tree
+	Mesh tree("resources/models/tree.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	tree.setPos(glm::vec3(-10, 0, 0));
 	tree.setScale(glm::vec3(4, 2, 4));
-	s.addShadowCaster(&tree, {0});
+	DNSObjectPCData tree_pcd = {s.addLightCatcher(&tree, temp, {0, 1}, {}, {}), tree.getModelMatrix()};
+	main_rp->addMesh(&tree, temp, &tree_pcd, shadowcatch_pidx);
+	// main_rp->addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), default_pidx);
 
+	s.addShadowCaster(&tree, {0});
+	s.addShadowCaster(&suz, {0});
+	s.addShadowCaster(&m, {0});
 	for (size_t i = 0; i < sm_p_idxs.size(); i++) {
 		sm_rp->addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), sm_p_idxs[i]); 
 		sm_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), sm_p_idxs[i]); 
+		sm_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), sm_p_idxs[i]); 
 	}
 
 	GH::updateDS(volumetrics.getDS(), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sl->getSMDatum(0).getSM()->getDII(), {}); 
 
+	/*
+	 * Draw Tasks
+	 */
 	w.addTasks(s.getDrawTasks());
 
 	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(VK_NULL_HANDLE, nullptr, 0, {0, 0}, 0, nullptr)));
@@ -578,7 +587,6 @@ int main() {
 	/*
 	 * Physics Scene Setup
 	 */
-
 	PhysicsHandler ph;
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
@@ -597,7 +605,6 @@ int main() {
 	/*
 	 * Input Scripting
 	 */
-
 	InputHandler ih;
 	glm::vec3 movementdir;
 	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, c = s.getCamera()] () { movementdir += glm::vec3(0, 1, 0); }));
@@ -606,9 +613,10 @@ int main() {
 	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += glm::cross(c->getForward(), glm::vec3(0, 1, 0));; }));
 	ih.addHold(InputHold(SDL_SCANCODE_E, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_Q, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward()); }));
-	// TODO: consider using a sigmoid to modulate FOVY input
-	ih.addHold(InputHold(SDL_SCANCODE_UP, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() > FOV_SENS) c->setFOVY(c->getFOVY() - FOV_SENS); }));
-	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() < glm::pi<float>() - FOV_SENS) c->setFOVY(c->getFOVY() + FOV_SENS); }));
+	float zoom = tan(s.getCamera()->getFOVY()-1.57);
+	ih.addHold(InputHold(SDL_SCANCODE_UP, [&zoom] () { zoom -= ZOOM_SENS; }));
+	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&zoom] () { zoom += ZOOM_SENS; }));
+
 	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log, &w, &s, &suz, &plane, pc, sm_pipeline, sm_rp, shadowcatch_pidx] (const SDL_Event& e) { 
 		if (e.key.scancode == SDL_SCANCODE_H) {
 			log.insert(0, L"Hello World! @ " + getTimestamp() + L"\n");
@@ -647,15 +655,16 @@ int main() {
 		if (movementdir != glm::vec3(0)) {
 			s.getCamera()->setPos(s.getCamera()->getPos() + MOVEMENT_SENS * glm::normalize(movementdir));
 			s.getCamera()->setForward(-s.getCamera()->getPos());
-			
 
 			pompcdat = (POMPCData) {s.getCamera()->getVP(), glm::vec4(s.getCamera()->getPos().x, s.getCamera()->getPos().y, s.getCamera()->getPos().z, 1)};
 		}
+		s.getCamera()->setFOVY(atan(zoom)+1.57);
 		s.getCamera()->updateView();
 		s.getCamera()->updateProj();
 		sc_scene_pcd.vp = s.getCamera()->getVP();
 		sc_scene_pcd.c_pos = s.getCamera()->getPos();
-		s.updateSMDCascade(*sl, 0, glm::vec2(0, 1));
+		// s.updateSMDCascade(*sl, 0, glm::vec2(0, 0.5));
+		s.updateSMD(*sl, 0);
 		// can't just do in loop cuz need time;
 		volumetrics.updatePC((temp_pc_dat){s.getCamera()->getVP(), sl->getSMDatum(0).getVP(), glm::inverse(s.getCamera()->getVP()), s.getCamera()->getPos(), (float)SDL_GetTicks() / 1000.f});
 
@@ -690,7 +699,6 @@ int main() {
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);	
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
-		// plane.setPos(plc->getPos());
 
 		ph.update();
 	}

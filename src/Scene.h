@@ -9,7 +9,7 @@ struct RenderSet;
 #include "Mesh.h"
 #include "UIHandler.h"
 
-// #define VKH_VERBOSE_DRAW_TASKS
+#define VKH_VERBOSE_DRAW_TASKS
 
 // TODO: when/if LUB size becomes an issue, we can change these to uint8_t and bitmask
 // in shader

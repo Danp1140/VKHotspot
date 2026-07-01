@@ -1,12 +1,13 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include <gtc/quaternion.hpp>
 
 #include "GraphicsHandler.h"
 class MeshBase;
 class Mesh;
 #include "Scene.h"
+
+#include <gtc/quaternion.hpp>
 
 class MeshBase {
 public:
@@ -49,7 +50,6 @@ private:
 	void updateModelMatrix();
 };
 
-// TODO: way to edit this and param in draw call
 typedef uint32_t MeshIndex;
 
 typedef enum VertexBufferTraitBits {
