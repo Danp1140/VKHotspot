@@ -140,11 +140,6 @@ public:
 	InstancedMesh& operator=(const InstancedMesh& rhs) = delete;
 	InstancedMesh& operator=(InstancedMesh&& rhs);
 
-	/*
-	 * TODO: should instanced mesh still use other position rotation etc stuff? to just apply to all
-	 * of them?
-	 */
-
 	const BufferInfo& getInstanceUB() const {return instanceub;}
 	/*
 	 * Reuses buffer if it's the same size, otherwise recreates

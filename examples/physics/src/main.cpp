@@ -11,23 +11,20 @@ RenderPassInfo createRenderPass(const WindowInfo& w);
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r);
 
 int main() {
-	// TODO: more GH customization
-	//  - request additional device exts
-	//  - request specific descriptor pool characteristics
 	GH gh;
 	WindowInfo fpw(glm::vec2(0, 0), glm::vec2(0.5, 1)), 
 		tpw(glm::vec2(0.5, 0), glm::vec2(0.5, 1));
 	InputHandler ih;
 
-	Mesh floor("../resources/models/plane.obj");
-	Mesh ramp("../resources/models/plane.obj");
-	Mesh wall0("../resources/models/plane.obj");
-	Mesh wall1("../resources/models/plane.obj");
-	Mesh event("../resources/models/plane.obj");
-	Mesh cube0("../resources/models/cube.obj");
-	Mesh cube1("../resources/models/cube.obj");
-	Mesh povsphere("../resources/models/icosphere.obj");
-	Mesh sphere("../resources/models/icosphere.obj");
+	Mesh floor("../../resources/models/objs/plane.obj");
+	Mesh ramp("../../resources/models/objs/plane.obj");
+	Mesh wall0("../../resources/models/objs/plane.obj");
+	Mesh wall1("../../resources/models/objs/plane.obj");
+	Mesh event("../../resources/models/objs/plane.obj");
+	Mesh cube0("../../resources/models/objs/cube.obj");
+	Mesh cube1("../../resources/models/objs/cube.obj");
+	Mesh povsphere("../../resources/models/objs/icosphere.obj");
+	Mesh sphere("../../resources/models/objs/icosphere.obj");
 
 	/*
 	 * Setting Up Scene & Graphics Stuff
@@ -169,9 +166,9 @@ int main() {
 	// TODO: prevent jump and move in air lol
 	glm::vec3 movementdir;
 	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
-	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= c->getRight(); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= glm::cross(c->getForward(), glm::vec3(0, 1, 0)); }));
 	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
-	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, pov, c = fps.getCamera()] () { movementdir += c->getRight(); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::cross(c->getForward(), glm::vec3(0, 1, 0)); }));
 
 	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&ph, pov] (const SDL_Event& e) {
 		if (e.key.scancode == SDL_SCANCODE_SPACE && !e.key.repeat) {
@@ -182,7 +179,7 @@ int main() {
 	}));
 
 	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_MOTION, [pov, c = fps.getCamera()] (const SDL_Event& e) {
-		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
+		c->setForward(c->getForward() + CAMERA_SENS * (glm::cross(c->getForward(), glm::vec3(0, 1, 0)) * e.motion.xrel + glm::vec3(0, 1, 0) * -e.motion.yrel));
 		return true;
 	}));
 
@@ -250,12 +247,12 @@ RenderPassInfo createRenderPass(const WindowInfo& w) {
 }
 
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r) {
-	/* if ever there was a time to try no UV, this is it */
+	/* TODO if ever there was a time to try no UV, this is it */
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "viewport";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = e;

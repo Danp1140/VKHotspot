@@ -278,6 +278,8 @@ void Mesh::loadOBJ(const char* fp) {
 	}
 	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	vertexbuffer.size = getVertexBufferElementSize() * vertexindices.size();
+	std::cout << fp << std::endl;
+	std::cout << vertexindices.size() << std::endl;
 	GH::createBuffer(vertexbuffer);
 	// what if we did buffer usage tracking in GH???
 	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;

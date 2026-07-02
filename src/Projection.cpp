@@ -19,8 +19,8 @@ glm::mat4 ProjectionBase::ortho(float l, float r, float b, float t, float n, flo
 	return glm::mat4(
 		2 / (r-l), 0, 0, 0, // 1st col 
 		0, 2 / (t-b), 0, 0, // 2nd col
-		0, 0, 1 / (f-n), 0, // 3rd col
-		(r+l)/(r-l), (t+b)/(b-t), n/(f-n), 1); // 4th col
+		0, 0, -1 / (f-n), 0, // 3rd col
+		(r+l)/(r-l), -(t+b)/(b-t), -n/(f-n), 1); // 4th col
 }
 
 /*
@@ -177,10 +177,14 @@ void DirectionalLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_A
 	sm_data[sm_i].setProj(ProjectionBase::ortho(
 		ls_aabb[0].x, ls_aabb[1].x,
 		ls_aabb[0].y, ls_aabb[1].y,
-		ls_aabb[0].z, ls_aabb[1].z));
-
-	std::cout << ls_aabb[0].z << "\n";
-	std::cout << ls_aabb[1].z << "\n";
+		-ls_aabb[1].z, -ls_aabb[0].z));
+	/*
+	 * Why we flip and negate z here:
+	 * We calculate a light-space z range.
+	 * View transforms to look from origin toward -z.
+	 * Ortho's near and far are positive numbers along this -z.
+	 * So, we flip and negate to convert from +z to -z.
+	 */
 
 	sm_data[sm_i].updateProj();
 }

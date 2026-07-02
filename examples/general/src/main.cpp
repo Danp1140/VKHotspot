@@ -547,21 +547,22 @@ int main() {
 	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
 	DNSObjectPCData suz_pcd = {s.addLightCatcher(&suz, temp, {0, 1}, {}, {}), suz.getModelMatrix()};
 	main_rp->addMesh(&suz, temp, &suz_pcd, shadowcatch_pidx);
-	// main_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), default_pidx);
 
 	// Tree
-	Mesh tree("resources/models/tree.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
-	tree.setPos(glm::vec3(-10, 0, 0));
-	tree.setScale(glm::vec3(4, 2, 4));
-	DNSObjectPCData tree_pcd = {s.addLightCatcher(&tree, temp, {0, 1}, {}, {}), tree.getModelMatrix()};
-	main_rp->addMesh(&tree, temp, &tree_pcd, shadowcatch_pidx);
-	// main_rp->addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), default_pidx);
+	Mesh text("resources/models/vkh.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	text.setPos(glm::vec3(-10, 5, 0));
+	text.setRot(glm::quat(cos(0.785), 0, sin(0.785), 0));
+	text.setScale(glm::vec3(10));
+	DNSObjectPCData text_pcd = {s.addLightCatcher(&text, temp, {0, 1}, {}, {}), text.getModelMatrix()};
+	main_rp->addMesh(&text, temp, &text_pcd, shadowcatch_pidx);
+	// main_rp->addMesh(&text, VK_NULL_HANDLE, &text.getModelMatrix(), default_pidx);
 
-	s.addShadowCaster(&tree, {0});
+	s.addShadowCaster(&text, {0});
 	s.addShadowCaster(&suz, {0});
 	s.addShadowCaster(&m, {0});
+	s.addShadowCaster(&plane, {0});
 	for (size_t i = 0; i < sm_p_idxs.size(); i++) {
-		sm_rp->addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), sm_p_idxs[i]); 
+		sm_rp->addMesh(&text, VK_NULL_HANDLE, &text.getModelMatrix(), sm_p_idxs[i]); 
 		sm_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), sm_p_idxs[i]); 
 		sm_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), sm_p_idxs[i]); 
 	}
