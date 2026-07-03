@@ -11,7 +11,19 @@ RenderPassInfo createRenderPass(const WindowInfo& w);
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r);
 
 int main() {
-	GH gh;
+	GHInitInfo ghii;
+	ghii.dexts.push_back("VK_KHR_depth_stencil_resolve"); 
+	ghii.dexts.push_back("VK_KHR_create_renderpass2"); 
+	ghii.dexts.push_back("VK_KHR_multiview"); 
+	ghii.dexts.push_back("VK_KHR_maintenance2"); 
+	ghii.dexts.push_back("VK_KHR_uniform_buffer_standard_layout"); 
+	ghii.dps = {};
+	VkPhysicalDeviceUniformBufferStandardLayoutFeatures ubo_std_layout;
+	ubo_std_layout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES; ubo_std_layout.pNext = nullptr;
+	ubo_std_layout.uniformBufferStandardLayout = VK_TRUE;
+	ghii.pdfeats.pNext = &ubo_std_layout;
+
+	GH gh(ghii);
 	WindowInfo fpw(glm::vec2(0, 0), glm::vec2(0.5, 1)), 
 		tpw(glm::vec2(0.5, 0), glm::vec2(0.5, 1));
 	InputHandler ih;
@@ -157,12 +169,6 @@ int main() {
 	doevent->setPreventDefault(true);
 	// TODO: modify pipeline to have visible but distinct antinormal
 
-	/*
-	ph.getColliderPair(2).setOnCouple([] (void* d) {
-
-			}, &onramp);
-			*/
-
 	// TODO: prevent jump and move in air lol
 	glm::vec3 movementdir;
 	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
@@ -196,17 +202,10 @@ int main() {
 
 		ph.update();
 		fps.getCamera()->setPos(pov->getPos());
+		fps.getCamera()->updateView();
 		povsphere.setPos(pov->getPos());
 		sphere.setPos(spherecol->getPos());
 		event.setRot(eventcol->getRot());
-		/*
-		ramp.setPos(rampcol->getPos());
-		ramp.setRot(rampcol->getRot());
-		*/
-		// std::cout << rampcol->getRot().w << ", " << rampcol->getRot().x << ", " << rampcol->getRot().y << ", " << rampcol->getRot().z << ", " << std::endl;
-		// std::cout << pov->getPos().x << ", " << pov->getPos().y << ", " << pov->getPos().z << std::endl;
-		// std::cout << pov->getVel().x << ", " << pov->getVel().y << ", " << pov->getVel().z << std::endl;
-		// std::cout << pov->getAcc().x << ", " << pov->getAcc().y << ", " << pov->getAcc().z << std::endl;
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());
@@ -247,13 +246,12 @@ RenderPassInfo createRenderPass(const WindowInfo& w) {
 }
 
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r) {
-	/* TODO if ever there was a time to try no UV, this is it */
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "viewport";
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
-	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV);
 	p.depthtest = true;
 	p.extent = e;
 	p.renderpass = r;

@@ -155,23 +155,6 @@ RenderPassInfo* createMainRP(Scene& s, const WindowInfo& w, PPStep& pproc) {
 	return s.addRenderPass(RenderPassInfo(r, w.getNumSCIs(), w.getMSAAImage().extent, {{0.3, 0.3, 0.3, 1}, {1, 0}}, att_imgs, 2));
 }
 
-size_t createDefaultPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
-	PipelineInfo p;
-	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "viewport";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
-	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
-	p.depthtest = true;
-	p.extent = w.getSCExtent();
-	p.msaasamples = w.getMSAASamples();
-	p.renderpass = rpi->getRenderPass();
-	GH::createPipeline(p);
-	size_t res = rpi->addPipeline(p, &s.getCamera()->getVP());
-	Mesh::ungetVISCI(p.vertexinputstateci);
-	return res;
-}
-
 size_t createInstancedPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
 	PipelineInfo ip;
 	ip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -421,7 +404,6 @@ int main() {
 	RenderPassInfo* sm_rp = createSMRenderPass(s, w);
 
 	RenderPassInfo* main_rp = createMainRP(s, w, volumetrics);
-	const size_t default_pidx = createDefaultPipeline(s, w, main_rp);
 	const size_t instanced_pidx = createInstancedPipeline(s, w, main_rp);
 	const size_t pom_pidx = createPOMPipeline(s, w, main_rp);
 	main_rp->setScenePC(pom_pidx, &pompcdat);
@@ -478,12 +460,14 @@ int main() {
 	// Physics cube
 	Mesh m("../../resources/models/objs/cube.obj");
 	m.setPos(glm::vec3(-5, 10, -5));
-	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), default_pidx);
+	VkDescriptorSet temp;
+	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
+	DNSObjectPCData cube_pcd = {s.addLightCatcher(&m, temp, {0, 1}, {}, {}), m.getModelMatrix()};
+	main_rp->addMesh(&m, temp, &cube_pcd, shadowcatch_pidx);
 
 	// Cube ring
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
-	VkDescriptorSet temp;
 	GH::createDS(main_rp->getRenderSet(instanced_pidx).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
 	main_rp->addMesh(&im, temp, nullptr, instanced_pidx);
@@ -657,6 +641,7 @@ int main() {
 		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);	
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
+		cube_pcd.m = m.getModelMatrix();
 
 		ph.update();
 	}
