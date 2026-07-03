@@ -39,12 +39,12 @@ void RenderPassInfo::destroy() {
 }
 
 size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
-	rendersets.push_back({p, {}, {}, {}, nullptr, pcd});
+	rendersets.push_back({p, {}, {}, {}, pcd});
 	return rendersets.size() - 1;
 }
 
 size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd, VkViewport vp, VkRect2D sc) {
-	rendersets.push_back({p, {}, {}, {}, nullptr, pcd, vp, sc});
+	rendersets.push_back({p, {}, {}, {}, pcd, vp, sc});
 	return rendersets.size() - 1;
 }
 
@@ -237,7 +237,6 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 
 	n_dir_lights++;
 	GH::updateBuffer(lightub, &n_dir_lights, sizeof(uint32_t), offsetof(LUBData, light_counts));
-	std::cout << "updateBuf w/ light count " << (int)n_dir_lights << std::endl;
 
 	return &added;
 }
@@ -263,9 +262,6 @@ void Scene::addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& dl_i
 			}
 		}
 	}
-	std::cout << "new AABB\n";
-	std::cout << dir_lights[0].getSMDatum(0).getFocus()[0].x << "\n";
-	std::cout << dir_lights[0].getSMDatum(0).getFocus()[1].x << "\n";
 }
 
 uint32_t Scene::addLightCatcher(

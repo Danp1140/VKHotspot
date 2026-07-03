@@ -31,8 +31,7 @@ PipelineInfo createSMPipelineTemplate(RenderPassInfo* rpi) {
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
-	// p.cullmode = VK_CULL_MODE_FRONT_BIT;
-	p.cullmode = VK_CULL_MODE_NONE;
+	p.cullmode = VK_CULL_MODE_FRONT_BIT;
 	p.dyn_viewport = true;
 	p.renderpass = rpi->getRenderPass();
 	GH::createPipeline(p);
@@ -62,7 +61,6 @@ size_t createShadowReceivePipeline(Scene& s, const WindowInfo& w, RenderPassInfo
 			1,
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
-
 	}};
 	p.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -153,7 +151,6 @@ RenderPassInfo* createMainRP(Scene& s, const WindowInfo& w, PPStep& pproc) {
 		{3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
 	};
 	GH::createRenderPass(r, 4, &attachdescs[0], &attachrefs[0], &attachrefs[2], &attachrefs[1]);
-	// RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), &w.getMSAAImage(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 	std::vector<const ImageInfo*> att_imgs = {&w.getMSAAImage(), w.getDepthBuffer(), w.getSCImages(), &pproc.getDepthRes()};
 	return s.addRenderPass(RenderPassInfo(r, w.getNumSCIs(), w.getMSAAImage().extent, {{0.3, 0.3, 0.3, 1}, {1, 0}}, att_imgs, 2));
 }
@@ -205,36 +202,7 @@ size_t createInstancedPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rp
 	return res;
 }
 
-size_t createTexturedPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
-	PipelineInfo tp;
-	tp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	tp.shaderfilepathprefix = "diffusetexture";
-	VkDescriptorSetLayoutBinding dtbindings[1] {{
-			0,
-			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			1,
-			VK_SHADER_STAGE_FRAGMENT_BIT,
-			nullptr
-	}};
-	tp.descsetlayoutci = {
-		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		nullptr,
-		0,
-		1, &dtbindings[0]
-	};
-	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	tp.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
-	tp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
-	tp.depthtest = true;
-	tp.extent = w.getSCExtent();
-	tp.renderpass = rpi->getRenderPass();
-	tp.msaasamples = w.getMSAASamples();
-	GH::createPipeline(tp);
-	size_t res = rpi->addPipeline(tp, &s.getCamera()->getVP());
-	Mesh::ungetVISCI(tp.vertexinputstateci);
-	return res;
-}
-
+// TODO --- here ---
 size_t createPOMPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
 	PipelineInfo pomp;
 	pomp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -429,7 +397,6 @@ void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane, Pipel
 
 int main() {
 	GHInitInfo ghii;
-	// shouldn't be required in vulkan 1.2+, but MoltenVK sucks
 	ghii.dexts.push_back("VK_KHR_depth_stencil_resolve");
 	ghii.dexts.push_back("VK_KHR_create_renderpass2");
 	ghii.dexts.push_back("VK_KHR_multiview");
@@ -456,7 +423,6 @@ int main() {
 	RenderPassInfo* main_rp = createMainRP(s, w, volumetrics);
 	const size_t default_pidx = createDefaultPipeline(s, w, main_rp);
 	const size_t instanced_pidx = createInstancedPipeline(s, w, main_rp);
-	// size_t textured_pidx = createTexturedPipeline(s, w, main_rp);
 	const size_t pom_pidx = createPOMPipeline(s, w, main_rp);
 	main_rp->setScenePC(pom_pidx, &pompcdat);
 	const size_t shadowcatch_pidx = createShadowReceivePipeline(s, w, main_rp);
@@ -480,12 +446,9 @@ int main() {
 	size_t numf = 0;
 	UIHandler ui(uirpi.getRenderSet(0).pipeline, w.getSCExtent());
 	UIContainer* leftsidebar = ui.addComponent(UIContainer());
-	// leftsidebar->setPos(UICoord(0, 0));
-	// leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
 	leftsidebar->setPos(UICoord(0, 2 * w.getSCExtent().height));
 	leftsidebar->setExt(UICoord(1000, -2 * w.getSCExtent().height));
-	// leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
-	leftsidebar->setBGCol({0, 0.8, 0, 1});
+	leftsidebar->setBGCol({0.1, 0.1, 0.1, 1});
 	UIText* logtext = leftsidebar->addChild(UIText());
 	logtext->setPos(UICoord(0, 0));
 	logtext->setBGCol({0, 0, 0, 0});
@@ -493,19 +456,15 @@ int main() {
 	camtext->setPos(UICoord(1000, w.getSCExtent().height));
 	UIText* fpstext = ui.addComponent(UIText());
 	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
-	UIImage* tex_mon = ui.addComponent(UIImage());
-	tex_mon->setPos({(float)w.getSCExtent().width - 600, (float)w.getSCExtent().height});
-	tex_mon->setExt({600, -600});
-	ui.setTex(*tex_mon, s.getShadowAtlas(), uirpi.getRenderSet(0).pipeline);
 
 	/*
 	 * Lighting
 	 */
 	DirectionalLightInitInfo l_ii;
-	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(1, 0, 0));
+	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(1, 0.9, 0.5));
 	l_ii.super_directional.f = glm::normalize(glm::vec3(1, -1, 0));
 	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight(l_ii), {{1024, 1024}});
-	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(0, 1, 0));
+	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(1, 1, 0.9));
 	l_ii.super_directional.f = glm::normalize(glm::vec3(0, -1, 1));
 	DirectionalLight* noshad = s.addDirectionalLight(DirectionalLight(l_ii), {});
 
@@ -549,13 +508,12 @@ int main() {
 	main_rp->addMesh(&suz, temp, &suz_pcd, shadowcatch_pidx);
 
 	// Tree
-	Mesh text("resources/models/vkh.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	Mesh text("resources/models/vkh.obj");
 	text.setPos(glm::vec3(-10, 5, 0));
 	text.setRot(glm::quat(cos(0.785), 0, sin(0.785), 0));
 	text.setScale(glm::vec3(10));
 	DNSObjectPCData text_pcd = {s.addLightCatcher(&text, temp, {0, 1}, {}, {}), text.getModelMatrix()};
 	main_rp->addMesh(&text, temp, &text_pcd, shadowcatch_pidx);
-	// main_rp->addMesh(&text, VK_NULL_HANDLE, &text.getModelMatrix(), default_pidx);
 
 	s.addShadowCaster(&text, {0});
 	s.addShadowCaster(&suz, {0});
@@ -564,6 +522,7 @@ int main() {
 	for (size_t i = 0; i < sm_p_idxs.size(); i++) {
 		sm_rp->addMesh(&text, VK_NULL_HANDLE, &text.getModelMatrix(), sm_p_idxs[i]); 
 		sm_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), sm_p_idxs[i]); 
+		sm_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), sm_p_idxs[i]); 
 		sm_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), sm_p_idxs[i]); 
 	}
 
@@ -664,9 +623,7 @@ int main() {
 		s.getCamera()->updateProj();
 		sc_scene_pcd.vp = s.getCamera()->getVP();
 		sc_scene_pcd.c_pos = s.getCamera()->getPos();
-		// s.updateSMDCascade(*sl, 0, glm::vec2(0, 0.5));
 		s.updateSMD(*sl, 0);
-		// can't just do in loop cuz need time;
 		volumetrics.updatePC((temp_pc_dat){s.getCamera()->getVP(), sl->getSMDatum(0).getVP(), glm::inverse(s.getCamera()->getVP()), s.getCamera()->getPos(), (float)SDL_GetTicks() / 1000.f});
 
 		/*

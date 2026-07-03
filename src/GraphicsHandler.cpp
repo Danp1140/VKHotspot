@@ -454,8 +454,7 @@ GH::GH(const GHInitInfo& i) {
 
 GH::~GH() {
 	vkQueueWaitIdle(genericqueue);
-	// TODO: figure out how to manage this resource
-	// GH::destroyImage(blankimage);
+	GH::destroyImage(blankimage);
 	terminateDescriptorPoolsAndSetLayouts();
 	terminateSamplers();
 	terminateCommandPools();

@@ -24,26 +24,10 @@ TextureSet::TextureSet(const char* d, VkSampler s) {
 	size_t setnamelen = strlen(setname);
 	while ((f = fts_read(dir))) {
 		if (f->fts_level == 1) {
-			/*
-			if (strcmp(f->fts_name + f->fts_namelen - 11, "diffuse.png") == 0) {
-				dst = &diffuse;
-				std::cout << f->fts_name << std::endl;
-			}
-			else if (strcmp(f->fts_name + f->fts_namelen - 10, "normal.png") == 0) {
-				dst = &normal;
-				std::cout << f->fts_name << std::endl;
-			}
-			*/
-			if (strcmp(f->fts_name + f->fts_namelen - 4, ".png") != 0) {
-				WarningError("Unexpected file/directory in TextureSet directory").raise();
-				continue;
-			}
-			else {
-				dst = &textures.insert({
-						std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4),
-					{}
-				}).first->second;
-				// std::cout << setname << "'s " << std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4) << std::endl;
+			if (strcmp(f->fts_name + f->fts_namelen - 4, ".png") == 0) {
+				dst = &textures.insert(
+					{std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4), {}}
+				).first->second;
 			}
 
 			i.version = PNG_IMAGE_VERSION;
@@ -97,7 +81,6 @@ TextureSet& TextureSet::operator=(TextureSet&& rhs) {
 #endif
 	nukeTextures();
 	swap(*this, rhs);
-	// rhs.nukeTextures();
 	return *this;
 }
 
@@ -111,9 +94,7 @@ TextureHandler::~TextureHandler() {
 }
 
 void TextureHandler::addSet(std::string n, TextureSet&& t) {
-	// TextureSet& newt = sets.insert({n, t}).first->second;
 	sets.emplace(n, std::move(t));
-	// newt.setDiffuseSampler(defaultsampler); // TODO: update to work with generalized TextureSet
 }
 
 VkSampler TextureHandler::addSampler(
