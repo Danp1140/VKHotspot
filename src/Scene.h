@@ -31,9 +31,6 @@ typedef struct RenderSet {
 	std::vector<const MeshBase*> meshes;
 	std::vector<VkDescriptorSet> objdss; // associates with same-index Mesh* in meshes
 	std::vector<const void*> objpcdata;
-	const UIHandler* ui = nullptr; // TODO: consider specializing into Mesh, UI, Compute rendersets, etc.?
-				       // structure will become clearer as UI becomes more widely used
-				       // certainly should aim for efficiency and ease-of-use
 	const void* pcdata;
 	VkViewport viewport; // only used if pipeline has dynamic viewport state
 	VkRect2D scissor; // same as above
@@ -46,7 +43,6 @@ typedef struct RenderSet {
 } RenderSet;
 
 class RenderPassInfo {
-	// TODO: add compute rpi [l]
 public: 
 	RenderPassInfo() : renderpass(VK_NULL_HANDLE), framebuffers(nullptr), extent({0, 0}) {}
 	RenderPassInfo(
@@ -66,7 +62,6 @@ public:
 	size_t addPipeline(const PipelineInfo& p, const void* pcd, VkViewport vp, VkRect2D sc);
 	void setScenePC(size_t pidx, const void* pcd) {rendersets[pidx].pcdata = pcd;}
 	void addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx);
-	void setUI(const UIHandler* u, size_t pidx); // TODO: prob get rid of this
 
 	std::vector<cbRecTaskTemplate> getTasks() const;
 
@@ -178,6 +173,7 @@ public:
 	Camera* getCamera() {return camera;}
 	const DirectionalLight* getDirLights() const {return dir_lights;}
 	size_t getNumDirLights() const {return n_dir_lights;}
+	size_t getNumSCLights() const {return n_sc_lights;}
 	const BufferInfo& getLUB() {return lightub;}
 	RenderPassInfo& getRenderPass(size_t i) {return *renderpasses[i];}
 	const ImageInfo& getShadowAtlas() {return shadow_atlas;}

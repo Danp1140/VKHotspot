@@ -11,23 +11,32 @@ RenderPassInfo createRenderPass(const WindowInfo& w);
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r);
 
 int main() {
-	// TODO: more GH customization
-	//  - request additional device exts
-	//  - request specific descriptor pool characteristics
-	GH gh;
+	GHInitInfo ghii;
+	ghii.dexts.push_back("VK_KHR_depth_stencil_resolve"); 
+	ghii.dexts.push_back("VK_KHR_create_renderpass2"); 
+	ghii.dexts.push_back("VK_KHR_multiview"); 
+	ghii.dexts.push_back("VK_KHR_maintenance2"); 
+	ghii.dexts.push_back("VK_KHR_uniform_buffer_standard_layout"); 
+	ghii.dps = {};
+	VkPhysicalDeviceUniformBufferStandardLayoutFeatures ubo_std_layout;
+	ubo_std_layout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES; ubo_std_layout.pNext = nullptr;
+	ubo_std_layout.uniformBufferStandardLayout = VK_TRUE;
+	ghii.pdfeats.pNext = &ubo_std_layout;
+
+	GH gh(ghii);
 	WindowInfo fpw(glm::vec2(0, 0), glm::vec2(0.5, 1)), 
 		tpw(glm::vec2(0.5, 0), glm::vec2(0.5, 1));
 	InputHandler ih;
 
-	Mesh floor("../resources/models/plane.obj");
-	Mesh ramp("../resources/models/plane.obj");
-	Mesh wall0("../resources/models/plane.obj");
-	Mesh wall1("../resources/models/plane.obj");
-	Mesh event("../resources/models/plane.obj");
-	Mesh cube0("../resources/models/cube.obj");
-	Mesh cube1("../resources/models/cube.obj");
-	Mesh povsphere("../resources/models/icosphere.obj");
-	Mesh sphere("../resources/models/icosphere.obj");
+	Mesh floor("../../resources/models/objs/plane.obj");
+	Mesh ramp("../../resources/models/objs/plane.obj");
+	Mesh wall0("../../resources/models/objs/plane.obj");
+	Mesh wall1("../../resources/models/objs/plane.obj");
+	Mesh event("../../resources/models/objs/plane.obj");
+	Mesh cube0("../../resources/models/objs/cube.obj");
+	Mesh cube1("../../resources/models/objs/cube.obj");
+	Mesh povsphere("../../resources/models/objs/icosphere.obj");
+	Mesh sphere("../../resources/models/objs/icosphere.obj");
 
 	/*
 	 * Setting Up Scene & Graphics Stuff
@@ -160,18 +169,12 @@ int main() {
 	doevent->setPreventDefault(true);
 	// TODO: modify pipeline to have visible but distinct antinormal
 
-	/*
-	ph.getColliderPair(2).setOnCouple([] (void* d) {
-
-			}, &onramp);
-			*/
-
 	// TODO: prevent jump and move in air lol
 	glm::vec3 movementdir;
 	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
-	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= c->getRight(); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= glm::cross(c->getForward(), glm::vec3(0, 1, 0)); }));
 	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, pov, c = fps.getCamera()] () { movementdir -= glm::normalize(c->getForward() * glm::vec3(1, 0, 1)); }));
-	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, pov, c = fps.getCamera()] () { movementdir += c->getRight(); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, pov, c = fps.getCamera()] () { movementdir += glm::cross(c->getForward(), glm::vec3(0, 1, 0)); }));
 
 	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&ph, pov] (const SDL_Event& e) {
 		if (e.key.scancode == SDL_SCANCODE_SPACE && !e.key.repeat) {
@@ -182,7 +185,7 @@ int main() {
 	}));
 
 	ih.addCheck(InputCheck(SDL_EVENT_MOUSE_MOTION, [pov, c = fps.getCamera()] (const SDL_Event& e) {
-		c->setForward(c->getForward() + CAMERA_SENS * (c->getRight() * e.motion.xrel + c->getUp() * -e.motion.yrel));
+		c->setForward(c->getForward() + CAMERA_SENS * (glm::cross(c->getForward(), glm::vec3(0, 1, 0)) * e.motion.xrel + glm::vec3(0, 1, 0) * -e.motion.yrel));
 		return true;
 	}));
 
@@ -199,17 +202,10 @@ int main() {
 
 		ph.update();
 		fps.getCamera()->setPos(pov->getPos());
+		fps.getCamera()->updateView();
 		povsphere.setPos(pov->getPos());
 		sphere.setPos(spherecol->getPos());
 		event.setRot(eventcol->getRot());
-		/*
-		ramp.setPos(rampcol->getPos());
-		ramp.setRot(rampcol->getRot());
-		*/
-		// std::cout << rampcol->getRot().w << ", " << rampcol->getRot().x << ", " << rampcol->getRot().y << ", " << rampcol->getRot().z << ", " << std::endl;
-		// std::cout << pov->getPos().x << ", " << pov->getPos().y << ", " << pov->getPos().z << std::endl;
-		// std::cout << pov->getVel().x << ", " << pov->getVel().y << ", " << pov->getVel().z << std::endl;
-		// std::cout << pov->getAcc().x << ", " << pov->getAcc().y << ", " << pov->getAcc().z << std::endl;
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());
@@ -250,13 +246,12 @@ RenderPassInfo createRenderPass(const WindowInfo& w) {
 }
 
 PipelineInfo createViewportPipeline(const VkExtent2D& e, const VkRenderPass& r) {
-	/* if ever there was a time to try no UV, this is it */
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "viewport";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
-	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
+	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV);
 	p.depthtest = true;
 	p.extent = e;
 	p.renderpass = r;

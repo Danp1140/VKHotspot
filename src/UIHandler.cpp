@@ -100,7 +100,7 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 
 UIHandler::~UIHandler() {
 	ImageInfo temp = uiToGHImageInfo(UIComponent::getNoTex());
-	GH::destroyImage(temp);
+	if (temp.image != GH::getBlankImage().image) GH::destroyImage(temp);
 	vkDestroySampler(GH::getLD(), textsampler, nullptr);
 }
 
