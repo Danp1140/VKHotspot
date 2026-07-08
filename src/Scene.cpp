@@ -40,12 +40,12 @@ void RenderPassInfo::destroy() {
 }
 
 size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
-	rendersets.push_back({p, {}, {}, {}, nullptr, pcd});
+	rendersets.push_back({p, {}, {}, {}, pcd});
 	return rendersets.size() - 1;
 }
 
 size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd, VkViewport vp, VkRect2D sc) {
-	rendersets.push_back({p, {}, {}, {}, nullptr, pcd, vp, sc});
+	rendersets.push_back({p, {}, {}, {}, pcd, vp, sc});
 	return rendersets.size() - 1;
 }
 
@@ -53,10 +53,6 @@ void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* 
 	rendersets[pidx].meshes.push_back(m);
 	rendersets[pidx].objdss.push_back(ds);
 	rendersets[pidx].objpcdata.push_back(pc);
-}
-
-void RenderPassInfo::setUI(const UIHandler* u, size_t pidx) {
-	rendersets[pidx].ui = u;
 }
 
 std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
@@ -78,7 +74,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 		counter = 0;
 		for (const MeshBase* m : r.meshes) {
 #ifdef VKH_VERBOSE_DRAW_TASKS
-			std::cout << "Mesh " << &m << std::endl;
+			std::cout << "Mesh " << m << std::endl;
 #endif
 			if (cull_map && cull_map->contains(m)) {
 				tasks.emplace_back(
@@ -104,17 +100,6 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 
 			}
 			counter++;
-		}
-		if (r.ui) {
-#ifdef VKH_VERBOSE_DRAW_TASKS
-			std::cout << "UI " << r.ui << std::endl;
-#endif
-			tasks.emplace_back(
-				[ui = r.ui, &rp = renderpass, &fb = framebuffers, ns = numscis]
-				(uint8_t scii, VkCommandBuffer& c) {
-				ui->recordDraw(fb[scii % ns], rp, c);
-				return true;
-			});
 		}
 #ifdef VKH_VERBOSE_DRAW_TASKS
 		std::cout << "}" << std::endl;
@@ -269,7 +254,6 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 
 	n_dir_lights++;
 	GH::updateBuffer(lightub, &n_dir_lights, sizeof(uint32_t), offsetof(LUBData, light_counts));
-	std::cout << "updateBuf w/ light count " << (int)n_dir_lights << std::endl;
 
 	return &added;
 }
@@ -283,9 +267,9 @@ std::vector<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, 
 }
 
 void Scene::addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& dl_idxs) {
+	glm::vec3 temp;
 	for (uint8_t i = 0; i < dl_idxs.size(); i++) {
-		glm::vec3 temp = ProjectionBase::apply(m->getModelMatrix(), m->getAABB()[0]);
-		for (uint8_t j = 1; j < 8; j++) {
+		for (uint8_t j = 0; j < 8; j++) { 
 			temp = ProjectionBase::apply(m->getModelMatrix(), glm::vec3(
 						m->getAABB()[j % 2].x, 
 						m->getAABB()[(uint8_t)floor(j/2) % 2].y, 

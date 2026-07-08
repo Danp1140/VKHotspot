@@ -3,11 +3,11 @@
 
 // TODO: do we need this??? should p be up to user, as with selectively enabled exts
 #define VK_ENABLE_BETA_EXTENSIONS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_beta.h>
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <ext.hpp>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>

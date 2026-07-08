@@ -1,13 +1,14 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include <gtc/quaternion.hpp>
 
 #include "GraphicsHandler.h"
 class MeshBase;
 class Mesh;
 class InstancedMesh;
 #include "Scene.h"
+
+#include <gtc/quaternion.hpp>
 
 class MeshBase {
 public:
@@ -55,7 +56,6 @@ private:
 	void updateModelMatrix();
 };
 
-// TODO: way to edit this and param in draw call
 typedef uint32_t MeshIndex;
 
 typedef enum VertexBufferTraitBits {
@@ -145,11 +145,6 @@ public:
 
 	InstancedMesh& operator=(const InstancedMesh& rhs) = delete;
 	InstancedMesh& operator=(InstancedMesh&& rhs);
-
-	/*
-	 * TODO: should instanced mesh still use other position rotation etc stuff? to just apply to all
-	 * of them?
-	 */
 
 	const BufferInfo& getInstanceUB() const {return instanceub;}
 	/*

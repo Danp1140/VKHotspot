@@ -16,6 +16,7 @@ public:
 
 	static glm::vec3 apply(glm::mat4 A, glm::vec3 v);
 	static glm::vec3 applyHomo(glm::mat4 A, glm::vec3 v);
+	static glm::mat4 ortho(float l, float r, float b, float t, float n, float f);
 
 	virtual void updateView() = 0;
 	virtual void updateProj() = 0;

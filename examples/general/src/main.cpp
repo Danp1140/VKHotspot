@@ -6,31 +6,40 @@
 #include <random>
 
 #define MOVEMENT_SENS 0.75f
-#define FOV_SENS 0.05f
+#define ZOOM_SENS 0.1f
+
+typedef struct [[gnu::packed]] DNSScenePCData {
+	glm::mat4 vp;
+	glm::vec3 c_pos;
+} DNSScenePCData;
+
+typedef struct [[gnu::packed]] DNSObjectPCData {
+	uint32_t catcher_idx;
+	glm::mat4 m;
+} DNSObjectPCData;
 
 typedef struct POMPCData {
 	glm::mat4 vp;
 	glm::vec4 c_p;
 } POMPCData;
 
-void createShadowCastPipeline(RenderPassInfo& rpi, Light& l) {
+PipelineInfo createSMPipelineTemplate(RenderPassInfo* rpi) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "shadowmap";
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(MeshPCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
-	p.extent = l.getShadowMap().extent;
-	// p.cullmode = VK_CULL_MODE_FRONT_BIT;
-	p.cullmode = VK_CULL_MODE_NONE;
-	p.renderpass = rpi.getRenderPass();
+	p.cullmode = VK_CULL_MODE_FRONT_BIT;
+	p.dyn_viewport = true;
+	p.renderpass = rpi->getRenderPass();
 	GH::createPipeline(p);
-	l.setSMPipeline(p);
 	Mesh::ungetVISCI(p.vertexinputstateci);
+	return p;
 }
 
-void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
+size_t createShadowReceivePipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "shadowtest";
@@ -43,7 +52,7 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 		}, {
 			1,
 			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			SCENE_MAX_DIR_LIGHTS,
+			1,
 			VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
 		}, {
@@ -52,7 +61,6 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 			1,
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			nullptr
-
 	}};
 	p.descsetlayoutci = {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -60,31 +68,40 @@ void createShadowReceivePipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 		0,
 		3, &bindings[0]
 	};
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(DNSScenePCData), sizeof(DNSObjectPCData)};
 	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.msaasamples = w.getMSAASamples();
-	p.renderpass = rpi.getRenderPass();
-/*
-	VkSpecializationMapEntry specmaps[3] {
-		{0, 0, sizeof(uint32_t)},
-		{1, sizeof(uint32_t), sizeof(uint32_t)},
-		{2, 2 * sizeof(uint32_t), sizeof(uint32_t)}
-	};
-	const uint32_t temp[3] = {SCENE_MAX_DIR_LIGHTS, SCENE_MAX_DIR_SHADOWCASTING_LIGHTS, SCENE_MAX_SHADOWCATCHERS};
-	VkSpecializationInfo spi[2];
-	spi[0] = {3, &specmaps[0], 3 * sizeof(uint32_t), static_cast<const void*>(&temp[0])};
-	spi[1] = {.dataSize = 0};
-	p.specinfo = &spi[0];
-*/
+	p.renderpass = rpi->getRenderPass();
 	GH::createPipeline(p);
-	rpi.addPipeline(p, &s.getCamera()->getVP());
+	size_t res = rpi->addPipeline(p, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(p.vertexinputstateci);
+	return res;
 }
 
-void createScene(Scene& s, const WindowInfo& w, const Mesh& m, const PPStep& pproc, const POMPCData& ppd) {
+RenderPassInfo* createSMRenderPass(Scene& s, const WindowInfo& w) {
+	VkRenderPass r;
+	VkAttachmentDescription a_d {
+		0, 
+		LIGHT_SHADOW_MAP_FORMAT,
+		VK_SAMPLE_COUNT_1_BIT,
+		VK_ATTACHMENT_LOAD_OP_CLEAR,
+		VK_ATTACHMENT_STORE_OP_STORE,
+		VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+		VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	};
+	VkAttachmentReference a_r {0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+	GH::createRenderPass(r, 1, &a_d, nullptr, nullptr, &a_r);
+	RenderPassInfo rpi(r, 1, nullptr, nullptr, &s.getShadowAtlas(), {{1, 0}});
+
+	return s.addRenderPass(rpi);
+}
+
+RenderPassInfo* createMainRP(Scene& s, const WindowInfo& w, PPStep& pproc) {
 	VkRenderPass r;
 	VkAttachmentDescription attachdescs[4] {{
 			0, 
@@ -134,26 +151,11 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m, const PPStep& ppr
 		{3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
 	};
 	GH::createRenderPass(r, 4, &attachdescs[0], &attachrefs[0], &attachrefs[2], &attachrefs[1]);
-	// RenderPassInfo rpi(r, w.getNumSCIs(), w.getSCImages(), &w.getMSAAImage(), w.getDepthBuffer(), {{0.3, 0.3, 0.3, 1}, {1, 0}});
 	std::vector<const ImageInfo*> att_imgs = {&w.getMSAAImage(), w.getDepthBuffer(), w.getSCImages(), &pproc.getDepthRes()};
-	RenderPassInfo rpi(r, w.getNumSCIs(), w.getMSAAImage().extent, {{0.3, 0.3, 0.3, 1}, {1, 0}}, att_imgs, 2);
+	return s.addRenderPass(RenderPassInfo(r, w.getNumSCIs(), w.getMSAAImage().extent, {{0.3, 0.3, 0.3, 1}, {1, 0}}, att_imgs, 2));
+}
 
-	PipelineInfo p;
-	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "default";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
-	p.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
-	p.depthtest = true;
-	p.extent = w.getSCExtent();
-	p.msaasamples = w.getMSAASamples();
-	p.renderpass = r;
-	GH::createPipeline(p);
-	rpi.addPipeline(p, &s.getCamera()->getVP());
-	Mesh::ungetVISCI(p.vertexinputstateci);
-	
-	rpi.addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
-
+size_t createInstancedPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
 	PipelineInfo ip;
 	ip.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	ip.shaderfilepathprefix = "instanced";
@@ -176,38 +178,15 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m, const PPStep& ppr
 	ip.depthtest = true;
 	ip.extent = w.getSCExtent();
 	ip.msaasamples = w.getMSAASamples();
-	ip.renderpass = r;
+	ip.renderpass = rpi->getRenderPass();
 	GH::createPipeline(ip);
-	rpi.addPipeline(ip, &s.getCamera()->getVP());
+	size_t res = rpi->addPipeline(ip, &s.getCamera()->getVP());
 	Mesh::ungetVISCI(ip.vertexinputstateci);
+	return res;
+}
 
-	PipelineInfo tp;
-	tp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	tp.shaderfilepathprefix = "diffusetexture";
-	VkDescriptorSetLayoutBinding dtbindings[1] {{
-			0,
-			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			1,
-			VK_SHADER_STAGE_FRAGMENT_BIT,
-			nullptr
-	}};
-	tp.descsetlayoutci = {
-		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		nullptr,
-		0,
-		1, &dtbindings[0]
-	};
-	tp.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ScenePCData)};
-	tp.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT, sizeof(ScenePCData), sizeof(MeshPCData)};
-	tp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL);
-	tp.depthtest = true;
-	tp.extent = w.getSCExtent();
-	tp.renderpass = r;
-	tp.msaasamples = w.getMSAASamples();
-	GH::createPipeline(tp);
-	rpi.addPipeline(tp, &s.getCamera()->getVP());
-	Mesh::ungetVISCI(tp.vertexinputstateci);
-
+// TODO --- here ---
+size_t createPOMPipeline(Scene& s, const WindowInfo& w, RenderPassInfo* rpi) {
 	PipelineInfo pomp;
 	pomp.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	pomp.shaderfilepathprefix = "ndp";
@@ -231,13 +210,12 @@ void createScene(Scene& s, const WindowInfo& w, const Mesh& m, const PPStep& ppr
 	pomp.vertexinputstateci = Mesh::getVISCI(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT);
 	pomp.depthtest = true;
 	pomp.extent = w.getSCExtent();
-	pomp.renderpass = r;
+	pomp.renderpass = rpi->getRenderPass();
 	pomp.msaasamples = w.getMSAASamples();
 	GH::createPipeline(pomp);
-	rpi.addPipeline(pomp, &ppd);
+	size_t res = rpi->addPipeline(pomp, nullptr);
 	Mesh::ungetVISCI(pomp.vertexinputstateci);
-
-	s.addRenderPass(rpi);
+	return res;
 }
 
 RenderPassInfo createUIRPI(const WindowInfo& w) {
@@ -303,7 +281,7 @@ InstancedMesh createCubeRing(std::vector<InstancedMeshData>& d, uint32_t steps, 
 		d[i].m = glm::rotate<float>(d[i].m, theta, glm::vec3(0, 1, 0));
 		d[i].m = glm::scale<float>(d[i].m, glm::vec3(0.1));
 	}
-	return InstancedMesh("../resources/models/cube.obj", d);
+	return InstancedMesh("../../resources/models/objs/cube.obj", d);
 }
 
 void throbCubeRing(InstancedMesh& m, std::vector<InstancedMeshData>& d, float frequency, float t) {
@@ -335,9 +313,9 @@ LODMesh createLODSuzanne(Scene& s, std::vector<LODFuncData>& datadst) {
 	datadst.push_back((LODFuncData){s.getCamera(), 0, locutoffdist});
 	datadst.push_back((LODFuncData){s.getCamera(), locutoffdist, hicutoffdist});
 	datadst.push_back((LODFuncData){s.getCamera(), hicutoffdist, std::numeric_limits<float>::infinity()});
-	datatemp.emplace_back(Mesh("../resources/models/suzannehi.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[0]);
-	datatemp.emplace_back(Mesh("../resources/models/suzannemid.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[1]);
-	datatemp.emplace_back(Mesh("../resources/models/suzannelo.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[2]);
+	datatemp.emplace_back(Mesh("resources/models/suzannehi.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[0]);
+	datatemp.emplace_back(Mesh("resources/models/suzannemid.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[1]);
+	datatemp.emplace_back(Mesh("resources/models/suzannelo.obj"), [] (Mesh& m, void* d) {return true;}, suzDrawCond, nullptr, &datadst[2]);
 	return LODMesh(datatemp);
 }
 
@@ -365,7 +343,8 @@ std::wstring getTimestamp() {
 	return res;
 }
 
-void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
+// TODO: economize updates in this function
+void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane, PipelineInfo sm_pipeline, RenderPassInfo* rpi, size_t shadowreceive_pidx) {
 	std::random_device rdev;
 	std::mt19937 gen(rdev());
 	std::uniform_real_distribution<float> thetadist(0, glm::two_pi<float>()),
@@ -375,48 +354,62 @@ void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane) {
 	float theta = thetadist(gen),
 		phi = phidist(gen),
 		r = rdist(gen);
-	glm::vec3 pos(r * glm::vec3(cos(theta) * cos(phi), sin(phi), sin(theta) * cos(phi)));
-	// TODO: if they want a shadowmap, require a pipeline to be passed in with the constructor
-	// SM resolution can be ripped right from that!
-	DirectionalLight* l = s.addDirectionalLight(DirectionalLight({{pos,  glm::vec3(coldist(gen), coldist(gen), coldist(gen)), {256, 256}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, -pos}));
-	createShadowCastPipeline(s.getRenderPass(0), *l);
-	s.getRenderPass(0).addPipeline(l->getSMPipeline(), &l->getVP());
-	s.getRenderPass(0).addMesh(&suzanne, VK_NULL_HANDLE, &suzanne.getModelMatrix(), 0);
+	DirectionalLightInitInfo l_ii;
+	l_ii.super_light.c = glm::vec3(coldist(gen), coldist(gen), coldist(gen));
+	l_ii.super_directional.f = glm::vec3(r * glm::vec3(cos(theta) * cos(phi), sin(phi), sin(theta) * cos(phi)));
+
+	DirectionalLight* l = s.addDirectionalLight(DirectionalLight(l_ii), {{1024, 1024}});
+	std::vector<size_t> sm_p_idxs = s.addSMPipeline(*l, sm_pipeline, *rpi, nullptr);
+	for (size_t i = 0; i < sm_p_idxs.size(); i++) {
+		rpi->setScenePC(sm_p_idxs[i], &l->getSMDatum(i).getVP()); 
+		rpi->addMesh(&suzanne, VK_NULL_HANDLE, &suzanne.getModelMatrix(), sm_p_idxs[i]);
+	}
 
 	// technically inefficient to rewrite already written data here, but shouldn't happen often
 	std::vector<uint32_t> idxs;
-	for (uint32_t i = 0; i < s.getNumDirSCLights(); i++) idxs.push_back(i);
-	const RenderSet& rs = s.getRenderPass(s.getNumDirSCLights()).getRenderSet(3);
+	for (uint32_t i = 0; i < s.getNumSCLights(); i++) idxs.push_back(i);
+	const RenderSet& rs = rpi->getRenderSet(shadowreceive_pidx);
 	// current state of affairs:
 	// - hooking up just one in the first slot works great
 	// - hooking up multiple works for the first one, the second appears distorted, and the third and rest black out everything
 	// - since one at a time hookup works, it seems like its an issue with the CUB
-	s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], {0}, idxs, 0);
+	s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], idxs, {}, {}, 0);
 	// s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], {}, {s.getNumDirSCLights() - 1}, 0);
-	s.hookupShadowCaster(&suzanne, std::move(idxs));
-
-
-	for (int32_t i = s.getRenderPass(0).getTasks().size() - 1; i >= 0; i--) {
-		w.addTask(s.getRenderPass(0).getTasks()[i], 0);
-	}
+	s.addShadowCaster(&suzanne, idxs);
 }
 
 int main() {
 	GHInitInfo ghii;
-	// shouldn't be required in vulkan 1.2+, but MoltenVK sucks
 	ghii.dexts.push_back("VK_KHR_depth_stencil_resolve");
 	ghii.dexts.push_back("VK_KHR_create_renderpass2");
 	ghii.dexts.push_back("VK_KHR_multiview");
 	ghii.dexts.push_back("VK_KHR_maintenance2");
-	GH graphicshandler = GH(std::move(ghii));
+	ghii.dexts.push_back("VK_KHR_uniform_buffer_standard_layout"); 
+	ghii.dps = {};
+	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64});
+	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8});
+	VkPhysicalDeviceUniformBufferStandardLayoutFeatures ubo_std_layout;
+	ubo_std_layout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES;
+	ubo_std_layout.pNext = nullptr;
+	ubo_std_layout.uniformBufferStandardLayout = VK_TRUE;
+	ghii.pdfeats.pNext = &ubo_std_layout;
+
+	GH graphicshandler = GH(ghii);
 	WindowInfo w((WindowInitInfo){.msaa = VK_SAMPLE_COUNT_4_BIT});
 	TextureHandler th;
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
 	PPStep volumetrics(&w, "vol");
 
-	Mesh m("../resources/models/cube.obj");
 	POMPCData pompcdat;
-	createScene(s, w, m, volumetrics, pompcdat);
+	RenderPassInfo* sm_rp = createSMRenderPass(s, w);
+
+	RenderPassInfo* main_rp = createMainRP(s, w, volumetrics);
+	const size_t instanced_pidx = createInstancedPipeline(s, w, main_rp);
+	const size_t pom_pidx = createPOMPipeline(s, w, main_rp);
+	main_rp->setScenePC(pom_pidx, &pompcdat);
+	const size_t shadowcatch_pidx = createShadowReceivePipeline(s, w, main_rp);
+	DNSScenePCData sc_scene_pcd;
+	main_rp->setScenePC(shadowcatch_pidx, &sc_scene_pcd);
 	RenderPassInfo uirpi = createUIRPI(w);
 
 	/*
@@ -435,12 +428,9 @@ int main() {
 	size_t numf = 0;
 	UIHandler ui(uirpi.getRenderSet(0).pipeline, w.getSCExtent());
 	UIContainer* leftsidebar = ui.addComponent(UIContainer());
-	// leftsidebar->setPos(UICoord(0, 0));
-	// leftsidebar->setExt(UICoord(1000, w.getSCExtent().height));
 	leftsidebar->setPos(UICoord(0, 2 * w.getSCExtent().height));
 	leftsidebar->setExt(UICoord(1000, -2 * w.getSCExtent().height));
-	// leftsidebar->setBGCol({0.1, 0.1, 0.1, 0.9});
-	leftsidebar->setBGCol({0, 0.8, 0, 1});
+	leftsidebar->setBGCol({0.1, 0.1, 0.1, 1});
 	UIText* logtext = leftsidebar->addChild(UIText());
 	logtext->setPos(UICoord(0, 0));
 	logtext->setBGCol({0, 0, 0, 0});
@@ -448,62 +438,83 @@ int main() {
 	camtext->setPos(UICoord(1000, w.getSCExtent().height));
 	UIText* fpstext = ui.addComponent(UIText());
 	fpstext->setPos(UICoord(w.getSCExtent().width - 300, 0));
-	// s.getRenderPass(1).setUI(&ui, 0);
 
 	/*
 	 * Lighting
 	 */
+	DirectionalLightInitInfo l_ii;
+	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(1, 0.9, 0.5));
+	l_ii.super_directional.f = glm::normalize(glm::vec3(1, -1, 0));
+	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight(l_ii), {{1024, 1024}});
+	l_ii.super_light.c = 0.5f * glm::normalize(glm::vec3(1, 1, 0.9));
+	l_ii.super_directional.f = glm::normalize(glm::vec3(0, -1, 1));
+	DirectionalLight* noshad = s.addDirectionalLight(DirectionalLight(l_ii), {});
 
-	DirectionalLight* sl = s.addDirectionalLight(DirectionalLight({{glm::vec3(-20, 20, 0), glm::vec3(1, 1, 0), {1024, 1024}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(1, -1, 0)}));
-	DirectionalLight* noshad = s.addDirectionalLight(DirectionalLight({{glm::vec3(0, 20, -20), glm::vec3(0, 0, 1), {0, 0}}, DIRECTIONAL_LIGHT_TYPE_ORTHO, glm::vec3(0, -1, 1)}));
-
-	createShadowCastPipeline(s.getRenderPass(0), *sl);
-	s.getRenderPass(0).addPipeline(sl->getSMPipeline(), &sl->getVP());
-	s.getRenderPass(0).addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), 0);
-	createShadowReceivePipeline(s.getRenderPass(1), s, w);
+	PipelineInfo sm_pipeline = createSMPipelineTemplate(sm_rp); 
+	std::vector<size_t> sm_p_idxs = s.addSMPipeline(*sl, sm_pipeline, *sm_rp, nullptr);
+	for (size_t i = 0; i < sm_p_idxs.size(); i++) sm_rp->setScenePC(sm_p_idxs[i], &sl->getSMDatum(i).getVP()); 
 
 	/*
 	 * Misc Mesh Instantiation
 	 */
+	// Physics cube
+	Mesh m("../../resources/models/objs/cube.obj");
+	m.setPos(glm::vec3(-5, 10, -5));
+	VkDescriptorSet temp;
+	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
+	DNSObjectPCData cube_pcd = {s.addLightCatcher(&m, temp, {0, 1}, {}, {}), m.getModelMatrix()};
+	main_rp->addMesh(&m, temp, &cube_pcd, shadowcatch_pidx);
+
+	// Cube ring
 	std::vector<InstancedMeshData> imdatatemp;
 	InstancedMesh im = createCubeRing(imdatatemp, 32, 3);
-	VkDescriptorSet temp;
-	GH::createDS(s.getRenderPass(1).getRenderSet(1).pipeline, temp);
+	GH::createDS(main_rp->getRenderSet(instanced_pidx).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, im.getInstanceUB().getDBI());
-	s.getRenderPass(1).addMesh(&im, temp, nullptr, 1);
+	main_rp->addMesh(&im, temp, nullptr, instanced_pidx);
 
-	Mesh plane("../resources/models/plane.obj");
-	GH::createDS(s.getRenderPass(1).getRenderSet(4).pipeline, temp);
-	s.hookupLightCatcher(&plane, temp, {0}, {0});
-	s.getRenderPass(1).addMesh(&plane, temp, &plane.getModelMatrix(), 4); // plane receives shadows
+	// Ground Plane
+	Mesh plane("../../resources/models/objs/plane.obj");
+	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
+	DNSObjectPCData plane_pcd = {s.addLightCatcher(&plane, temp, {0, 1}, {}, {}), plane.getModelMatrix()};
+	main_rp->addMesh(&plane, temp, &plane_pcd, shadowcatch_pidx); // plane receives shadows
 
-	Mesh plane2("../resources/models/plane.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT);
+	/*
+	Mesh plane2("../../resources/models/objs/plane.obj", VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT);
 	plane2.setPos(glm::vec3(20, 0, 0));
-	s.getRenderPass(1).addMesh(&plane2, VK_NULL_HANDLE, &plane2.getModelMatrix(), 3);
+	main_rp->addMesh(&plane2, VK_NULL_HANDLE, &plane2.getModelMatrix(), 3);
+	*/
 
+	// LOD Suzanne
 	std::vector<LODFuncData> tempfd;
 	LODMesh suz = createLODSuzanne(s, tempfd);
+	GH::createDS(main_rp->getRenderSet(shadowcatch_pidx).pipeline, temp);
+	DNSObjectPCData suz_pcd = {s.addLightCatcher(&suz, temp, {0, 1}, {}, {}), suz.getModelMatrix()};
+	main_rp->addMesh(&suz, temp, &suz_pcd, shadowcatch_pidx);
+
+	// Tree
+	Mesh text("resources/models/vkh.obj");
+	text.setPos(glm::vec3(-10, 5, 0));
+	text.setRot(glm::quat(cos(0.785), 0, sin(0.785), 0));
+	text.setScale(glm::vec3(10));
+	DNSObjectPCData text_pcd = {s.addLightCatcher(&text, temp, {0, 1}, {}, {}), text.getModelMatrix()};
+	main_rp->addMesh(&text, temp, &text_pcd, shadowcatch_pidx);
+
+	s.addShadowCaster(&text, {0});
+	s.addShadowCaster(&suz, {0});
+	s.addShadowCaster(&m, {0});
+	s.addShadowCaster(&plane, {0});
+	for (size_t i = 0; i < sm_p_idxs.size(); i++) {
+		sm_rp->addMesh(&text, VK_NULL_HANDLE, &text.getModelMatrix(), sm_p_idxs[i]); 
+		sm_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), sm_p_idxs[i]); 
+		sm_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), sm_p_idxs[i]); 
+		sm_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), sm_p_idxs[i]); 
+	}
+
+	GH::updateDS(volumetrics.getDS(), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sl->getSMDatum(0).getSM()->getDII(), {}); 
+
 	/*
-	TextureSet t("../resources/textures/uvgrid");
-	t.setDiffuseSampler(th.addSampler("bilinear", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_TRUE));
-	GH::createDS(s.getRenderPass(1).getRenderSet(2).pipeline, temp);
-	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, t.getDiffuse().getDII(), {});
-	*/
-	s.getRenderPass(1).addMesh(&suz, temp, &suz.getModelMatrix(), 4);
-	s.getRenderPass(0).addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), 0);
-	s.hookupShadowCaster(&suz, {0});
-	m.setPos(glm::vec3(-5, 10, -5));
-	s.hookupShadowCaster(&m, {0});
-
-	Mesh tree("../resources/models/tree.obj");
-	s.getRenderPass(1).addMesh(&tree, temp, &tree.getModelMatrix(), 4);
-	s.getRenderPass(0).addMesh(&tree, VK_NULL_HANDLE, &tree.getModelMatrix(), 0);
-	tree.setPos(glm::vec3(-10, 0, 0));
-	tree.setScale(glm::vec3(4, 2, 4));
-	s.hookupShadowCaster(&tree, {0});
-
-	GH::updateDS(volumetrics.getDS(), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sl->getShadowMap().getDII(), {}); 
-
+	 * Draw Tasks
+	 */
 	w.addTasks(s.getDrawTasks());
 
 	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(VK_NULL_HANDLE, nullptr, 0, {0, 0}, 0, nullptr)));
@@ -520,7 +531,6 @@ int main() {
 	/*
 	 * Physics Scene Setup
 	 */
-
 	PhysicsHandler ph;
 
 	PointCollider* pc = static_cast<PointCollider*>(ph.addCollider(PointCollider()));
@@ -539,33 +549,33 @@ int main() {
 	/*
 	 * Input Scripting
 	 */
-
 	InputHandler ih;
 	glm::vec3 movementdir;
-	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getUp()); }));
-	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getRight()); }));
-	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getUp()); }));
-	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getRight()); }));
+	ih.addHold(InputHold(SDL_SCANCODE_W, [&movementdir, c = s.getCamera()] () { movementdir += glm::vec3(0, 1, 0); }));
+	ih.addHold(InputHold(SDL_SCANCODE_A, [&movementdir, c = s.getCamera()] () { movementdir -= glm::cross(c->getForward(), glm::vec3(0, 1, 0)); }));
+	ih.addHold(InputHold(SDL_SCANCODE_S, [&movementdir, c = s.getCamera()] () { movementdir -= glm::vec3(0, 1, 0); }));
+	ih.addHold(InputHold(SDL_SCANCODE_D, [&movementdir, c = s.getCamera()] () { movementdir += glm::cross(c->getForward(), glm::vec3(0, 1, 0));; }));
 	ih.addHold(InputHold(SDL_SCANCODE_E, [&movementdir, c = s.getCamera()] () { movementdir += glm::normalize(c->getForward()); }));
 	ih.addHold(InputHold(SDL_SCANCODE_Q, [&movementdir, c = s.getCamera()] () { movementdir -= glm::normalize(c->getForward()); }));
-	// TODO: consider using a sigmoid to modulate FOVY input
-	ih.addHold(InputHold(SDL_SCANCODE_UP, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() > FOV_SENS) c->setFOVY(c->getFOVY() - FOV_SENS); }));
-	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&movementdir, c = s.getCamera()] () { if (c->getFOVY() < glm::pi<float>() - FOV_SENS) c->setFOVY(c->getFOVY() + FOV_SENS); }));
-	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log, &w, &s, &suz, &plane, pc] (const SDL_Event& e) { 
+	float zoom = tan(s.getCamera()->getFOVY()-1.57);
+	ih.addHold(InputHold(SDL_SCANCODE_UP, [&zoom] () { zoom -= ZOOM_SENS; }));
+	ih.addHold(InputHold(SDL_SCANCODE_DOWN, [&zoom] () { zoom += ZOOM_SENS; }));
+
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&log, &w, &s, &suz, &plane, pc, sm_pipeline, sm_rp, shadowcatch_pidx] (const SDL_Event& e) { 
 		if (e.key.scancode == SDL_SCANCODE_H) {
 			log.insert(0, L"Hello World! @ " + getTimestamp() + L"\n");
 			return true;
 		}
 		if (e.key.scancode == SDL_SCANCODE_L) {
-			if (s.getNumDirSCLights() < SCENE_MAX_DIR_SHADOWCASTING_LIGHTS) {
-				addLight(w, s, suz, plane);
-				log.insert(0, L"Added Light @ ["
-						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().x) + L", " 
-						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().y) + L", " 
-						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getPos().z) + L"] w/ col ["
-						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().x) + L", " 
-						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().y) + L", " 
-						 + std::to_wstring(s.getDirSCLights()[s.getNumDirSCLights() - 1].getCol().z) + L"] \n");
+			if (s.getNumDirLights() < SCENE_MAX_DIR_LIGHTS && s.getNumSCLights() < SCENE_MAX_SC_LIGHTS) {
+				addLight(w, s, suz, plane, sm_pipeline, sm_rp, shadowcatch_pidx);
+				log.insert(0, L"Added Light looking toward ["
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getForward().x) + L", " 
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getForward().y) + L", " 
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getForward().z) + L"] w/ col ["
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getCol().x) + L", " 
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getCol().y) + L", " 
+						 + std::to_wstring(s.getDirLights()[s.getNumDirLights() - 1].getCol().z) + L"] \n");
 			}
 			else log.insert(0, L"Too many lights to add another!\n");
 			return true;
@@ -592,8 +602,13 @@ int main() {
 
 			pompcdat = (POMPCData) {s.getCamera()->getVP(), glm::vec4(s.getCamera()->getPos().x, s.getCamera()->getPos().y, s.getCamera()->getPos().z, 1)};
 		}
-		// can't just do in loop cuz need time;
-		volumetrics.updatePC((temp_pc_dat){s.getCamera()->getVP(), sl->getVP(), glm::inverse(s.getCamera()->getVP()), s.getCamera()->getPos(), (float)SDL_GetTicks() / 1000.f});
+		s.getCamera()->setFOVY(atan(zoom)+1.57);
+		s.getCamera()->updateView();
+		s.getCamera()->updateProj();
+		sc_scene_pcd.vp = s.getCamera()->getVP();
+		sc_scene_pcd.c_pos = s.getCamera()->getPos();
+		s.updateSMD(*sl, 0);
+		volumetrics.updatePC((temp_pc_dat){s.getCamera()->getVP(), sl->getSMDatum(0).getVP(), glm::inverse(s.getCamera()->getVP()), s.getCamera()->getPos(), (float)SDL_GetTicks() / 1000.f});
 
 		/*
 		 * UI Update
@@ -623,10 +638,10 @@ int main() {
 			frametimes.clear();
 		}
 
-		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);
+		throbCubeRing(im, imdatatemp, 0.5, (float)SDL_GetTicks() / 1000);	
 
 		m.setPos(pc->getPos() + glm::vec3(0, 1, 0));
-		// plane.setPos(plc->getPos());
+		cube_pcd.m = m.getModelMatrix();
 
 		ph.update();
 	}
