@@ -28,31 +28,31 @@ TextureSet::TextureSet(const char* d, VkSampler s) {
 				dst = &textures.insert(
 					{std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4), {}}
 				).first->second;
-			}
 
-			i.version = PNG_IMAGE_VERSION;
-			i.opaque = NULL;
-			png_image_begin_read_from_file(&i, f->fts_accpath);
-			i.format = PNG_FORMAT_RGBA;
-			buffer = static_cast<png_bytep>(malloc(PNG_IMAGE_SIZE(i)));
+				i.version = PNG_IMAGE_VERSION;
+				i.opaque = NULL;
+				png_image_begin_read_from_file(&i, f->fts_accpath);
+				i.format = PNG_FORMAT_RGBA;
+				buffer = static_cast<png_bytep>(malloc(PNG_IMAGE_SIZE(i)));
 
-			png_image_finish_read(&i, NULL, buffer, 0, NULL);
+				png_image_finish_read(&i, NULL, buffer, 0, NULL);
 
-			dst->extent = {i.width, i.height};
-			// TODO: format setting
-			dst->format = VK_FORMAT_R8G8B8A8_SRGB;
-			dst->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-			dst->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			dst->sampler = s;
-			GH::createImage(*dst);
-			GH::updateImage(*dst, buffer);
+				dst->extent = {i.width, i.height};
+				// TODO: format setting
+				dst->format = VK_FORMAT_R8G8B8A8_SRGB;
+				dst->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+				dst->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				dst->sampler = s;
+				GH::createImage(*dst);
+				GH::updateImage(*dst, buffer);
 
 #ifdef VERBOSE_TEXTURESET_OBJECTS
-			std::cout << "creating image " << dst->image << std::endl;
+				std::cout << "creating image " << dst->image << std::endl;
 #endif
 
-			free(buffer);
-			png_image_free(&i);
+				free(buffer);
+				png_image_free(&i);
+			}
 		}
 	}
 }
