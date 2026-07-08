@@ -39,7 +39,7 @@ public:
 	Octree(Octree&& rvalue);
 	Octree(const std::vector<Mesh*> m, const std::vector<InstancedMesh*> im, uint8_t d);
 	~Octree();
-	Octree& operator=(Octree&& rhs);
+	Octree& operator=(Octree rhs);
 
 	friend void swap(Octree& lhs, Octree& rhs);
 
@@ -51,6 +51,7 @@ private:
 	Octree* children;
 	std::vector<Mesh*> meshes;
 	std::vector<InstancedMesh*> inst_meshes;
+	std::vector<std::vector<size_t>> inst_idxs;
 	OctreeFlags flags;
 
 	Octree(const AABB& a, const std::vector<Mesh*> m, const std::vector<InstancedMesh*> im, uint8_t d);

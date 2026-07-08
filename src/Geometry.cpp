@@ -51,10 +51,12 @@ Octree::Octree(const Octree& lvalue) :
 	children(nullptr),
 	meshes(lvalue.meshes),
 	inst_meshes(lvalue.inst_meshes),
+	inst_idxs(lvalue.inst_idxs),
 	flags(OCTREE_FLAG_BITS_NONE) {
 	if (lvalue.children) {
 		children = new Octree[8];
-		memcpy(children, lvalue.children, 8*sizeof(Octree));
+		for (uint8_t i = 0; i < 8; i++)
+			children[i] = lvalue.children[i];
 	}
 }
 
@@ -64,6 +66,7 @@ Octree::Octree(Octree&& rvalue) :
 	children(rvalue.children),
 	meshes(std::move(rvalue.meshes)),
 	inst_meshes(std::move(rvalue.inst_meshes)),
+	inst_idxs(std::move(rvalue.inst_idxs)),
 	flags(OCTREE_FLAG_BITS_NONE) {
 	rvalue.children = nullptr;
 }
@@ -99,7 +102,7 @@ Octree::~Octree() {
 	}
 }
 
-Octree& Octree::operator=(Octree&& rhs) {
+Octree& Octree::operator=(Octree rhs) {
 	swap(*this, rhs);
 	return *this;
 }
@@ -110,6 +113,7 @@ void swap(Octree& lhs, Octree& rhs) {
 	std::swap(lhs.children, rhs.children);
 	std::swap(lhs.meshes, rhs.meshes);
 	std::swap(lhs.inst_meshes, rhs.inst_meshes);
+	std::swap(lhs.inst_idxs, rhs.inst_idxs);
 	std::swap(lhs.flags, rhs.flags);
 }
 

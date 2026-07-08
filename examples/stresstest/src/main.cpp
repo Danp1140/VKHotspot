@@ -234,7 +234,7 @@ size_t createDNSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 size_t createDNSInstancedPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "dnsinst";
+	p.shaderfilepathprefix = "dnsinstanced";
 	VkDescriptorSetLayoutBinding dtbindings[7] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -315,7 +315,7 @@ PipelineInfo createSMPipeline(RenderPassInfo& rpi) {
 PipelineInfo createSMInstancedPipeline(RenderPassInfo& rpi) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "sminst";
+	p.shaderfilepathprefix = "sminstanced";
 	VkDescriptorSetLayoutBinding dtbindings[1] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -401,7 +401,7 @@ RenderPassInfo* createTSRenderPass(Scene& s, WindowInfo& w) {
 size_t createTSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "ts";
+	p.shaderfilepathprefix = "viewport";
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData) + sizeof(uint32_t)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(DNSScenePCData) + sizeof(uint32_t), sizeof(glm::mat4)};
 	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_NORMAL));
@@ -417,7 +417,7 @@ size_t createTSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 size_t createTSInstPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "tsinst";
+	p.shaderfilepathprefix = "viewportinstanced";
 	VkDescriptorSetLayoutBinding dtbindings[1] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -432,7 +432,7 @@ size_t createTSInstPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) 
 		1, &dtbindings[0]
 	};
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData) + sizeof(uint32_t)};
-	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_NORMAL));
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV |  VERTEX_BUFFER_TRAIT_NORMAL));
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
@@ -525,7 +525,6 @@ int main() {
 	ghii.pdfeats.pNext = &ubo_std_layout;
 
 	GH gh(ghii);
-	gh.setShaderDirectory("../../resources/shaders/SPIRV/");
 	WindowInitInfo wii;
 	wii.msaa = VK_SAMPLE_COUNT_4_BIT;
 	WindowInfo w(wii);

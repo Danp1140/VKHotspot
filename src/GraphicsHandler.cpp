@@ -1132,6 +1132,7 @@ void GH::createShader(
 	for (unsigned char x = 0; x < NUM_SHADER_STAGES_SUPPORTED; x++) {
 		if (stages & supportedshaderstages[x]) {
 			filestream = std::ifstream(filepaths[stagecounter], std::ios::ate | std::ios::binary);
+			if (!filestream) FatalError(std::string("Failed to read shader @ ") + filepaths[stagecounter]).raise();
 			shadersrcsize = filestream.tellg();
 			shadersrc = new char[shadersrcsize];
 			filestream.seekg(0);
