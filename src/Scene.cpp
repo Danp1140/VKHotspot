@@ -8,7 +8,8 @@ RenderPassInfo::RenderPassInfo(
 	std::vector<VkClearValue>&& c) : 
 		renderpass(r), 
 		numscis(nsci),
-		clears(c) {
+		clears(c),
+		cull_map(nullptr) {
 	extent = d ? d->extent : (ms ? ms->extent : scis[0].extent);
 	// TODO: fix up createFBs to make more sense and perhaps be more flexible with attachment order
 	// nsci should really be called something else
@@ -16,7 +17,7 @@ RenderPassInfo::RenderPassInfo(
 }
 
 RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx) :
-	renderpass(r), numscis(nsci), extent(ext), clears(c) {
+	renderpass(r), numscis(nsci), extent(ext), clears(c), cull_map(nullptr) {
 	createFBs(numscis, sci_att_idx, att);
 }
 
@@ -75,13 +76,29 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 #ifdef VKH_VERBOSE_DRAW_TASKS
 			std::cout << "Mesh " << m << std::endl;
 #endif
-			tasks.emplace_back(
-				[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
-				(uint8_t scii, VkCommandBuffer& c) {
-				// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
-				// window scis
-				m->recordDraw(fb[scii % ns], rp, r, counter, c);
-			});
+			if (cull_map && cull_map->contains(m)) {
+				tasks.emplace_back(
+					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis, cm = cull_map] 
+					(uint8_t scii, VkCommandBuffer& c) {
+					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
+					// window scis
+					if (!(*cm)[m]) std::cout << "culling mesh\n";
+					if (!(*cm)[m]) return false;
+					m->recordDraw(fb[scii % ns], rp, r, counter, c);
+					return true;
+				});
+			}
+			else {
+				tasks.emplace_back(
+					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
+					(uint8_t scii, VkCommandBuffer& c) {
+					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
+					// window scis
+					m->recordDraw(fb[scii % ns], rp, r, counter, c);
+					return true;
+				});
+
+			}
 			counter++;
 		}
 #ifdef VKH_VERBOSE_DRAW_TASKS
@@ -317,7 +334,8 @@ void Scene::updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths) {
 	z_range.y = temp.z / temp.w;
 	for (float x = -1; x < 2; x += 2)
 	for (float y = -1; y < 2; y += 2)
-	for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
+	// for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
+	for (float z = depths.x; z <= depths.y; z += depths.y - depths.x) {
 		cam_points[count] = ProjectionBase::applyHomo(vp_inv, glm::vec3(x, y, z));
 		count++;
 	}

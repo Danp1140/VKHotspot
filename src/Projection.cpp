@@ -163,6 +163,7 @@ void DirectionalLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_A
 				if (temp[j] > ls_cam_aabb[1][j]) ls_cam_aabb[1][j] = temp[j];
 			}
 		}
+		// TODO: could just use minimum of the two here
 		ls_aabb[0].x = ls_cam_aabb[0].x;
 		ls_aabb[1].x = ls_cam_aabb[1].x;
 		ls_aabb[0].y = ls_cam_aabb[0].y;
