@@ -36,8 +36,23 @@ private:
 template<class T>
 class GenStep {
 public:
+	GenStep() : users(0) {}
 	virtual ~GenStep() = default;
+
 	virtual T generate(const std::vector<size_t>& p) const = 0;
+
+	void addUse() {users++;}
+	void subUse() {users--;}
+
+	static void destroy(GenStep* s) {
+		if (s) {
+			if (s->users == 1) delete s;
+			else s->users--;
+		}
+	}
+
+private:
+	size_t users;
 };
 
 template<class T>
@@ -64,9 +79,11 @@ private:
 template<class T, class U>
 class GSCast : public GenStep<T> {
 public:
-	GSCast(GenStep<U>* c) : castee(c) {}
+	GSCast(GenStep<U>* c) : castee(c) {
+		castee->addUse();
+	}
 	~GSCast() {
-		if (castee) delete castee;
+		GenStep<U>::destroy(castee);
 	}
 	T generate(const std::vector<size_t>& p) const {return static_cast<T>(castee->generate(p));}
 private:
@@ -85,10 +102,13 @@ typedef enum GSBinOpType {
 template<class T>
 class GSBinOp : public GenStep<T> {
 public:
-	GSBinOp(GSBinOpType t, GenStep<T>* l, GenStep<T>* r) : op(t), lhs(l), rhs(r) {}
+	GSBinOp(GSBinOpType t, GenStep<T>* l, GenStep<T>* r) : op(t), lhs(l), rhs(r) {
+		lhs->addUse();
+		rhs->addUse();
+	}
 	~GSBinOp() {
-		if (lhs) delete lhs;
-		if (rhs) delete rhs;
+		GenStep<T>::destroy(lhs);
+		GenStep<T>::destroy(rhs);
 	}
 	T generate(const std::vector<size_t>& p) const {
 		switch (op) {
@@ -132,9 +152,11 @@ typedef enum GSOscType {
 template<class T>
 class GSOsc : public GenStep<T> {
 public:
-	GSOsc(GSOscType t, GenStep<T>* a) : type(t), arg(a) {}
+	GSOsc(GSOscType t, GenStep<T>* a) : type(t), arg(a) {
+		arg->addUse();
+	}
 	~GSOsc() {
-		if (arg) delete arg;
+		GenStep<T>::destroy(arg);
 	}
 
 	// TODO: consider rescaling to make defaults work with integral types
@@ -177,7 +199,18 @@ typedef enum GSSampleType {
 template<class T, class U>
 class GSSample : public GenStep<T> {
 public:
-	GSSample(GSSampleType t, GenStep<T>* s, std::vector<GenStep<U>*> tc) : type(t), src(s), tex_coord(tc) {}
+	GSSample(GSSampleType t, GenStep<T>* s, std::vector<GenStep<U>*> tc, size_t s_w) : 
+		type(t), 
+		src(s), 
+		tex_coord(tc),
+ 		src_width(s_w) {
+		src->addUse();
+		for (GenStep<U>* t : tex_coord) t->addUse();
+	}
+	~GSSample() {
+		GenStep<T>::destroy(src);
+		for (GenStep<U>* t : tex_coord) GenStep<U>::destroy(t);
+	}
 
 	// TODO: coordinate mirroring/extension
 	/*
@@ -209,7 +242,7 @@ public:
 private:
 	GSSampleType type;
 	GenStep<T>* src;
-	size_t src_width = 8;
+	size_t src_width; // TODO see if we can rid ourselves of this parameter
 	std::vector<GenStep<U>*> tex_coord; // in space of source width
 
 	/*
@@ -252,7 +285,12 @@ private:
 template<class T, class U>
 class GSLoad : public GenStep<T> {
 public:
-	GSLoad(const T* d, GenStep<U>* idx) : data(d), index(idx) {}
+	GSLoad(const T* d, GenStep<U>* idx) : data(d), index(idx) {
+		index->addUse();
+	}
+	~GSLoad() {
+		GenStep<U>::destroy(index);
+	}
 
 	T generate(const std::vector<size_t>& p) const {return data[index->generate(p)];}
 

@@ -179,9 +179,10 @@ void createGradTex(TextureSet& ts, size_t res, VkSampler s) {
 
 void createBrownianTex(TextureSet& ts, size_t res, VkSampler s) {
 	std::cout << "started gen" << std::endl;
-	NDSNoise<uint8_t> n;
-	uint8_t* tmp = new uint8_t[8*8];
-	for (size_t i = 0; i < 8*8; i++) tmp[i] = n.generate(nullptr);
+	const size_t n_levels = 8, noise_res = 256;
+	NDSNoise<uint8_t> n(0, 255/n_levels);
+	uint8_t* tmp = new uint8_t[noise_res*noise_res];
+	for (size_t i = 0; i < noise_res*noise_res; i++) tmp[i] = n.generate(nullptr);
 
 	GSConst<uint8_t>* a = new GSConst((uint8_t)0x00);
 	
@@ -190,25 +191,42 @@ void createBrownianTex(TextureSet& ts, size_t res, VkSampler s) {
 	GSDim* ycoord = new GSDim(1);
 	GSCast<float, size_t>* f_x = new GSCast<float, size_t>(xcoord);
 	GSCast<float, size_t>* f_y = new GSCast<float, size_t>(ycoord);
-	GSConst<float>* ds_c = new GSConst(8.f/(float)res);
-	GSBinOp<float>* ds_x = new GSBinOp(GS_BINOP_TYPE_MULT, f_x, ds_c);
-	GSBinOp<float>* ds_y = new GSBinOp(GS_BINOP_TYPE_MULT, f_y, ds_c);
 
 	GSDim* l_x = new GSDim(0);
 	GSDim* l_y = new GSDim(1);
-	GSConst<size_t>* l_c = new GSConst((size_t)8);
+	GSConst<size_t>* l_c = new GSConst((size_t)noise_res);
+	GSConst<float>* l_c_float = new GSConst((float)noise_res);
 	GSBinOp<size_t>* l_m = new GSBinOp(GS_BINOP_TYPE_MULT, l_x, l_c);
 	GSBinOp<size_t>* l_idx = new GSBinOp(GS_BINOP_TYPE_ADD, l_m, l_y);
 	GSLoad<uint8_t, size_t>* l = new GSLoad(tmp, l_idx);
 	
-	GSSample<uint8_t, float>* samp = new GSSample<uint8_t, float>(GS_SAMPLE_TYPE_LINEAR, l, {ds_x, ds_y});
-	// GSSample<uint8_t, float>* samp = new GSSample<uint8_t, float>(GS_SAMPLE_TYPE_NEAREST, l, {ds_x, ds_y});
+	GSBinOp<uint8_t>* add_tmp = nullptr;
+	GenStep<uint8_t>* samp_tmp = nullptr;
 
-	std::vector<GenStep<uint8_t>*> roots = {samp, samp, samp, a};
+	for (uint8_t lvl = 0; lvl < n_levels; lvl++) {
+		size_t span = pow(2, lvl);
+		GSConst<float>* ds_c = new GSConst((float)span/(float)res);
+		GenStep<float>* ds_x = new GSBinOp(GS_BINOP_TYPE_MULT, f_x, ds_c);
+		GenStep<float>* ds_y = new GSBinOp(GS_BINOP_TYPE_MULT, f_y, ds_c);
+		ds_x = new GSBinOp(GS_BINOP_TYPE_MOD, ds_x, l_c_float);
+		ds_y = new GSBinOp(GS_BINOP_TYPE_MOD, ds_y, l_c_float);
+
+		GSSample<uint8_t, float>* samp = new GSSample<uint8_t, float>(GS_SAMPLE_TYPE_LINEAR, l, {ds_x, ds_y}, span);
+		if (!add_tmp) {
+			if (!samp_tmp) samp_tmp = samp;
+			else add_tmp = new GSBinOp(GS_BINOP_TYPE_ADD, samp, samp_tmp);
+		}
+		else {
+			add_tmp = new GSBinOp(GS_BINOP_TYPE_ADD, add_tmp, samp);
+		}
+
+	}
+
+	std::vector<GenStep<uint8_t>*> roots = {add_tmp, add_tmp, add_tmp, a};
 
 	ts.addTexture("diffuse", roots, res, VK_FORMAT_R8G8B8A8_UNORM, s);
 
-	delete samp;
+	delete add_tmp;
 	delete a;
 	delete[] tmp;
 
@@ -234,7 +252,7 @@ int main() {
 	GH gh(ghii);
 	WindowInfo w;
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
-	s.getCamera()->setPos(3.f*glm::vec3(15, 6, 15));
+	s.getCamera()->setPos(glm::vec3(15, 6, 15));
 	s.getCamera()->setForward(glm::vec3(-15, -6, -15));
 	s.getCamera()->updateView();
 	RenderPassInfo rp = getRP(w);
