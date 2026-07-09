@@ -216,11 +216,27 @@ void createBrownianTex(TextureSet& ts, size_t res, VkSampler s) {
 }
 
 int main() {
-	GH gh;
+	GHInitInfo ghii;
+	ghii.dexts.push_back("VK_KHR_depth_stencil_resolve");
+	ghii.dexts.push_back("VK_KHR_create_renderpass2");
+	ghii.dexts.push_back("VK_KHR_multiview");
+	ghii.dexts.push_back("VK_KHR_maintenance2");
+	ghii.dexts.push_back("VK_KHR_uniform_buffer_standard_layout"); 
+	ghii.dps = {};
+	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64});
+	ghii.dps.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8});
+	VkPhysicalDeviceUniformBufferStandardLayoutFeatures ubo_std_layout;
+	ubo_std_layout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES;
+	ubo_std_layout.pNext = nullptr;
+	ubo_std_layout.uniformBufferStandardLayout = VK_TRUE;
+	ghii.pdfeats.pNext = &ubo_std_layout;
+
+	GH gh(ghii);
 	WindowInfo w;
 	Scene s((float)w.getSCExtent().width / (float)w.getSCExtent().height);
-	s.getCamera()->setPos(glm::vec3(15, 6, 15));
+	s.getCamera()->setPos(3.f*glm::vec3(15, 6, 15));
 	s.getCamera()->setForward(glm::vec3(-15, -6, -15));
+	s.getCamera()->updateView();
 	RenderPassInfo rp = getRP(w);
 	PipelineInfo dpipeline;
 	createDPipeline(dpipeline, w, rp.getRenderPass());
@@ -246,15 +262,24 @@ int main() {
 	th.addSet("grad", std::move(grad));
 	th.addSet("brow", std::move(brow));
 
-	Mesh plane("../resources/models/plane.obj");
-	Mesh plane2("../resources/models/plane.obj");
-	plane2.setPos(plane2.getPos() + glm::vec3(0, 0, -20));
+	Mesh plane("../../resources/models/objs/plane.obj");
+	Mesh plane2("../../resources/models/objs/plane.obj");
+	Mesh plane3("../../resources/models/objs/plane.obj");
+	Mesh plane4("../../resources/models/objs/plane.obj");
+	Mesh plane5("../../resources/models/objs/plane.obj");
+	plane2.setPos(glm::vec3(0, 0, -20));
+	plane3.setPos(glm::vec3(20, 0, 0));
+	plane4.setPos(glm::vec3(-20, 0, 0));
+	plane5.setPos(glm::vec3(0, 0, 20));
 
 	VkDescriptorSet temp;
 	GH::createDS(s.getRenderPass(0).getRenderSet(0).pipeline, temp);
 	GH::updateDS(temp, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, th.getSet("brow").getTexture("diffuse").getDII(), {});
 	s.getRenderPass(0).addMesh(&plane, temp, &plane.getModelMatrix(), 0);
 	s.getRenderPass(0).addMesh(&plane2, temp, &plane2.getModelMatrix(), 0);
+	s.getRenderPass(0).addMesh(&plane3, temp, &plane3.getModelMatrix(), 0);
+	s.getRenderPass(0).addMesh(&plane4, temp, &plane4.getModelMatrix(), 0);
+	s.getRenderPass(0).addMesh(&plane5, temp, &plane5.getModelMatrix(), 0);
 
 	w.addTasks(s.getDrawTasks());
 

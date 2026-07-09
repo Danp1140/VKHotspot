@@ -180,18 +180,22 @@ public:
 	GSSample(GSSampleType t, GenStep<T>* s, std::vector<GenStep<U>*> tc) : type(t), src(s), tex_coord(tc) {}
 
 	// TODO: coordinate mirroring/extension
+	/*
+	 * p.size() is same as num dims of tex, it is coords to generate sample at
+	 */
 	T generate(const std::vector<size_t>& p) const {
 		if (type == GS_SAMPLE_TYPE_NEAREST) {
 			std::vector<size_t> nextp(p.size());
 			// TODO does this actually round correctly by total distance? 
 			for (uint8_t i = 0; i < nextp.size(); i++) {
-				nextp[i] = (size_t)round(tex_coord[i]->generate(p));
+				nextp[i] = (size_t)floor(tex_coord[i]->generate(p));
 				if (nextp[i] >= src_width) nextp[i] -= src_width;
 				if (nextp[i] < 0) nextp[i] += src_width;
 			}
 			return src->generate(nextp);
 		}
 		if (type == GS_SAMPLE_TYPE_LINEAR) {
+			// generate scaled coords
 			std::vector<U> p_loc(p.size());
 			for (uint8_t i = 0; i < p.size(); i++) {
 				p_loc[i] = tex_coord[i]->generate(p);
@@ -208,17 +212,24 @@ private:
 	size_t src_width = 8;
 	std::vector<GenStep<U>*> tex_coord; // in space of source width
 
+	/*
+	 * Mix colors at dimension n+1 (so n==0 => linear interpolation).
+	 * p_loc is the scaled coords to sample the source at, length is n+1
+	 */
 	T mix(uint8_t n, const std::vector<U>& p_loc) const {
-		U val = p_loc[n];
-		U dist = GSBinOp<U>::mod(val, (U)1);
+		U val = p_loc[n]; // potentially float value
+		U dist = GSBinOp<U>::mod(val, (U)1); // decimal part
 		if (n == 0) {
 			std::vector<size_t> p_f(p_loc.size()), p_c(p_loc.size());
+			// round last dim
 			p_f[0] = floorAndClampMin(val, dist);
 			p_c[0] = ceilAndClampMax(val, dist);
+			// cast all rounded values to size_t
 			for (uint8_t i = 1; i < p_loc.size(); i++) {
 				p_f[i] = (size_t)p_loc[i];
 				p_c[i] = (size_t)p_loc[i];
 			}
+			// generate values and pass up call stack for interp
 			return src->generate(p_f)*(1-dist) + src->generate(p_c)*(dist);
 		}
 		std::vector<U> p_f(p_loc), p_c(p_loc);
@@ -227,12 +238,14 @@ private:
 		return mix(n-1, p_f)*(1-dist) + mix(n-1, p_c)*(dist);
 	}
 	U floorAndClampMin(U v, U d) const {
-		if (d > v) return v - d + (U)src_width;
-		return v - d;
+		U out = v - d;
+		if (out < 0) return out + (U)src_width;
+		return out;
 	}
 	U ceilAndClampMax(U v, U d) const {
-		if (v - d + 1 > (U)src_width) return v - d + 1 - (U) src_width;
-		return v - d + 1;
+		U out = v - d + 1;
+		if (out > (U)src_width-(U)1) return out - (U)src_width;
+		return out;
 	}
 };
 
