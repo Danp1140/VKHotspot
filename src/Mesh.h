@@ -1,12 +1,14 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include <gtc/quaternion.hpp>
 
 #include "GraphicsHandler.h"
 class MeshBase;
 class Mesh;
+class InstancedMesh;
 #include "Scene.h"
+
+#include <gtc/quaternion.hpp>
 
 class MeshBase {
 public:
@@ -36,9 +38,15 @@ public:
 	void setPos(glm::vec3 p);
 	void setRot(glm::quat r);
 	void setScale(glm::vec3 s);
+	void setModelMatrix(const glm::mat4& m) {model = m;}
+
+	void enableDraw() const {draw = true;}
+	void disableDraw() const {draw = false;}
+	bool shouldDraw() const {return draw;}
 
 protected:
 	glm::vec3 aabb[2]; // min, then max, note that this is pre-model matrix
+	mutable bool draw;
 
 private:
 	glm::vec3 position, scale;
@@ -48,7 +56,6 @@ private:
 	void updateModelMatrix();
 };
 
-// TODO: way to edit this and param in draw call
 typedef uint32_t MeshIndex;
 
 typedef enum VertexBufferTraitBits {
@@ -56,10 +63,12 @@ typedef enum VertexBufferTraitBits {
 	VERTEX_BUFFER_TRAIT_POSITION = 0x01,
 	VERTEX_BUFFER_TRAIT_UV = 0x02,
 	VERTEX_BUFFER_TRAIT_NORMAL = 0x04,
-	VERTEX_BUFFER_TRAIT_WEIGHT = 0x08,
+	VERTEX_BUFFER_TRAIT_TANGENT = 0x08,
+	VERTEX_BUFFER_TRAIT_BITANGENT = 0x10,
+	VERTEX_BUFFER_TRAIT_WEIGHT = 0x20,
 } VertexBufferTraitBits;
 typedef uint8_t VertexBufferTraits;
-#define MAX_VERTEX_BUFFER_NUM_TRAITS 4
+#define MAX_VERTEX_BUFFER_NUM_TRAITS 6
 
 typedef struct MeshPCData {
 	glm::mat4 m;
@@ -72,6 +81,7 @@ public:
 	Mesh(const Mesh& lvalue) = delete;
 	Mesh(Mesh&& rvalue);
 	Mesh(const char* f);
+	Mesh(const char* f, VertexBufferTraits vbt);
 	Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu);
 	~Mesh();
 
@@ -118,11 +128,16 @@ typedef struct InstancedMeshData {
 	glm::mat4 m;
 } InstancedMeshData;
 
+typedef struct IMCullingData {
+	size_t i;
+} IMCullingData;
+
 class InstancedMesh : public Mesh {
 public:
 	InstancedMesh() = default;
 	InstancedMesh(const InstancedMesh& lvalue) = delete;
 	InstancedMesh(InstancedMesh&& rvalue);
+	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, VertexBufferTraits t);
 	InstancedMesh(const char* fp, std::vector<InstancedMeshData> m);
 	~InstancedMesh();
 
@@ -130,11 +145,6 @@ public:
 
 	InstancedMesh& operator=(const InstancedMesh& rhs) = delete;
 	InstancedMesh& operator=(InstancedMesh&& rhs);
-
-	/*
-	 * TODO: should instanced mesh still use other position rotation etc stuff? to just apply to all
-	 * of them?
-	 */
 
 	const BufferInfo& getInstanceUB() const {return instanceub;}
 	/*
@@ -151,7 +161,7 @@ public:
 		VkCommandBuffer& c) const;
 
 private:
-	BufferInfo instanceub;
+	BufferInfo instanceub, cullingub;
 };
 
 typedef bool(*LODFunc)(Mesh&, void*);

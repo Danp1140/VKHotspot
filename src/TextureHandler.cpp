@@ -138,47 +138,35 @@ TextureSet::TextureSet(const char* d, VkSampler s) {
 	size_t setnamelen = strlen(setname);
 	while ((f = fts_read(dir))) {
 		if (f->fts_level == 1) {
-			/*
-			if (strcmp(f->fts_name + f->fts_namelen - 11, "diffuse.png") == 0) {
-				dst = &diffuse;
-				std::cout << f->fts_name << std::endl;
-			}
-			else if (strcmp(f->fts_name + f->fts_namelen - 10, "normal.png") == 0) {
-				dst = &normal;
-				std::cout << f->fts_name << std::endl;
-			}
-			*/
-			if (strcmp(f->fts_name + f->fts_namelen - 4, ".png") != 0) {
-				WarningError("Unexpected file/directory in TextureSet directory").raise();
-				continue;
-			}
-			else {
-				dst = &textures.insert({
-						std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4),
-					{}
-				}).first->second;
-				// std::cout << setname << "'s " << std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4) << std::endl;
-			}
+			if (strcmp(f->fts_name + f->fts_namelen - 4, ".png") == 0) {
+				dst = &textures.insert(
+					{std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4), {}}
+				).first->second;
 
-			i.version = PNG_IMAGE_VERSION;
-			i.opaque = NULL;
-			png_image_begin_read_from_file(&i, f->fts_accpath);
-			i.format = PNG_FORMAT_RGBA;
-			buffer = static_cast<png_bytep>(malloc(PNG_IMAGE_SIZE(i)));
+				i.version = PNG_IMAGE_VERSION;
+				i.opaque = NULL;
+				png_image_begin_read_from_file(&i, f->fts_accpath);
+				i.format = PNG_FORMAT_RGBA;
+				buffer = static_cast<png_bytep>(malloc(PNG_IMAGE_SIZE(i)));
 
-			png_image_finish_read(&i, NULL, buffer, 0, NULL);
+				png_image_finish_read(&i, NULL, buffer, 0, NULL);
 
-			dst->extent = {i.width, i.height};
-			// TODO: format setting
-			dst->format = VK_FORMAT_R8G8B8A8_SRGB;
-			dst->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-			dst->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			dst->sampler = s;
-			GH::createImage(*dst);
-			GH::updateImage(*dst, buffer);
+				dst->extent = {i.width, i.height};
+				// TODO: format setting
+				dst->format = VK_FORMAT_R8G8B8A8_SRGB;
+				dst->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+				dst->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				dst->sampler = s;
+				GH::createImage(*dst);
+				GH::updateImage(*dst, buffer);
 
-			free(buffer);
-			png_image_free(&i);
+#ifdef VERBOSE_TEXTURESET_OBJECTS
+				std::cout << "creating image " << dst->image << std::endl;
+#endif
+
+				free(buffer);
+				png_image_free(&i);
+			}
 		}
 	}
 }
@@ -188,7 +176,12 @@ TextureSet::~TextureSet() {
 	std::cout << this << " ~TextureSet()" << std::endl;
 #endif
 	for (auto& [_, t] : textures) {
-		if (t.image != VK_NULL_HANDLE) GH::destroyImage(t);
+		if (t.image != VK_NULL_HANDLE) {
+#ifdef VERBOSE_TEXTURESET_OBJECTS
+			std::cout << "destroying image " << t.image << std::endl;
+#endif
+			GH::destroyImage(t);
+		}
 	}
 }
 
@@ -202,7 +195,6 @@ TextureSet& TextureSet::operator=(TextureSet&& rhs) {
 #endif
 	nukeTextures();
 	swap(*this, rhs);
-	// rhs.nukeTextures();
 	return *this;
 }
 
@@ -216,9 +208,7 @@ TextureHandler::~TextureHandler() {
 }
 
 void TextureHandler::addSet(std::string n, TextureSet&& t) {
-	// TextureSet& newt = sets.insert({n, t}).first->second;
 	sets.emplace(n, std::move(t));
-	// newt.setDiffuseSampler(defaultsampler); // TODO: update to work with generalized TextureSet
 }
 
 VkSampler TextureHandler::addSampler(

@@ -19,24 +19,25 @@ VkCommandBufferAllocateInfo WindowInfo::cballocinfo = {
 	1u
 };
 
-WindowInfo::WindowInfo(WindowInitInfo&& i) {
+WindowInfo::WindowInfo(const WindowInitInfo& i) {
 	// TODO: decompose into more init funcs
 	int ndisplays;
 	SDL_DisplayID* displays = SDL_GetDisplays(&ndisplays);
 	if (ndisplays == 0 || !displays) {
 		FatalError(std::string("SDL found no displays. From SDL_GetError:\n") + SDL_GetError()).raise();
 	}
-	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(displays[0]);
+	const int disp_id = displays[std::min(i.target_display, ndisplays - 1)];
+	const SDL_DisplayMode* displaymode = SDL_GetCurrentDisplayMode(disp_id);
 	// TODO: use SDL_GetWindowWMInfo for system-dependent window info [l]
 	SDL_free(displays);
 
 	sdlwindow = SDL_CreateWindow(
 		i.name, 
 		displaymode->w * i.s.x, displaymode->h * i.s.y, 
-		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-	SDL_SetWindowPosition(
-		sdlwindow,
-		displaymode->w * i.p.x, displaymode->h * (1 - i.s.y));
+		SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_MAXIMIZED);
+	SDL_Rect bounds;
+	SDL_GetDisplayBounds(disp_id, &bounds);
+	SDL_SetWindowPosition(sdlwindow, bounds.x + displaymode->w * i.p.x, bounds.y + displaymode->h * (1 - i.s.y));
 
 	sdlwindowid = SDL_GetWindowID(sdlwindow);
 
@@ -90,7 +91,7 @@ WindowInfo::WindowInfo(WindowInitInfo&& i) {
 		VK_COLORSPACE_SRGB_NONLINEAR_KHR,
 		surfacecaps.currentExtent,
 		1,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, // TODO make customizable
 		VK_SHARING_MODE_EXCLUSIVE,
 		0, nullptr,
 		surfacecaps.currentTransform,
@@ -141,7 +142,7 @@ WindowInfo::WindowInfo(WindowInitInfo&& i) {
 
 	depthbuffer.extent = scimages[0].extent;
 	depthbuffer.format = GH_DEPTH_BUFFER_IMAGE_FORMAT;
-	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	depthbuffer.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT; // TODO make customizable
 	depthbuffer.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthbuffer.samples = i.msaa;
 	GH::createImage(depthbuffer);
@@ -217,21 +218,33 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t, size_t i) {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
 			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask(
-				[scii, f = t.data.ft] (VkCommandBuffer& c) {f(scii, c);})
+				[scii, f = t.data.ft] (VkCommandBuffer& c) {return f(scii, c);})
 			);
 		}
 	}
 	else if (t.type == CB_REC_TASK_TYPE_RENDERPASS) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
 			// TODO: can this rpbi be supplied by RPI?
-			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask((VkRenderPassBeginInfo){
-				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-				nullptr,
-				t.data.rpi.rp,
-				t.data.rpi.fbs[scii % t.data.rpi.numscis],
-				{{0, 0}, t.data.rpi.ext},
-				t.data.rpi.nclears, t.data.rpi.clears
-			}));
+			if (t.data.rpi.rp == VK_NULL_HANDLE) {
+				rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask((VkRenderPassBeginInfo){
+					VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+					nullptr,
+					VK_NULL_HANDLE,
+					VK_NULL_HANDLE,
+					{{0, 0}, {0, 0}},
+					0, nullptr
+				}));
+			}
+			else {
+				rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask((VkRenderPassBeginInfo){
+					VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+					nullptr,
+					t.data.rpi.rp,
+					t.data.rpi.fbs[scii % t.data.rpi.numscis],
+					{{0, 0}, t.data.rpi.ext},
+					t.data.rpi.nclears, t.data.rpi.clears
+				}));
+			}
 		}
 	}
 }
@@ -318,9 +331,10 @@ void WindowInfo::processRecordingTasks(
 					&secondarycbset.back());
 			}
 		}
-		collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
-		recfunc(secondarycbset[bufferidx]);
-		bufferidx++;
+		if (recfunc(secondarycbset[bufferidx])) {
+			collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
+			bufferidx++;
+		}
 	}
 }
 
@@ -413,11 +427,11 @@ BufferInfo GH::scratchbuffer = {
 	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 	0
 };
-const char* GH::shaderdir = "../resources/shaders/SPIRV/";
+const char* GH::shaderdir = "../../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 ImageInfo GH::blankimage = {};
 
-GH::GH(GHInitInfo&& i) {
+GH::GH(const GHInitInfo& i) {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		FatalError(
 			std::string("SDL3 Initialization Failed! From SDL_GetError():\n") 
@@ -441,8 +455,7 @@ GH::GH(GHInitInfo&& i) {
 
 GH::~GH() {
 	vkQueueWaitIdle(genericqueue);
-	// TODO: figure out how to manage this resource
-	// GH::destroyImage(blankimage);
+	GH::destroyImage(blankimage);
 	terminateDescriptorPoolsAndSetLayouts();
 	terminateSamplers();
 	terminateCommandPools();
@@ -508,6 +521,9 @@ void GH::initVulkanInstance(const std::vector<const char*>& e) {
 	};
 	FatalError("Vulkan instance creation error\n")
 		.vkCatch(vkCreateInstance(&instancecreateinfo, nullptr, &instance));
+	uint32_t ver;
+	vkEnumerateInstanceVersion(&ver);
+	std::cout << "Vulkan ver. " << VK_API_VERSION_MAJOR(ver) << "." << VK_API_VERSION_MINOR(ver) << "." << VK_API_VERSION_PATCH(ver) << std::endl;
 }
 
 void GH::terminateVulkanInstance() {
@@ -552,7 +568,7 @@ void GH::terminateDebug() {
 	destroyDebugMessenger(instance, debugmessenger, nullptr);
 }
 
-void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures& f) {
+void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysicalDeviceFeatures2& f) {
 	uint32_t numphysicaldevices = -1u,
 			 numqueuefamilies;
 	vkEnumeratePhysicalDevices(instance, &numphysicaldevices, &physicaldevice);
@@ -602,23 +618,19 @@ void GH::initDevicesAndQueues(const std::vector<const char*>& e, const VkPhysica
 				 + std::string(" not supported by physical device")).raise();
 		}
 	}
-	VkPhysicalDeviceFeatures physicaldevicefeatures = f;
-	// TODO: this should prob be disabled by default
-	physicaldevicefeatures.samplerAnisotropy = VK_TRUE;
-	// TODO: figure out when this is/isn't required, intersects with requesting arbitrary exts
+	VkPhysicalDeviceFeatures2 physical_device_features = f;
 /*
 	VkPhysicalDevicePortabilitySubsetFeaturesKHR portpdf {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
 	portpdf.mutableComparisonSamplers = VK_TRUE;
 */
 	VkDeviceCreateInfo devicecreateinfo {
 		VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		// &portpdf,
-		nullptr,
+		&physical_device_features,
 		0,
 		1, &queuecreateinfo,
 		0, nullptr,
 		static_cast<uint32_t>(deviceexts.size()), deviceexts.data(),
-		&physicaldevicefeatures
+		nullptr
 	};
 	vkCreateDevice(physicaldevice, &devicecreateinfo, nullptr, &logicaldevice);
 
@@ -692,7 +704,7 @@ void GH::terminateSamplers() {
 	vkDestroySampler(logicaldevice, nearestsampler, nullptr);
 }
 
-void GH::initDescriptorPoolsAndSetLayouts(GHInitInfo&& i) {
+void GH::initDescriptorPoolsAndSetLayouts(const GHInitInfo& i) {
 	VkDescriptorPoolCreateInfo descriptorpoolci {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		nullptr,
@@ -714,35 +726,104 @@ void GH::createRenderPass(
 	VkAttachmentReference* colorattachmentrefs,
 	VkAttachmentReference* resolveattachmentrefs,
 	VkAttachmentReference* depthattachmentref) {
-	VkSubpassDescription primarysubpassdescription {
+
+	VkSubpassDescriptionDepthStencilResolve depthres;
+	VkSubpassDescriptionDepthStencilResolve* depthres_addr = nullptr;
+	VkAttachmentReference2 col_ar, dep_ar, col_res_ar, dep_res_ar;
+	VkAttachmentReference2* col_ar_addr = nullptr,
+												* dep_ar_addr = nullptr,
+												* col_res_ar_addr = nullptr,
+												* dep_res_ar_addr = nullptr;
+	if (colorattachmentrefs) {
+		col_ar = ar2ar2(*colorattachmentrefs, true);
+		col_ar_addr = &col_ar;
+	}
+	if (depthattachmentref) {
+		dep_ar = ar2ar2(*depthattachmentref, false);
+		dep_ar_addr = &dep_ar;
+	}
+	if (resolveattachmentrefs) {
+		col_res_ar = ar2ar2(*resolveattachmentrefs, true);
+		col_res_ar_addr = &col_res_ar;
+	}
+	if (numattachments > 3) { // presumes the fourth attachment is a depth resolve
+		dep_res_ar = ar2ar2(resolveattachmentrefs[1], false);
+		dep_res_ar_addr = &dep_res_ar;
+
+		depthres = (VkSubpassDescriptionDepthStencilResolve){
+			VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_DEPTH_STENCIL_RESOLVE,
+			nullptr,
+			VK_RESOLVE_MODE_SAMPLE_ZERO_BIT,
+			VK_RESOLVE_MODE_SAMPLE_ZERO_BIT,
+			dep_res_ar_addr
+		};
+		depthres_addr = &depthres;
+	}
+	std::vector<VkAttachmentDescription2> ads(numattachments);
+	for (uint8_t i = 0; i < numattachments; i++) {
+		ads[i] = ad2ad2(attachmentdescs[i]);
+	}
+	VkSubpassDescription2 primarysubpassdescription {
+		VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2,
+		depthres_addr,
 		0,
 		VK_PIPELINE_BIND_POINT_GRAPHICS,
+		0,
 		0, nullptr,
 		static_cast<uint32_t>(colorattachmentrefs ? 1 : 0), 
-		colorattachmentrefs, resolveattachmentrefs, depthattachmentref,
+		col_ar_addr, col_res_ar_addr, dep_ar_addr,
 		0, nullptr
 	};
-	VkSubpassDependency subpassdependency {
+	VkSubpassDependency2 subpassdependency {
+		VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2,
+		nullptr,
 		VK_SUBPASS_EXTERNAL, 0,
 		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
 		VK_ACCESS_SHADER_READ_BIT,
 		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-		0
+		0, 0
 	};
-	VkRenderPassCreateInfo rpcreateinfo {
-		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+	VkRenderPassCreateInfo2 rpcreateinfo {
+		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2,
 		nullptr,
 		0,
-		static_cast<uint32_t>(numattachments), &attachmentdescs[0],
+		static_cast<uint32_t>(numattachments), ads.data(),
 		1, &primarysubpassdescription,
-		1, &subpassdependency
+		1, &subpassdependency,
+		0, nullptr
 	};
-	vkCreateRenderPass(logicaldevice, &rpcreateinfo, nullptr, &rp);
+	// std::cout << vkGetDeviceProcAddr(logicaldevice, "vkCreateRenderPass2") << std::endl;
+	// TODO use a pfn system to lookup whether to use core or khr (khr for sketchy moltenvk)
+	PFN_vkCreateRenderPass2KHR cfunc = (PFN_vkCreateRenderPass2KHR)vkGetDeviceProcAddr(logicaldevice, "vkCreateRenderPass2KHR");
+	cfunc(logicaldevice, &rpcreateinfo, nullptr, &rp);
+	// vkCreateRenderPass2KHR(logicaldevice, &rpcreateinfo, nullptr, &rp);
 }
 
 void GH::destroyRenderPass(VkRenderPass& rp) {
 	vkDestroyRenderPass(logicaldevice, rp, nullptr);
+}
+
+VkAttachmentDescription2 GH::ad2ad2(const VkAttachmentDescription& a) {
+	return {
+		VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2,
+		nullptr, 0,
+		a.format,
+		a.samples,
+		a.loadOp, a.storeOp,
+		a.stencilLoadOp, a.stencilStoreOp,
+		a.initialLayout, a.finalLayout
+	};
+}
+
+VkAttachmentReference2 GH::ar2ar2(const VkAttachmentReference& a, bool col) {
+	return {
+		VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+		nullptr,
+		a.attachment,
+		a.layout,
+		col ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT
+	};
 }
 
 void GH::createPipeline (PipelineInfo& pi) {
@@ -816,11 +897,6 @@ void GH::createPipeline (PipelineInfo& pi) {
 		return;
 	}
 
-	if (pi.extent.width == 0 || pi.extent.height == 0) {
-		WarningError("GH::createPipeline given a PipelineInfo struct with zero height or width\n").raise();
-		return;
-	}
-
 	uint32_t numshaderstages = 0;
 	char* shaderfilepaths[NUM_SHADER_STAGES_SUPPORTED];
 	std::string temp;
@@ -880,24 +956,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		0,
 		3
 	};
-	VkViewport viewporttemp {
-		0.0f, 0.0f,
-		float(pi.extent.width), float(pi.extent.height),
-		0.0f, 1.0f
-	};
-	VkRect2D scissortemp {
-		{0, 0},
-		pi.extent
-	};
-	VkPipelineViewportStateCreateInfo viewportstatecreateinfo {
-		VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		1,
-		&viewporttemp,
-		1,
-		&scissortemp
-	};
+
 	VkPipelineRasterizationStateCreateInfo rasterizationstatecreateinfo {
 		VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		nullptr,
@@ -987,7 +1046,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		&pi.vertexinputstateci,
 		&inputassemblystatecreateinfo,
 		pi.stages & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT ? &tessstatecreateinfo : nullptr,
-		&viewportstatecreateinfo,
+		nullptr,
 		&rasterizationstatecreateinfo,
 		&multisamplestatecreateinfo,
 		&depthstencilstatecreateinfo,
@@ -999,6 +1058,46 @@ void GH::createPipeline (PipelineInfo& pi) {
 		VK_NULL_HANDLE,
 		-1
 	};
+
+	VkPipelineViewportStateCreateInfo viewportstatecreateinfo;
+	viewportstatecreateinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportstatecreateinfo.pNext = nullptr; 
+	viewportstatecreateinfo.flags = 0; 
+	VkViewport viewporttemp;
+	VkRect2D scissortemp;
+	VkPipelineDynamicStateCreateInfo dynstatecreateinfo;
+	VkDynamicState dynstates[2];
+	if (!pi.dyn_viewport) {
+		viewporttemp = {
+			0.0f, 0.0f,
+			float(pi.extent.width), float(pi.extent.height),
+			0.0f, 1.0f
+		};
+		viewportstatecreateinfo.pViewports = &viewporttemp;
+		scissortemp = {
+			{0, 0},
+			pi.extent
+		};
+		viewportstatecreateinfo.pScissors = &scissortemp;
+		pipelinecreateinfo.pDynamicState = nullptr; // should be redundant but just checking
+	}
+	else {
+		viewportstatecreateinfo.pViewports = nullptr;
+		viewportstatecreateinfo.pScissors = nullptr;
+		dynstatecreateinfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		dynstatecreateinfo.pNext = nullptr; 
+		dynstatecreateinfo.flags = 0; 
+		dynstates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+		dynstates[1] = VK_DYNAMIC_STATE_SCISSOR;
+		dynstatecreateinfo.dynamicStateCount = 2;
+		dynstatecreateinfo.pDynamicStates = &dynstates[0];
+		pipelinecreateinfo.pDynamicState = &dynstatecreateinfo;
+	}
+	viewportstatecreateinfo.viewportCount = 1;
+	viewportstatecreateinfo.scissorCount = 1;
+	pipelinecreateinfo.pViewportState = &viewportstatecreateinfo;
+
+	
 	vkCreateGraphicsPipelines(
 		logicaldevice,
 		VK_NULL_HANDLE,
@@ -1033,6 +1132,7 @@ void GH::createShader(
 	for (unsigned char x = 0; x < NUM_SHADER_STAGES_SUPPORTED; x++) {
 		if (stages & supportedshaderstages[x]) {
 			filestream = std::ifstream(filepaths[stagecounter], std::ios::ate | std::ios::binary);
+			if (!filestream) FatalError(std::string("Failed to read shader @ ") + filepaths[stagecounter]).raise();
 			shadersrcsize = filestream.tellg();
 			shadersrc = new char[shadersrcsize];
 			filestream.seekg(0);
@@ -1302,7 +1402,7 @@ void GH::createImage(ImageInfo& i) {
 	};
 	vkCreateImageView(logicaldevice, &imageviewci, nullptr, &i.view);
 
-	transitionImageLayout(i, finallayout);
+	if (finallayout != VK_IMAGE_LAYOUT_PREINITIALIZED) transitionImageLayout(i, finallayout);
 }
 
 void GH::destroyImage(ImageInfo& i) {

@@ -45,10 +45,12 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/Scene.cpp ../src/Scene.h
 	../src/Projection.cpp ../src/Projection.h
 	../src/Mesh.cpp ../src/Mesh.h
+	../src/PostProcessing.cpp ../src/PostProcessing.h
 	../src/TextureHandler.cpp ../src/TextureHandler.h
 	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
 	../src/InputHandler.cpp ../src/InputHandler.h
-	../src/AudioHandler.cpp ../src/AudioHandler.h)
+	../src/AudioHandler.cpp ../src/AudioHandler.h
+	../src/Geometry.cpp ../src/Geometry.h)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE})
 
@@ -70,10 +72,12 @@ install(
 	../src/Scene.h
 	../src/Projection.h
 	../src/Mesh.h
+	../src/PostProcessing.h
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
 	../src/InputHandler.h
 	../src/AudioHandler.h
+	../src/Geometry.h
 	DESTINATION /usr/local/include/VKHotspot)
 
 include(GNUInstallDirs)
@@ -85,10 +89,12 @@ install(
 	../src/Scene.h
 	../src/Projection.h
 	../src/Mesh.h
+	../src/PostProcessing.h
 	../src/TextureHandler.h
 	../src/PhysicsHandler.h
 	../src/InputHandler.h
 	../src/AudioHandler.h
+	../src/Geometry.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Package Config Hell

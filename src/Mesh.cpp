@@ -20,7 +20,6 @@ MeshBase::MeshBase(MeshBase&& rvalue) :
 	aabb[1] = std::move(rvalue.aabb[1]);
 }
 
-
 void swap(MeshBase& lhs, MeshBase& rhs) {
 	std::swap(lhs.position, rhs.position);
 	std::swap(lhs.scale, rhs.scale);
@@ -76,6 +75,10 @@ Mesh::Mesh(const char* f) : Mesh() {
 	loadOBJ(f);
 }
 
+Mesh::Mesh(const char* f, VertexBufferTraits vbt) : vbtraits(vbt) {
+	loadOBJ(f);
+}
+
 Mesh::Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu) : vbtraits(vbt) {
 	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | abu;
 	vertexbuffer.size = getVertexBufferElementSize() * vbs;
@@ -123,6 +126,10 @@ void Mesh::recordDraw(
 	};
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.pipeline.dyn_viewport) {
+		vkCmdSetViewport(c, 0, 1, &rs.viewport);
+		vkCmdSetScissor(c, 0, 1, &rs.scissor);
+	}
 	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
 		vkCmdBindDescriptorSets(
 			c,
@@ -158,6 +165,8 @@ size_t Mesh::getTraitsElementSize(VertexBufferTraits t) {
 	if (t & VERTEX_BUFFER_TRAIT_POSITION) result += sizeof(glm::vec3);
 	if (t & VERTEX_BUFFER_TRAIT_UV) result += sizeof(glm::vec2);
 	if (t & VERTEX_BUFFER_TRAIT_NORMAL) result += sizeof(glm::vec3);
+	if (t & VERTEX_BUFFER_TRAIT_TANGENT) result += sizeof(glm::vec3);
+	if (t & VERTEX_BUFFER_TRAIT_BITANGENT) result += sizeof(glm::vec3);
 	// WEIGHT is included in override from ArmaturedMesh
 	return result;
 }
@@ -184,6 +193,20 @@ VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t, Vertex
 	}
 	if (t & VERTEX_BUFFER_TRAIT_NORMAL) {
 		if (!(o & VERTEX_BUFFER_TRAIT_NORMAL)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_TANGENT) {
+		if (!(o & VERTEX_BUFFER_TRAIT_TANGENT)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_BITANGENT) {
+		if (!(o & VERTEX_BUFFER_TRAIT_BITANGENT)) {
 			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
 			numtraits++;
 		}
@@ -251,7 +274,7 @@ void Mesh::loadOBJ(const char* fp) {
 			for (auto& v: vertidx) vertexindices.push_back(v - 1);
 			for (auto& n: normidx) normalindices.push_back(n - 1);
 			for (auto& u: uvidx) uvindices.push_back(u - 1);
-		}
+		} 
 	}
 	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	vertexbuffer.size = getVertexBufferElementSize() * vertexindices.size();
@@ -265,19 +288,42 @@ void Mesh::loadOBJ(const char* fp) {
 	char* vscan = static_cast<char*>(vdst),
 		* iscan = static_cast<char*>(idst);
 	MeshIndex itemp;
+	uint16_t idx0, idx1, idx2;
 	for (uint16_t x = 0; x < vertexindices.size() / 3; x++) {
 		for (uint16_t y = 0; y < 3; y++) {
-			addVecToAABB(vertextemps[vertexindices[3 * x + y]]);
+			idx0 = 3 * x + y;
+			idx1 = 3 * x + (y + 1) % 3;
+			idx2 = 3 * x + (y + 2) % 3;
+			addVecToAABB(vertextemps[vertexindices[idx0]]);
 			if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) {
-				memcpy(vscan, &vertextemps[vertexindices[3 * x + y]], sizeof(glm::vec3));
+				memcpy(vscan, &vertextemps[vertexindices[idx0]], sizeof(glm::vec3));
 				vscan += sizeof(glm::vec3);
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_UV) {
-				memcpy(vscan, &uvtemps[uvindices[3 * x + y]], sizeof(glm::vec2));
+				memcpy(vscan, &uvtemps[uvindices[idx0]], sizeof(glm::vec2));
 				vscan += sizeof(glm::vec2);
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) {
-				memcpy(vscan, &normaltemps[normalindices[3 * x + y]], sizeof(glm::vec3));
+				memcpy(vscan, &normaltemps[normalindices[idx0]], sizeof(glm::vec3));
+				vscan += sizeof(glm::vec3);
+			}
+			glm::vec3 e1 = vertextemps[vertexindices[idx1]] - vertextemps[vertexindices[idx0]],
+								e2 = vertextemps[vertexindices[idx2]] - vertextemps[vertexindices[idx0]];
+			glm::vec2 uv1 = uvtemps[uvindices[idx1]] - uvtemps[uvindices[idx0]],
+								uv2 = uvtemps[uvindices[idx2]] - uvtemps[uvindices[idx0]];
+			float norm = uv1.x*uv2.y - uv2.x*uv1.y;
+			if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
+				*reinterpret_cast<glm::vec3*>(vscan) = glm::vec3(
+					e1.x*uv2.y - e2.x*uv1.y, 
+					e1.y*uv2.y - e2.y*uv1.y, 
+					e1.z*uv2.y - e2.z*uv1.y) / norm;
+				vscan += sizeof(glm::vec3);
+			}
+			if (vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
+				*reinterpret_cast<glm::vec3*>(vscan) = glm::vec3(
+					-e1.x*uv2.x + e2.x*uv1.x, 
+					-e1.y*uv2.x + e2.y*uv1.x, 
+					-e1.z*uv2.x + e2.z*uv1.x) / norm;
 				vscan += sizeof(glm::vec3);
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_WEIGHT) {
@@ -300,8 +346,10 @@ InstancedMesh::InstancedMesh(InstancedMesh&& rvalue) :
 	rvalue.instanceub = {};
 }
 
-InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : InstancedMesh() {
-	loadOBJ(fp);
+InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) : 
+	InstancedMesh(fp, m, VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
+
+InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m, VertexBufferTraits t) : Mesh(fp, t) {
 	instanceub.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	instanceub.size = m.size() * sizeof(InstancedMeshData);
 	GH::createBuffer(instanceub);
@@ -311,8 +359,8 @@ InstancedMesh::InstancedMesh(const char* fp, std::vector<InstancedMeshData> m) :
 	aabb[1] = glm::vec3(-std::numeric_limits<float>::infinity());
 	glm::vec4 temp;
 	for (const InstancedMeshData& imd : m) {
-		for (uint8_t i = 0; i < 2; i++) {
-			temp = glm::vec4(initialaabb[i], 1);
+		for (uint8_t i = 0; i < 8; i++) {
+			glm::vec4 temp(initialaabb[i % 2].x, initialaabb[(uint8_t)floor(i/2) % 2].y, initialaabb[(uint8_t)floor(i/4) % 2].z, 1);
 			temp = imd.m * temp;
 			addVecToAABB(glm::vec3(temp.x, temp.y, temp.z) / temp.w);
 		}
@@ -350,6 +398,7 @@ void InstancedMesh::recordDraw(
 		RenderSet rs,
 		size_t rsidx,
 		VkCommandBuffer& c) const {
+	if (cullingub.buffer != VK_NULL_HANDLE && cullingub.size == 0) return;
 	VkCommandBufferInheritanceInfo cbinherinfo {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
 		nullptr,
@@ -365,6 +414,10 @@ void InstancedMesh::recordDraw(
 	};
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+	if (rs.pipeline.dyn_viewport) {
+		vkCmdSetViewport(c, 0, 1, &rs.viewport);
+		vkCmdSetScissor(c, 0, 1, &rs.scissor);
+	}
 	if (rs.objdss[rsidx] != VK_NULL_HANDLE) {
 		vkCmdBindDescriptorSets(
 			c,
@@ -391,8 +444,13 @@ void InstancedMesh::recordDraw(
 			rs.objpcdata[rsidx]);
 	vkCmdBindVertexBuffers(c, 0, 1, &vertexbuffer.buffer, &vboffsettemp);
 	vkCmdBindIndexBuffer(c, indexbuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
-	vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
+	if (cullingub.buffer == VK_NULL_HANDLE) {
+		vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), instanceub.size / sizeof(InstancedMeshData), 0, 0, 0);
+	}
+	else {
+		vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), cullingub.size / sizeof(size_t), 0, 0, 0);
+	}
+	// vkCmdDrawIndexed(c, indexbuffer.size / sizeof(MeshIndex), 1, 0, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
