@@ -334,7 +334,8 @@ void Scene::updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths) {
 	z_range.y = temp.z / temp.w;
 	for (float x = -1; x < 2; x += 2)
 	for (float y = -1; y < 2; y += 2)
-	for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
+	// for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
+	for (float z = depths.x; z <= depths.y; z += depths.y - depths.x) {
 		cam_points[count] = ProjectionBase::applyHomo(vp_inv, glm::vec3(x, y, z));
 		count++;
 	}

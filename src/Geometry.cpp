@@ -45,6 +45,17 @@ AABB AABB::apply(const glm::mat4& m) {
 	return res;
 }
 
+AABB AABB::applyHomo(const glm::mat4& m) {
+	AABB res;
+	for (uint8_t i = 0; i < 8; i++) {
+		res.add(ProjectionBase::applyHomo(m, glm::vec3(
+			bounds[i % 2].x, 
+			bounds[(uint8_t)floor(i/2) % 2].y, 
+			bounds[(uint8_t)floor(i/4) % 2].z)));
+	}
+	return res;
+}
+
 Octree::Octree(const Octree& lvalue) :
 	aabb(lvalue.aabb),
 	depth(lvalue.depth),
@@ -118,28 +129,25 @@ void swap(Octree& lhs, Octree& rhs) {
 }
 
 void Octree::frustumCull(const glm::mat4& v, const glm::mat4& p, std::map<const MeshBase*, bool>& cull_map) {
-	if (depth == 0 && children || depth != 0 && !children)
-		FatalError("Corrupted octree").raise();
-	for (uint8_t i = 0; i < 8; i++) {
-		if (containedByFrust(v, p)) {
-			flags = OCTREE_FLAG_BITS_NONE_CULLED;
+	if (containedByFrust(v, p)) 
+		cullNone(cull_map);
+	else if (intersectsFrust(v, p)) {
+		if (depth == 0) 
 			cullNone(cull_map);
-		}
-		else if (intersectsFrust(v, p)) {
-			if (depth == 0) {
-				flags  = OCTREE_FLAG_BITS_NONE_CULLED;
-				cullNone(cull_map);
-			}
-			else {
-				flags = OCTREE_FLAG_BITS_NONE;
-				for (uint8_t i = 0; i < 8; i++)
-					children[i].frustumCull(v, p, cull_map);
-			}
-		}
 		else {
-			flags = OCTREE_FLAG_BITS_ALL_CULLED;
-			cullAll(cull_map);
+			flags &= ~(OCTREE_FLAG_BITS_ALL_CULLED | OCTREE_FLAG_BITS_NONE_CULLED);
+			for (uint8_t i = 0; i < 8; i++)
+				children[i].frustumCull(v, p, cull_map);
 		}
+	}
+	else 
+		cullAll(cull_map);
+}
+
+void Octree::setCheap() {
+	flags |= OCTREE_FLAG_BITS_CHEAP;
+	if (depth > 0) {
+		for (uint8_t i = 0; i < 8; i++) children[i].setCheap();
 	}
 }
 
@@ -173,12 +181,13 @@ void Octree::calculateChildren() {
 }
 
 bool Octree::intersectsFrust(const glm::mat4& v, const glm::mat4& p) {
+	if (flags & OCTREE_FLAG_BITS_CHEAP) return cheapIntersectsFrust(v, p);
 	glm::mat4 p_inv = glm::inverse(p);
 	glm::vec3 frust_edges[4] = {
-		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(-1, -1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(-1, -1, -1))),
-		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(-1, 1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(-1, 1, -1))),
-		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(1, -1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(1, -1, -1))),
-		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(1, 1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(1, 1, -1)))
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(-1, -1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(-1, -1, 0))),
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(-1, 1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(-1, 1, 0))),
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(1, -1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(1, -1, 0))),
+		glm::normalize(ProjectionBase::applyHomo(p_inv, glm::vec3(1, 1, 1)) - ProjectionBase::applyHomo(p, glm::vec3(1, 1, 0)))
 	};
 	glm::vec3 cube_faces[3] = {
 		glm::normalize(ProjectionBase::apply(v, glm::vec3(1, 0, 0))),
@@ -230,28 +239,28 @@ bool Octree::containedByFrust(const glm::mat4& v, const glm::mat4& p) {
 	glm::mat4 vp = p * v;
 	glm::vec3 temp;
 	for (uint8_t i = 0; i < 8; i++) {
-		temp = ProjectionBase::apply(vp, glm::vec3(
+		temp = ProjectionBase::applyHomo(vp, glm::vec3(
 			aabb.getBounds()[i % 2].x, 
 			aabb.getBounds()[(uint8_t)floor(i/2) % 2].y, 
 			aabb.getBounds()[(uint8_t)floor(i/4) % 2].z));
-		for (uint8_t j = 0; j < 3; j++) {
-			if (temp[j] > 1 || temp[j] < -1) return false;
-		}
+		if (temp[0] > 1 || temp[0] < -1) return false;
+		if (temp[1] > 1 || temp[1] < -1) return false;
+		if (temp[2] > 1 || temp[2] < 0) return false;
 	}
 	return true;
 }
 
+bool Octree::cheapIntersectsFrust(const glm::mat4& v, const glm::mat4& p) {
+	glm::mat4 vp = p * v;
+	AABB frust_aabb(glm::vec3(-1, -1, 0), glm::vec3(1, 1, 1));
+	return aabb.apply(p * v).overlaps(frust_aabb);
+}
+
 void Octree::cullAll(std::map<const MeshBase*, bool>& cull_map) {
-	if (depth == 0 && children || depth != 0 && !children)
-		FatalError("Corrupted octree").raise();
 	if (flags & OCTREE_FLAG_BITS_ALL_CULLED) return;
 	if (depth == 0) {
-		std::cout << "culling d0 node\n";
-		for (Mesh* m : meshes) {
-			if (!cull_map.contains(m)) {
-				cull_map.insert({m, false});
-			}
-		}
+		for (Mesh* m : meshes)
+			cull_map[m] = false;
 	}
 	else {
 		for (uint8_t i = 0; i < 8; i++) children[i].cullAll(cull_map);
@@ -260,6 +269,16 @@ void Octree::cullAll(std::map<const MeshBase*, bool>& cull_map) {
 }
 
 void Octree::cullNone(std::map<const MeshBase*, bool>& cull_map) {
+	if (flags & OCTREE_FLAG_BITS_NONE_CULLED) return;
+	if (depth == 0) {
+		for (Mesh* m : meshes) 
+			cull_map[m] = true;
+	}
+	else {
+		for (uint8_t i = 0; i < 8; i++) children[i].cullNone(cull_map);
+	}
+	flags |= OCTREE_FLAG_BITS_NONE_CULLED;
+
 }
 
 bool Octree::axisTest(glm::vec3 a, const glm::mat4& v, const glm::mat4& p_inv) {

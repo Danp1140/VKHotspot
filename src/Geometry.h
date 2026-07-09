@@ -20,6 +20,7 @@ public:
 	 * 8 mat4 projections and an AABB copy
 	 */
 	AABB apply(const glm::mat4& m);
+	AABB applyHomo(const glm::mat4& m);
 
 private:
 	glm::vec3 bounds[2]; // {min, max}
@@ -29,6 +30,7 @@ typedef enum OctreeFlagBits {
 	OCTREE_FLAG_BITS_NONE = 0x00,
 	OCTREE_FLAG_BITS_ALL_CULLED = 0x01,
 	OCTREE_FLAG_BITS_NONE_CULLED = 0x02,
+	OCTREE_FLAG_BITS_CHEAP = 0x04
 } OctreeFlagBits;
 typedef uint8_t OctreeFlags;
 
@@ -44,6 +46,7 @@ public:
 	friend void swap(Octree& lhs, Octree& rhs);
 
 	void frustumCull(const glm::mat4& v, const glm::mat4& p, std::map<const MeshBase*, bool>& cull_map);
+	void setCheap();
 
 private:
 	AABB aabb;
@@ -60,9 +63,17 @@ private:
 	/*
 	 * Calculates whether this octree node collides with a given frustum matrix
 	 * using the separating axis theorem in view space.
+	 * TODO: see what we can make more efficient, this is a big check
 	 */
 	bool intersectsFrust(const glm::mat4& v, const glm::mat4& p);
 	bool containedByFrust(const glm::mat4& v, const glm::mat4& p);
+	/*
+	 * Calculates whether this octree nodes collides with a given frustum matrix
+	 * using an AABB around the frustum. This may lead to false positives but will
+	 * never lead to a false negative (and is MUCH faster)
+	 */
+	bool cheapIntersectsFrust(const glm::mat4& v, const glm::mat4& p);
+
 	void cullAll(std::map<const MeshBase*, bool>& cull_map);
 	void cullNone(std::map<const MeshBase*, bool>& cull_map);
 
