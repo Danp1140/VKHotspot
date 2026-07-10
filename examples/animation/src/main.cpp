@@ -124,6 +124,25 @@ size_t createDNSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	return rpi.addPipeline(p, nullptr);
 }
 
+size_t createViewportPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "viewport";
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
+	p.vertexinputstateci = Mesh::getVISCI(
+			VERTEX_BUFFER_TRAIT_POSITION
+			| VERTEX_BUFFER_TRAIT_UV 
+			| VERTEX_BUFFER_TRAIT_NORMAL);
+	p.depthtest = true;
+	p.extent = w.getSCExtent();
+	p.renderpass = rpi.getRenderPass();
+	p.msaasamples = w.getMSAASamples();
+	GH::createPipeline(p);
+	Mesh::ungetVISCI(p.vertexinputstateci);
+	return rpi.addPipeline(p, nullptr);
+}
+
 void printNode(FbxNode* node) {
 	int default_attrib_idx = node->GetDefaultNodeAttributeIndex();
 	if (default_attrib_idx != -1) {
@@ -187,53 +206,92 @@ int findFirstMesh(FbxScene* s) {
  */
 Mesh meshFromNode(FbxNode* node) {
 	FbxMesh* mesh = node->GetMesh();
-	int n_verts = mesh->GetControlPointsCount();
-	FbxSkin* skin = dynamic_cast<FbxSkin*>(mesh->GetDeformer(0));
-	int n_bones = skin->GetClusterCount();
-	VertexBufferTraits vbts = VB_TRAIT_ALL;
-	// size_t vert_size = Mesh::getTraitsElementSize(vbts) + n_bones * sizeof(float);
-	size_t vert_size = Mesh::getTraitsElementSize(vbts);
+	// FbxSkin* skin = dynamic_cast<FbxSkin*>(mesh->GetDeformer(0));
+	// int n_bones = skin->GetClusterCount();
 	size_t n_polys = (size_t)mesh->GetPolygonCount();
-	Mesh result = Mesh(vbts, n_verts * vert_size, n_polys * 3 * sizeof(MeshIndex), 0);
+	Mesh result = Mesh(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, n_polys*3*(3+2+3)*sizeof(float), n_polys * 3 * sizeof(MeshIndex), 0);
 
-	std::vector<FbxVector4> vert_vec(n_verts);
-	FbxVector4* control_points = mesh->GetControlPoints();
-	memcpy(vert_vec.data(), control_points, n_verts * sizeof(FbxVector4));
 
 	int uv_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eUV, false);
 	FbxLayerElementUV* uvs = mesh->GetLayer(uv_layer_idx)->GetUVs();
-	if (uvs->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByControlPoint) std::cout << "uv mapping scheme by cp!\n";
-	if (uvs->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) std::cout << "uv mapping scheme by polygon vert!\n";
-	if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) std::cout << "uv ref scheme direct!\n";
-	if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndex) std::cout << "uv ref scheme index!\n";
-	if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) std::cout << "uv ref scheme index to direct!\n";
-	// uvs->SetMappingMode(fbxsdk::FbxLayerElement::EMappingMode::eByControlPoint);
-	// uvs->SetReferenceMode(fbxsdk::FbxLayerElement::EReferenceMode::eDirect);
-	FbxLayerElementArrayTemplate<FbxVector2>& uv_arr = uvs->GetDirectArray();
+	if (uvs->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) {
+		std::cout << "uv mapping scheme by polygon vert!\n";
+	}
+	else FatalError("Unsupported UV mapping mode").raise();
+	if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
+		std::cout << "uv ref scheme index to direct!\n";
+	}
+	else FatalError("Unsupported UV reference mode").raise();
 
-	std::vector<FbxVector2> uv_vec(n_verts);
+	int norm_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eNormal, false);
+	FbxLayerElementNormal* norms = mesh->GetLayer(norm_layer_idx)->GetNormals();
+	FbxLayerElementArrayTemplate<FbxVector4>& norm_arr = norms->GetDirectArray();
+	if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByControlPoint) std::cout << "norm mapping scheme by cp!\n";
+	if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) std::cout << "norm mapping scheme by polygon vert!\n";
+	if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) std::cout << "norm ref scheme direct!\n";
+	if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndex) std::cout << "norm ref scheme index!\n";
+	if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) std::cout << "norm ref scheme index to direct!\n";
 
-	void* indices = malloc(sizeof(MeshIndex) * 3 * n_polys);
-	MeshIndex* i_scan = (MeshIndex*)indices;
-	size_t v_idx = 0
-	for (size_t p_i = 0; p_i < n_polys; p_i++) {
-		for (uint8_t v_i = 0; v_i < 3; v_i++) {
-			i_scan[v_idx] = mesh->GetPolygonVertex(p_i, v_i);
-			if (uv_vec[v_idx]
-			v_idx++;
+	float* vertices = new float[n_polys*3*(3+2+3)];
+	MeshIndex* indices = new MeshIndex[n_polys*3];
+
+	for (size_t poly_i = 0; poly_i < n_polys; poly_i++) {
+		indices[poly_i] = poly_i;
+		for (uint8_t vert_i = 0; vert_i < 3; vert_i++) {
+			FbxVector4 cp = mesh->GetControlPoints()[mesh->GetPolygonVertex(poly_i, vert_i)];
+			vertices[poly_i + 3*vert_i] = cp[0];
+			vertices[poly_i + 3*vert_i+1] = cp[1];
+			vertices[poly_i + 3*vert_i+2] = cp[2];
+			if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
+				FbxVector2 uv;
+				bool unmapped;
+				mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
+				if (unmapped) {
+					vertices[poly_i + 3*vert_i+3] = 0;
+					vertices[poly_i + 3*vert_i+4] = 0;
+				}
+				else {
+					vertices[poly_i + 3*vert_i+3] = uv[0];
+					vertices[poly_i + 3*vert_i+4] = uv[1];
+				}
+			}
+			if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
+				FbxVector4 norm;
+				mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
+				vertices[poly_i + 3*vert_i+5] = norm[0];
+				vertices[poly_i + 3*vert_i+6] = norm[1];
+				vertices[poly_i + 3*vert_i+7] = norm[2];
+			}
 		}
 	}
-	GH::updateWholeBuffer(result.getIndexBuffer(), indices);
-	free(indices);
 
+	GH::updateWholeBuffer(result.getVertexBuffer(), vertices);
+	GH::updateWholeBuffer(result.getIndexBuffer(), indices);
+
+	/* 
+	 * make raw per-polyvert list
+	 * test it
+	 * when it works, run a pass that checks for uniqueness and sets indices/removes items if not unique (if scrolling, can use an accumulating offset to allow shifting the rest down upon removal)
+	 */
 
 	/*
+	std::vector<FbxVector2> uv_vec(n_verts);
+
 	int norm_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eNormal, false);
 	FbxLayerElementNormal* norms = mesh->GetLayer(norm_layer_idx)->GetNormals();
 	norms->SetMappingMode(fbxsdk::FbxLayerElement::EMappingMode::eByControlPoint);
 	norms->SetReferenceMode(fbxsdk::FbxLayerElement::EReferenceMode::eDirect);
 	FbxLayerElementArrayTemplate<FbxVector4>& norm_arr = norms->GetDirectArray();
+	if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByControlPoint) std::cout << "norm mapping scheme by cp!\n";
+	if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) std::cout << "norm mapping scheme by polygon vert!\n";
+	if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) std::cout << "norm ref scheme direct!\n";
+	if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndex) std::cout << "norm ref scheme index!\n";
+	if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) std::cout << "norm ref scheme index to direct!\n";
+	*/
 
+
+
+	/*
 	mesh->GenerateTangentsData(uv_layer_idx, true);
 
 	int tan_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eTangent, false);
@@ -287,6 +345,8 @@ Mesh meshFromNode(FbxNode* node) {
 	free(vertices);
 	*/
 
+	delete[] indices;
+	delete[] vertices;
 	
 	return result;
 }
@@ -305,7 +365,6 @@ int main() {
 	ghii.pdfeats.pNext = &ubo_std_layout;
 
 	GH gh(ghii);
-	gh.setShaderDirectory("../../resources/shaders/SPIRV/");
 	WindowInitInfo wii;
 	wii.msaa = VK_SAMPLE_COUNT_4_BIT;
 	WindowInfo w(wii);
@@ -316,8 +375,10 @@ int main() {
 	 */
 	RenderPassInfo* main_rp = createMainRenderPass(s, w);
 	const size_t dns_pidx = createDNSPipeline(*main_rp, s, w);
+	const size_t vp_pidx = createViewportPipeline(*main_rp, s, w);
 	DNSScenePCData dns_spcd;
 	main_rp->setScenePC(dns_pidx, &dns_spcd);
+	main_rp->setScenePC(vp_pidx, &s.getCamera()->getVP());
 
 	/*
 	 * Lighting
@@ -333,7 +394,7 @@ int main() {
 	TextureHandler th;
 	th.addSampler("linearmag", VK_FILTER_LINEAR, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_FALSE);
 	th.setDefaultSampler(th.getSampler("linearmag"));
-	th.addSet("grid", TextureSet("resources/textures/grid", th.getSampler("linearmag")));
+	th.addSet("grid", TextureSet("../../resources/textures/grid", th.getSampler("linearmag")));
 
 	/*
 	 * FBX Loading
@@ -354,6 +415,7 @@ int main() {
 	printNode(fbx_scene->GetNode(0));
 
 	Mesh m = meshFromNode(fbx_scene->GetNode(findFirstMesh(fbx_scene)));
+	/*
 	VkDescriptorSet ds_temp;
 	const TextureSet& set = th.getSet("grid");
 	GH::createDS(main_rp->getRenderSet(dns_pidx).pipeline, ds_temp);
@@ -363,6 +425,8 @@ int main() {
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
 	DNSObjectPCData m_pcd;
 	main_rp->addMesh(&m, ds_temp, &m_pcd, dns_pidx);
+	*/
+	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), vp_pidx);
 
 	w.addTasks(s.getDrawTasks());
 
@@ -373,7 +437,7 @@ int main() {
 		s.getCamera()->setForward(-s.getCamera()->getPos());
 		s.getCamera()->updateView();
 		s.getCamera()->updateProj();
-		m_pcd = {0, m.getModelMatrix()};
+		// m_pcd = {0, m.getModelMatrix()};
 		dns_spcd = {s.getCamera()->getVP(), s.getCamera()->getPos()};
 	}
 
