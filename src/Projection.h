@@ -1,3 +1,6 @@
+#ifndef PROJECTION_H
+#define PROJECTION_H
+
 #include "GraphicsHandler.h"
 
 typedef enum ProjectionType {
@@ -13,6 +16,7 @@ public:
 
 	static glm::vec3 apply(glm::mat4 A, glm::vec3 v);
 	static glm::vec3 applyHomo(glm::mat4 A, glm::vec3 v);
+	static glm::mat4 ortho(float l, float r, float b, float t, float n, float f);
 
 	virtual void updateView() = 0;
 	virtual void updateProj() = 0;
@@ -200,3 +204,4 @@ class PointLight : public Light, public PositionalProjectionBase {
 public:
 	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {}
 };
+#endif

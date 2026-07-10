@@ -8,7 +8,8 @@ RenderPassInfo::RenderPassInfo(
 	std::vector<VkClearValue>&& c) : 
 		renderpass(r), 
 		numscis(nsci),
-		clears(c) {
+		clears(c),
+		cull_map(nullptr) {
 	extent = d ? d->extent : (ms ? ms->extent : scis[0].extent);
 	// TODO: fix up createFBs to make more sense and perhaps be more flexible with attachment order
 	// nsci should really be called something else
@@ -16,7 +17,7 @@ RenderPassInfo::RenderPassInfo(
 }
 
 RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx) :
-	renderpass(r), numscis(nsci), extent(ext), clears(c) {
+	renderpass(r), numscis(nsci), extent(ext), clears(c), cull_map(nullptr) {
 	createFBs(numscis, sci_att_idx, att);
 }
 
@@ -39,12 +40,12 @@ void RenderPassInfo::destroy() {
 }
 
 size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd) {
-	rendersets.push_back({p, {}, {}, {}, nullptr, pcd});
+	rendersets.push_back({p, {}, {}, {}, pcd});
 	return rendersets.size() - 1;
 }
 
 size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd, VkViewport vp, VkRect2D sc) {
-	rendersets.push_back({p, {}, {}, {}, nullptr, pcd, vp, sc});
+	rendersets.push_back({p, {}, {}, {}, pcd, vp, sc});
 	return rendersets.size() - 1;
 }
 
@@ -52,10 +53,6 @@ void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* 
 	rendersets[pidx].meshes.push_back(m);
 	rendersets[pidx].objdss.push_back(ds);
 	rendersets[pidx].objpcdata.push_back(pc);
-}
-
-void RenderPassInfo::setUI(const UIHandler* u, size_t pidx) {
-	rendersets[pidx].ui = u;
 }
 
 std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
@@ -77,26 +74,32 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 		counter = 0;
 		for (const MeshBase* m : r.meshes) {
 #ifdef VKH_VERBOSE_DRAW_TASKS
-			std::cout << "Mesh " << &m << std::endl;
+			std::cout << "Mesh " << m << std::endl;
 #endif
-			tasks.emplace_back(
-				[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
-				(uint8_t scii, VkCommandBuffer& c) {
-				// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
-				// window scis
-				m->recordDraw(fb[scii % ns], rp, r, counter, c);
-			});
+			if (cull_map && cull_map->contains(m)) {
+				tasks.emplace_back(
+					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis, cm = cull_map] 
+					(uint8_t scii, VkCommandBuffer& c) {
+					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
+					// window scis
+					if (!(*cm)[m]) std::cout << "culling mesh\n";
+					if (!(*cm)[m]) return false;
+					m->recordDraw(fb[scii % ns], rp, r, counter, c);
+					return true;
+				});
+			}
+			else {
+				tasks.emplace_back(
+					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
+					(uint8_t scii, VkCommandBuffer& c) {
+					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
+					// window scis
+					m->recordDraw(fb[scii % ns], rp, r, counter, c);
+					return true;
+				});
+
+			}
 			counter++;
-		}
-		if (r.ui) {
-#ifdef VKH_VERBOSE_DRAW_TASKS
-			std::cout << "UI " << r.ui << std::endl;
-#endif
-			tasks.emplace_back(
-				[ui = r.ui, &rp = renderpass, &fb = framebuffers, ns = numscis]
-				(uint8_t scii, VkCommandBuffer& c) {
-				ui->recordDraw(fb[scii % ns], rp, c);
-			});
 		}
 #ifdef VKH_VERBOSE_DRAW_TASKS
 		std::cout << "}" << std::endl;
@@ -251,7 +254,6 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 
 	n_dir_lights++;
 	GH::updateBuffer(lightub, &n_dir_lights, sizeof(uint32_t), offsetof(LUBData, light_counts));
-	std::cout << "updateBuf w/ light count " << (int)n_dir_lights << std::endl;
 
 	return &added;
 }
@@ -265,9 +267,9 @@ std::vector<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, 
 }
 
 void Scene::addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& dl_idxs) {
+	glm::vec3 temp;
 	for (uint8_t i = 0; i < dl_idxs.size(); i++) {
-		glm::vec3 temp = ProjectionBase::apply(m->getModelMatrix(), m->getAABB()[0]);
-		for (uint8_t j = 1; j < 8; j++) {
+		for (uint8_t j = 0; j < 8; j++) { 
 			temp = ProjectionBase::apply(m->getModelMatrix(), glm::vec3(
 						m->getAABB()[j % 2].x, 
 						m->getAABB()[(uint8_t)floor(j/2) % 2].y, 
@@ -332,7 +334,8 @@ void Scene::updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths) {
 	z_range.y = temp.z / temp.w;
 	for (float x = -1; x < 2; x += 2)
 	for (float y = -1; y < 2; y += 2)
-	for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
+	// for (float z = z_range.x; z <= z_range.y; z += z_range.y - z_range.x) {
+	for (float z = depths.x; z <= depths.y; z += depths.y - depths.x) {
 		cam_points[count] = ProjectionBase::applyHomo(vp_inv, glm::vec3(x, y, z));
 		count++;
 	}

@@ -234,7 +234,7 @@ size_t createDNSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 size_t createDNSInstancedPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "dnsinst";
+	p.shaderfilepathprefix = "dnsinstanced";
 	VkDescriptorSetLayoutBinding dtbindings[7] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -315,7 +315,7 @@ PipelineInfo createSMPipeline(RenderPassInfo& rpi) {
 PipelineInfo createSMInstancedPipeline(RenderPassInfo& rpi) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "sminst";
+	p.shaderfilepathprefix = "sminstanced";
 	VkDescriptorSetLayoutBinding dtbindings[1] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -401,9 +401,9 @@ RenderPassInfo* createTSRenderPass(Scene& s, WindowInfo& w) {
 size_t createTSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "ts";
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData) + sizeof(uint32_t)};
-	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(DNSScenePCData) + sizeof(uint32_t), sizeof(glm::mat4)};
+	p.shaderfilepathprefix = "viewport";
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
 	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_NORMAL));
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
@@ -417,7 +417,7 @@ size_t createTSPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 size_t createTSInstPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	p.shaderfilepathprefix = "tsinst";
+	p.shaderfilepathprefix = "viewportinstanced";
 	VkDescriptorSetLayoutBinding dtbindings[1] {{
 			0,
 			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -431,8 +431,8 @@ size_t createTSInstPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) 
 		0,
 		1, &dtbindings[0]
 	};
-	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DNSScenePCData) + sizeof(uint32_t)};
-	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_NORMAL));
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::mat4)};
+	p.vertexinputstateci = Mesh::getVISCI(VB_TRAIT_ALL, VB_TRAIT_ALL ^ (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV |  VERTEX_BUFFER_TRAIT_NORMAL));
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
@@ -525,7 +525,6 @@ int main() {
 	ghii.pdfeats.pNext = &ubo_std_layout;
 
 	GH gh(ghii);
-	gh.setShaderDirectory("../../resources/shaders/SPIRV/");
 	WindowInitInfo wii;
 	wii.msaa = VK_SAMPLE_COUNT_4_BIT;
 	WindowInfo w(wii);
@@ -605,7 +604,7 @@ int main() {
 	text_low += text_width;
 	hist_text_temp->setPos(sd.hist_bars[ST_STATS_N_BINS-1]->getPos() + (UICoord){bar_width, 0});
 	hist_text_temp->setPos(hist_text_temp->getPos() - (UICoord){hist_text_temp->getExt().x / 2, 0});
-	hist_text_temp->setBGCol({0, 0, 0, 0});
+ 	hist_text_temp->setBGCol({0, 0, 0, 0});
 
 	hist_area->setPos({hist_margin, hist_margin});
 	hist_area->setExt({hist_width, hist_width});
@@ -664,6 +663,7 @@ int main() {
 	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
 	main_rp->addMesh(&ground, ds_temp, &ground_pcd, dnsp_idx);
 	for (size_t sm_p_i : sm_p_idxs) sm_rp->addMesh(&ground, VK_NULL_HANDLE, &ground.getModelMatrix(), sm_p_i);
+	VkDescriptorSet ds_save = ds_temp;
 
 	const uint8_t trees_n = 63;
 	const float trees_offset = 20, trees_range = 20;
@@ -696,9 +696,24 @@ int main() {
 	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, tree_body.getInstanceUB().getDBI());
 	ts_rp->addMesh(&tree_body, ds_temp, nullptr, tsinst_p_idx);
 	Mesh camera_frust("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
-	ts_rp->addMesh(&camera_frust, VK_NULL_HANDLE, &camera_frust.getModelMatrix(), ts_p_idx);
+	// ts_rp->addMesh(&camera_frust, VK_NULL_HANDLE, &camera_frust.getModelMatrix(), ts_p_idx);
 	ui.setTex(*tex_mon, s.getShadowAtlas(), ui_rp.getRenderSet(ui_p_idx).pipeline);
-	dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
+	// dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
+	dns_ts_s_pc.vp = s.getCamera()->getProj() * glm::lookAt(glm::vec3(40), glm::vec3(-1), glm::vec3(0, 1, 0));
+	Mesh cube1("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
+	ts_rp->addMesh(&cube1, VK_NULL_HANDLE, &cube1.getModelMatrix(), ts_p_idx);
+	Mesh cube2("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
+	cube2.setPos(glm::vec3(3, 0, 0));
+	ts_rp->addMesh(&cube2, VK_NULL_HANDLE, &cube2.getModelMatrix(), ts_p_idx);
+	Mesh cube3("../../resources/models/objs/cube.obj", VB_TRAIT_ALL);
+	cube3.setPos(glm::vec3(0, 0, 3));
+	ts_rp->addMesh(&cube3, VK_NULL_HANDLE, &cube3.getModelMatrix(), ts_p_idx);
+	Octree ts_octree({&cube1, &cube2, &cube3}, {}, 1);
+	std::map<const MeshBase*, bool> cull_frust;
+	ts_octree.setCheap();
+	ts_octree.frustumCull(s.getCamera()->getView(), s.getCamera()->getProj(), cull_frust);
+	ts_rp->enableFrustumCulling(&cull_frust);
+	// main_rp->enableFrustumCulling(&cull_frust);
 #endif
 
 	w.addTasks(s.getDrawTasks());
@@ -709,6 +724,7 @@ int main() {
 	ts_w.addTask(cbRecTaskTemplate([&ui, rp = ui_rp.getRenderPass(), fb = ui_rp.getFramebuffers()]
 		(uint8_t scii, VkCommandBuffer& c) {
 		ui.recordDraw(fb[scii], rp, c); // might need to mod fb idx against ui's own scii count
+		return true;
 	}));
 #endif
 	
@@ -763,12 +779,15 @@ int main() {
 		s.getCamera()->updateProj();
 		dns_s_pc = (DNSScenePCData){s.getCamera()->getVP(), s.getCamera()->getPos()};
 		camera_frust.setModelMatrix(glm::inverse(s.getCamera()->getVP()));
+
 		s.updateSMDCascade(*key_light, 0, glm::vec2(0, 0.21));
 		s.updateSMDCascade(*key_light, 1, glm::vec2(0.2, 0.31));
 		s.updateSMDCascade(*key_light, 2, glm::vec2(0.3, 1));
 
 #ifdef ST_TS_WIN
-		dns_ts_s_pc.vp = key_light->getSMData()[0].getVP();
+		cull_frust.clear();
+		ts_octree.frustumCull(s.getCamera()->getView(), s.getCamera()->getProj(), cull_frust);
+
 		sd.TOLs[sd.i] = SDL_GetTicks() - sd.last_frame_done;
 		sd.last_TOL = SDL_GetTicks();
 		updateStatsData(sd);

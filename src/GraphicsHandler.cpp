@@ -218,7 +218,7 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t, size_t i) {
 	if (t.type == CB_REC_TASK_TYPE_COMMAND_BUFFER) {
 		for (uint8_t scii = 0; scii < numscis; scii++) {
 			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask(
-				[scii, f = t.data.ft] (VkCommandBuffer& c) {f(scii, c);})
+				[scii, f = t.data.ft] (VkCommandBuffer& c) {return f(scii, c);})
 			);
 		}
 	}
@@ -331,9 +331,10 @@ void WindowInfo::processRecordingTasks(
 					&secondarycbset.back());
 			}
 		}
-		collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
-		recfunc(secondarycbset[bufferidx]);
-		bufferidx++;
+		if (recfunc(secondarycbset[bufferidx])) {
+			collectinfos.push(cbCollectInfo(secondarycbset[bufferidx]));
+			bufferidx++;
+		}
 	}
 }
 
@@ -426,7 +427,7 @@ BufferInfo GH::scratchbuffer = {
 	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 	0
 };
-const char* GH::shaderdir = "../resources/shaders/SPIRV/";
+const char* GH::shaderdir = "../../resources/shaders/SPIRV/";
 std::map<VkBuffer, uint8_t> GH::bufferusers = {};
 ImageInfo GH::blankimage = {};
 
@@ -454,8 +455,7 @@ GH::GH(const GHInitInfo& i) {
 
 GH::~GH() {
 	vkQueueWaitIdle(genericqueue);
-	// TODO: figure out how to manage this resource
-	// GH::destroyImage(blankimage);
+	GH::destroyImage(blankimage);
 	terminateDescriptorPoolsAndSetLayouts();
 	terminateSamplers();
 	terminateCommandPools();
@@ -1132,6 +1132,7 @@ void GH::createShader(
 	for (unsigned char x = 0; x < NUM_SHADER_STAGES_SUPPORTED; x++) {
 		if (stages & supportedshaderstages[x]) {
 			filestream = std::ifstream(filepaths[stagecounter], std::ios::ate | std::ios::binary);
+			if (!filestream) FatalError(std::string("Failed to read shader @ ") + filepaths[stagecounter]).raise();
 			shadersrcsize = filestream.tellg();
 			shadersrc = new char[shadersrcsize];
 			filestream.seekg(0);
