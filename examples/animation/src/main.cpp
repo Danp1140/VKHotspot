@@ -133,7 +133,7 @@ size_t createViewportPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w
 	p.vertexinputstateci = Mesh::getVISCI(
 			VERTEX_BUFFER_TRAIT_POSITION
 			| VERTEX_BUFFER_TRAIT_UV 
-			| VERTEX_BUFFER_TRAIT_NORMAL);
+			| VERTEX_BUFFER_TRAIT_NORMAL, VERTEX_BUFFER_TRAIT_UV);
 	p.depthtest = true;
 	p.extent = w.getSCExtent();
 	p.renderpass = rpi.getRenderPass();
@@ -209,8 +209,7 @@ Mesh meshFromNode(FbxNode* node) {
 	// FbxSkin* skin = dynamic_cast<FbxSkin*>(mesh->GetDeformer(0));
 	// int n_bones = skin->GetClusterCount();
 	size_t n_polys = (size_t)mesh->GetPolygonCount();
-	Mesh result = Mesh(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, n_polys*3*(3+2+3)*sizeof(float), n_polys * 3 * sizeof(MeshIndex), 0);
-
+	Mesh result = Mesh(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, n_polys*3, n_polys*3, 0);
 
 	int uv_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eUV, false);
 	FbxLayerElementUV* uvs = mesh->GetLayer(uv_layer_idx)->GetUVs();
@@ -236,31 +235,31 @@ Mesh meshFromNode(FbxNode* node) {
 	MeshIndex* indices = new MeshIndex[n_polys*3];
 
 	for (size_t poly_i = 0; poly_i < n_polys; poly_i++) {
-		indices[poly_i] = poly_i;
 		for (uint8_t vert_i = 0; vert_i < 3; vert_i++) {
-			FbxVector4 cp = mesh->GetControlPoints()[mesh->GetPolygonVertex(poly_i, vert_i)];
-			vertices[poly_i + 3*vert_i] = cp[0];
-			vertices[poly_i + 3*vert_i+1] = cp[1];
-			vertices[poly_i + 3*vert_i+2] = cp[2];
+			indices[poly_i*3 + vert_i] = poly_i*3 + vert_i;
+			FbxVector4 cp = mesh->GetControlPointAt(mesh->GetPolygonVertex(poly_i, vert_i));
+			vertices[poly_i*3*8 + 8*vert_i] = cp[0];
+			vertices[poly_i*3*8 + 8*vert_i+1] = cp[1];
+			vertices[poly_i*3*8 + 8*vert_i+2] = cp[2];
 			if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
 				FbxVector2 uv;
 				bool unmapped;
 				mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
 				if (unmapped) {
-					vertices[poly_i + 3*vert_i+3] = 0;
-					vertices[poly_i + 3*vert_i+4] = 0;
+					vertices[poly_i*3*8 + 8*vert_i+3] = 0;
+					vertices[poly_i*3*8 + 8*vert_i+4] = 0;
 				}
 				else {
-					vertices[poly_i + 3*vert_i+3] = uv[0];
-					vertices[poly_i + 3*vert_i+4] = uv[1];
+					vertices[poly_i*3*8 + 8*vert_i+3] = uv[0];
+					vertices[poly_i*3*8 + 8*vert_i+4] = uv[1];
 				}
 			}
-			if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
+			if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
 				FbxVector4 norm;
 				mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
-				vertices[poly_i + 3*vert_i+5] = norm[0];
-				vertices[poly_i + 3*vert_i+6] = norm[1];
-				vertices[poly_i + 3*vert_i+7] = norm[2];
+				vertices[poly_i*3*8 + 8*vert_i+5] = norm[0];
+				vertices[poly_i*3*8 + 8*vert_i+6] = norm[1];
+				vertices[poly_i*3*8 + 8*vert_i+7] = norm[2];
 			}
 		}
 	}
