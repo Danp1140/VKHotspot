@@ -167,7 +167,6 @@ size_t Mesh::getTraitsElementSize(VertexBufferTraits t) {
 	if (t & VERTEX_BUFFER_TRAIT_NORMAL) result += sizeof(glm::vec3);
 	if (t & VERTEX_BUFFER_TRAIT_TANGENT) result += sizeof(glm::vec3);
 	if (t & VERTEX_BUFFER_TRAIT_BITANGENT) result += sizeof(glm::vec3);
-	// WEIGHT is included in override from ArmaturedMesh
 	return result;
 }
 
@@ -211,9 +210,6 @@ VkPipelineVertexInputStateCreateInfo Mesh::getVISCI(VertexBufferTraits t, Vertex
 			numtraits++;
 		}
 		offset += sizeof(glm::vec3);
-	}
-	if (t & VERTEX_BUFFER_TRAIT_WEIGHT) {
-		FatalError("Vertex weight not yet supported").raise();
 	}
 	return (VkPipelineVertexInputStateCreateInfo){
 		VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -325,9 +321,6 @@ void Mesh::loadOBJ(const char* fp) {
 					-e1.y*uv2.x + e2.y*uv1.x, 
 					-e1.z*uv2.x + e2.z*uv1.x) / norm;
 				vscan += sizeof(glm::vec3);
-			}
-			if (vbtraits & VERTEX_BUFFER_TRAIT_WEIGHT) {
-				FatalError("Vertex weight loading from OBJ file not yet supported").raise();
 			}
 			itemp = 3 * x + y;
 			memcpy(iscan, &itemp, sizeof(MeshIndex));
@@ -505,4 +498,106 @@ void LODMesh::recordDraw(
 			break;
 		}
 	}
+}
+
+ArmaturedMesh::ArmaturedMesh(const char* fp) {
+	// TODO handle fbx instances on a higher level
+	FbxManager* fbx_man = FbxManager::Create();
+	FbxImporter* fbx_importer = FbxImporter::Create(fbx_man, "");
+
+	const bool imp = fbx_importer->Initialize(fp, -1, fbx_man->GetIOSettings());
+	if (!imp) FatalError(std::string("FBX importer failed to initialize file ") + fp).raise();
+
+	FbxScene* fbx_scene = FbxScene::Create(fbx_man, "");
+	fbx_importer->Import(fbx_scene);
+	fbx_importer->Destroy();
+
+	// Just pulls first mesh node it finds
+	FbxNode* node;
+	int default_attrib_idx;
+	for (int n_i = 0; n_i < fbx_scene->GetNodeCount(); n_i++) {
+		node = fbx_scene->GetNode(n_i);
+		default_attrib_idx = node->GetDefaultNodeAttributeIndex();
+		if (default_attrib_idx != -1 && node->GetNodeAttributeByIndex(default_attrib_idx)->GetAttributeType() == FbxNodeAttribute::eMesh)
+			break;
+	}
+	if (node->GetNodeAttributeByIndex(default_attrib_idx)->GetAttributeType() != FbxNodeAttribute::eMesh)
+		FatalError(std::string("Couldn't find mesh node in FBX file ") + fp).raise();
+
+	FbxMesh* mesh = node->GetMesh();
+	FbxSkin* skin = dynamic_cast<FbxSkin*>(mesh->GetDeformer(0));
+	n_bones = skin->GetClusterCount();
+	size_t n_polys = (size_t)mesh->GetPolygonCount();
+
+	vbtraits = VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL;
+	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	vertexbuffer.size = getVertexBufferElementSize() * 3*n_polys;
+	GH::createBuffer(vertexbuffer);
+	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	indexbuffer.size = sizeof(MeshIndex) * 3*n_polys;
+	GH::createBuffer(indexbuffer);
+
+	int uv_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eUV, false);
+	FbxLayerElementUV* uvs = mesh->GetLayer(uv_layer_idx)->GetUVs();
+	if (uvs->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex)
+		FatalError("Unsupported UV mapping mode").raise();
+	if (uvs->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect)
+		FatalError("Unsupported UV reference mode").raise();
+
+	int norm_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eNormal, false);
+	FbxLayerElementNormal* norms = mesh->GetLayer(norm_layer_idx)->GetNormals();
+	FbxLayerElementArrayTemplate<FbxVector4>& norm_arr = norms->GetDirectArray();
+	if (norms->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) 
+		FatalError("Unsupported normal mapping mode").raise();
+	if (norms->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eDirect)
+		FatalError("Unsupported normal reference mode").raise();
+
+	float* vertices = new float[n_polys*3*(3+2+3)];
+	MeshIndex* indices = new MeshIndex[n_polys*3];
+
+	for (size_t poly_i = 0; poly_i < n_polys; poly_i++) {
+		for (uint8_t vert_i = 0; vert_i < 3; vert_i++) {
+			indices[poly_i*3 + vert_i] = poly_i*3 + vert_i;
+			FbxVector4 cp = mesh->GetControlPointAt(mesh->GetPolygonVertex(poly_i, vert_i));
+			vertices[poly_i*3*8 + 8*vert_i] = cp[0];
+			vertices[poly_i*3*8 + 8*vert_i+1] = cp[1];
+			vertices[poly_i*3*8 + 8*vert_i+2] = cp[2];
+			if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
+				FbxVector2 uv;
+				bool unmapped;
+				mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
+				if (unmapped) {
+					vertices[poly_i*3*8 + 8*vert_i+3] = 0;
+					vertices[poly_i*3*8 + 8*vert_i+4] = 0;
+				}
+				else {
+					vertices[poly_i*3*8 + 8*vert_i+3] = uv[0];
+					vertices[poly_i*3*8 + 8*vert_i+4] = uv[1];
+				}
+			}
+			if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
+				FbxVector4 norm;
+				mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
+				vertices[poly_i*3*8 + 8*vert_i+5] = norm[0];
+				vertices[poly_i*3*8 + 8*vert_i+6] = norm[1];
+				vertices[poly_i*3*8 + 8*vert_i+7] = norm[2];
+			}
+		}
+	}
+
+	GH::updateWholeBuffer(vertexbuffer, vertices);
+	GH::updateWholeBuffer(indexbuffer, indices);
+
+	/* 
+	 * make raw per-polyvert list
+	 * test it
+	 * when it works, run a pass that checks for uniqueness and sets indices/removes items if not unique (if scrolling, can use an accumulating offset to allow shifting the rest down upon removal)
+	 */
+
+	delete[] indices;
+	delete[] vertices;
+}
+
+size_t ArmaturedMesh::getVertexBufferElementSize() const {
+	return Mesh::getTraitsElementSize(vbtraits) + n_bones * sizeof(float);
 }

@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(VKH)
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++20 -Wno-deprecated")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++20 -Wno-deprecated -Wno-nontrivial-memcall") # GLM uses deprecated volatile, FBX uses nontrivial memcall
 
 # Platform-Dependent Setup, jank central
 if (UNIX)
@@ -27,6 +27,12 @@ find_package(portaudio REQUIRED)
 
 find_path(GLM_INCLUDE glm.hpp PATH_SUFFIXES glm REQUIRED)
 find_path(USMINT_INCLUDE UI.h PATH_SUFFIXES UsMInt REQUIRED)
+if (APPLE)
+	find_path(FBX_INCLUDE fbxsdk.h PATH_SUFFIXES "2020.3.9/include" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
+	find_library(FBX_LIB fbxsdk PATH_SUFFIXES "2020.3.9/lib/clang/release" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
+else ()
+	message(FATAL_ERROR "FBX import and lib search not defined for non-apple OSs")
+endif()
 
 find_library(USMINT_LIB UsMInt REQUIRED)
 
@@ -36,7 +42,8 @@ include_directories(
 	Vulkan::Headers
 	SDL3::Headers
 	${GLM_INCLUDE}
-	${USMINT_INCLUDE})
+	${USMINT_INCLUDE}
+	${FBX_INCLUDE})
 
 # Adding and Linking Library
 add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
@@ -52,10 +59,11 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/AudioHandler.cpp ../src/AudioHandler.h
 	../src/Geometry.cpp ../src/Geometry.h)
 
-target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE})
+target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE} ${FBX_INCLUDE})
 
 target_link_libraries(
 	${PROJECT_NAME} PUBLIC
+	${FBX_LIB}
 	${USMINT_LIB} 
 	Freetype::Freetype
 	Vulkan::Vulkan
