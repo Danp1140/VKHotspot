@@ -252,6 +252,8 @@ class ArmaturedMesh : public Mesh {
 public:
 	ArmaturedMesh(const char* fp);
 
+	const BufferInfo& getPoseBuffer const {return pose_buffer;}
+
 	static VkPipelineVertexInputStateCreateInfo getArmVISCI(
 		size_t n_bones, 
 		VertexBufferTraits t, 
@@ -259,7 +261,7 @@ public:
 
 private:
 	uint8_t n_bones;
-	BufferInfo armature_buffer;
+	BufferInfo pose_buffer;
 
 	size_t getVertexBufferElementSize() const;
 };

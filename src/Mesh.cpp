@@ -614,6 +614,11 @@ ArmaturedMesh::ArmaturedMesh(const char* fp) {
 
 	delete[] indices;
 	delete[] vertices;
+
+	pose_buffer.size = n_bones * sizeof(glm::mat4);
+	pose_buffer.usage = VK_BUFFER_USAGE_FLAGS_UNIFORM_BUFFER_BIT;
+	pose_buffer.memprops = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	GH::createBuffer(pose_buffer);
 }
 
 VkPipelineVertexInputStateCreateInfo ArmaturedMesh::getArmVISCI(

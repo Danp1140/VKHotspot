@@ -286,18 +286,10 @@ int main() {
 	*/
 
 	ArmaturedMesh m("resources/test.fbx");
-	/*
 	VkDescriptorSet ds_temp;
-	const TextureSet& set = th.getSet("grid");
-	GH::createDS(main_rp->getRenderSet(dns_pidx).pipeline, ds_temp);
-	s.addLightCatcher(&m, ds_temp, {0}, {}, {});
-	GH::updateDS(ds_temp, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("diffuse").getDII(), {});
-	GH::updateDS(ds_temp, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("normal").getDII(), {});
-	GH::updateDS(ds_temp, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, set.getTexture("specular").getDII(), {});
-	DNSObjectPCData m_pcd;
-	main_rp->addMesh(&m, ds_temp, &m_pcd, dns_pidx);
-	*/
-	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), vpa_pidx);
+	GH::createDS(main_rp->getRenderSet(vpa_pidx).pipeline, ds_temp);
+	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, m.getPoseBuffer().getDBI(), {});
+	main_rp->addMesh(&m, ds_temp, &m.getModelMatrix(), vpa_pidx);
 
 	w.addTasks(s.getDrawTasks());
 
@@ -310,6 +302,10 @@ int main() {
 		s.getCamera()->updateProj();
 		// m_pcd = {0, m.getModelMatrix()};
 		dns_spcd = {s.getCamera()->getVP(), s.getCamera()->getPos()};
+		// TODO: what's the associated overhead with mapping/unmapping? should we do it once or a bunch?
+		void* dst;
+		vkMapMemory(GH::getLD(), m.getPoseBuffer().memory, 0, m.getPoseBuffer().size, 0, &dst);
+		vkUnmapMemory(GH::getLD(), m.getPoseBuffer().memory);
 	}
 
 	vkQueueWaitIdle(GH::getGenericQueue());
