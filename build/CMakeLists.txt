@@ -30,6 +30,9 @@ find_path(USMINT_INCLUDE UI.h PATH_SUFFIXES UsMInt REQUIRED)
 if (APPLE)
 	find_path(FBX_INCLUDE fbxsdk.h PATH_SUFFIXES "2020.3.9/include" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
 	find_library(FBX_LIB fbxsdk PATH_SUFFIXES "2020.3.9/lib/clang/release" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
+	add_library(FBX SHARED IMPORTED)
+	set_target_properties(FBX PROPERTIES IMPORTED_LOCATION "${FBX_LIB}")
+
 else ()
 	message(FATAL_ERROR "FBX import and lib search not defined for non-apple OSs")
 endif()
@@ -63,13 +66,15 @@ target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUD
 
 target_link_libraries(
 	${PROJECT_NAME} PUBLIC
-	${FBX_LIB}
+	FBX
 	${USMINT_LIB} 
 	Freetype::Freetype
 	Vulkan::Vulkan
 	SDL3::SDL3
 	PNG::PNG
 	portaudio)
+
+set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_NAME_DIR "@rpath" BUILD_WITH_INSTALL_NAME_DIR ON)
 
 # Installing Library Files
 install(

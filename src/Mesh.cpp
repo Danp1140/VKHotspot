@@ -552,35 +552,53 @@ ArmaturedMesh::ArmaturedMesh(const char* fp) {
 	if (norms->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eDirect)
 		FatalError("Unsupported normal reference mode").raise();
 
-	float* vertices = new float[n_polys*3*(3+2+3)];
+	float* vertices = new float[n_polys*3*(3+2+3+n_bones)], * v_scan = vertices;
 	MeshIndex* indices = new MeshIndex[n_polys*3];
 
 	for (size_t poly_i = 0; poly_i < n_polys; poly_i++) {
 		for (uint8_t vert_i = 0; vert_i < 3; vert_i++) {
 			indices[poly_i*3 + vert_i] = poly_i*3 + vert_i;
 			FbxVector4 cp = mesh->GetControlPointAt(mesh->GetPolygonVertex(poly_i, vert_i));
-			vertices[poly_i*3*8 + 8*vert_i] = cp[0];
-			vertices[poly_i*3*8 + 8*vert_i+1] = cp[1];
-			vertices[poly_i*3*8 + 8*vert_i+2] = cp[2];
-			if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
-				FbxVector2 uv;
-				bool unmapped;
-				mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
-				if (unmapped) {
-					vertices[poly_i*3*8 + 8*vert_i+3] = 0;
-					vertices[poly_i*3*8 + 8*vert_i+4] = 0;
-				}
-				else {
-					vertices[poly_i*3*8 + 8*vert_i+3] = uv[0];
-					vertices[poly_i*3*8 + 8*vert_i+4] = uv[1];
+			*v_scan++ = cp[0];
+			*v_scan++ = cp[1];
+			*v_scan++ = cp[2];
+			if (vbtraits & VERTEX_BUFFER_TRAIT_UV) {
+				if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
+					FbxVector2 uv;
+					bool unmapped;
+					mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
+					if (unmapped) {
+						*v_scan++ = 0;
+						*v_scan++ = 0;
+					}
+					else {
+						*v_scan++ = uv[0];
+						*v_scan++ = uv[1];
+					}
 				}
 			}
-			if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
-				FbxVector4 norm;
-				mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
-				vertices[poly_i*3*8 + 8*vert_i+5] = norm[0];
-				vertices[poly_i*3*8 + 8*vert_i+6] = norm[1];
-				vertices[poly_i*3*8 + 8*vert_i+7] = norm[2];
+			if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) {
+				if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
+					FbxVector4 norm;
+					mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
+					*v_scan++ = norm[0];
+					*v_scan++ = norm[1];
+					*v_scan++ = norm[2];
+				}
+			}
+			for (size_t bone_idx = 0; bone_idx < n_bones; bone_idx++) *v_scan++ = 0;
+		}
+	}
+	for (size_t bone_idx = 0; bone_idx < n_bones; bone_idx++) {
+		int* bone_indices = skin->GetCluster(bone_idx)->GetControlPointIndices();
+		double* bone_weights = skin->GetCluster(bone_idx)->GetControlPointWeights();
+		for (size_t poly_i = 0; poly_i < n_polys; poly_i++) {
+			for (uint8_t vert_i = 0; vert_i < 3; vert_i++) {
+				for (size_t cp_idx = 0; cp_idx < skin->GetCluster(bone_idx)->GetControlPointIndicesCount(); cp_idx++) {
+					if (mesh->GetPolygonVertex(poly_i, vert_i) == bone_indices[cp_idx]) {
+						vertices[(poly_i *3 + vert_i)* (3+2+3+n_bones) + (3+2+3) + bone_idx] = bone_weights[cp_idx];
+					}
+				}
 			}
 		}
 	}
@@ -596,6 +614,82 @@ ArmaturedMesh::ArmaturedMesh(const char* fp) {
 
 	delete[] indices;
 	delete[] vertices;
+}
+
+VkPipelineVertexInputStateCreateInfo ArmaturedMesh::getArmVISCI(
+	size_t n_bones, 
+	VertexBufferTraits t, 
+	VertexBufferTraits o) {
+	uint32_t numtraits = 0, offset = 0;
+	VkVertexInputBindingDescription* bindingdesc = new VkVertexInputBindingDescription[1] {
+		{0, static_cast<uint32_t>(getTraitsElementSize(t) + n_bones*sizeof(float)), VK_VERTEX_INPUT_RATE_VERTEX}
+	};
+	VkVertexInputAttributeDescription* attribdesc = new VkVertexInputAttributeDescription[MAX_VERTEX_BUFFER_NUM_TRAITS];
+	if (t & VERTEX_BUFFER_TRAIT_POSITION) {
+		if (!(o & VERTEX_BUFFER_TRAIT_POSITION)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_UV) {
+		if (!(o & VERTEX_BUFFER_TRAIT_UV)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec2);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_NORMAL) {
+		if (!(o & VERTEX_BUFFER_TRAIT_NORMAL)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_TANGENT) {
+		if (!(o & VERTEX_BUFFER_TRAIT_TANGENT)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	if (t & VERTEX_BUFFER_TRAIT_BITANGENT) {
+		if (!(o & VERTEX_BUFFER_TRAIT_BITANGENT)) {
+			attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+			numtraits++;
+		}
+		offset += sizeof(glm::vec3);
+	}
+	// TODO: make above into its own function, perhaps this is a way to get rid of the sketchy malloc too
+	size_t rem_bones = n_bones;
+	while (rem_bones > 3) {
+		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offset};
+		numtraits++;
+		offset += sizeof(glm::vec4);
+		rem_bones -= 4;
+	}
+	if (rem_bones == 3) {
+		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32B32_SFLOAT, offset};
+		numtraits++;
+		offset += sizeof(glm::vec3);
+	}
+	else if (rem_bones == 2) {
+		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32G32_SFLOAT, offset};
+		numtraits++;
+		offset += sizeof(glm::vec2);
+	}
+	else if (rem_bones == 1) {
+		attribdesc[numtraits] = {numtraits, 0, VK_FORMAT_R32_SFLOAT, offset};
+		numtraits++;
+		offset += sizeof(float);
+	}
+	return (VkPipelineVertexInputStateCreateInfo){
+		VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		nullptr,
+		0,
+		1, bindingdesc,
+		numtraits, attribdesc
+	};
 }
 
 size_t ArmaturedMesh::getVertexBufferElementSize() const {

@@ -143,6 +143,25 @@ size_t createViewportPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w
 	return rpi.addPipeline(p, nullptr);
 }
 
+size_t createViewportArmPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo& w) {
+	PipelineInfo p;
+	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	p.shaderfilepathprefix = "viewportarm";
+	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::mat4)};
+	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
+	p.vertexinputstateci = ArmaturedMesh::getArmVISCI(
+		2,
+		VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL, 
+		VERTEX_BUFFER_TRAIT_UV);
+	p.depthtest = true;
+	p.extent = w.getSCExtent();
+	p.renderpass = rpi.getRenderPass();
+	p.msaasamples = w.getMSAASamples();
+	GH::createPipeline(p);
+	Mesh::ungetVISCI(p.vertexinputstateci);
+	return rpi.addPipeline(p, nullptr);
+}
+
 void printNode(FbxNode* node) {
 	int default_attrib_idx = node->GetDefaultNodeAttributeIndex();
 	if (default_attrib_idx != -1) {
@@ -224,9 +243,11 @@ int main() {
 	RenderPassInfo* main_rp = createMainRenderPass(s, w);
 	const size_t dns_pidx = createDNSPipeline(*main_rp, s, w);
 	const size_t vp_pidx = createViewportPipeline(*main_rp, s, w);
+	const size_t vpa_pidx = createViewportArmPipeline(*main_rp, s, w);
 	DNSScenePCData dns_spcd;
 	main_rp->setScenePC(dns_pidx, &dns_spcd);
 	main_rp->setScenePC(vp_pidx, &s.getCamera()->getVP());
+	main_rp->setScenePC(vpa_pidx, &s.getCamera()->getVP());
 
 	/*
 	 * Lighting
@@ -276,7 +297,7 @@ int main() {
 	DNSObjectPCData m_pcd;
 	main_rp->addMesh(&m, ds_temp, &m_pcd, dns_pidx);
 	*/
-	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), vp_pidx);
+	main_rp->addMesh(&m, VK_NULL_HANDLE, &m.getModelMatrix(), vpa_pidx);
 
 	w.addTasks(s.getDrawTasks());
 

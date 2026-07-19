@@ -252,6 +252,11 @@ class ArmaturedMesh : public Mesh {
 public:
 	ArmaturedMesh(const char* fp);
 
+	static VkPipelineVertexInputStateCreateInfo getArmVISCI(
+		size_t n_bones, 
+		VertexBufferTraits t, 
+		VertexBufferTraits o = VERTEX_BUFFER_TRAIT_NONE);
+
 private:
 	uint8_t n_bones;
 	BufferInfo armature_buffer;
