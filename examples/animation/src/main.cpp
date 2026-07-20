@@ -1,7 +1,10 @@
 #include <fbxsdk.h>
 #include <iostream>
+
 #include <Scene.h>
 #include <TextureHandler.h>
+#include <AnimationHandler.h>
+#include <InputHandler.h>
 
 #define VB_TRAIT_ALL (VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL | VERTEX_BUFFER_TRAIT_TANGENT | VERTEX_BUFFER_TRAIT_BITANGENT)
 
@@ -147,6 +150,19 @@ size_t createViewportArmPipeline(RenderPassInfo& rpi, Scene& s, const WindowInfo
 	PipelineInfo p;
 	p.stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	p.shaderfilepathprefix = "viewportarm";
+	VkDescriptorSetLayoutBinding dtbindings[1] {{
+			0,
+			VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			1,
+			VK_SHADER_STAGE_VERTEX_BIT,
+			nullptr
+	}};
+	p.descsetlayoutci = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		nullptr,
+		0,
+		1, &dtbindings[0]
+	};
 	p.pushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::mat4)};
 	p.objpushconstantrange = {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(glm::mat4), sizeof(glm::mat4)};
 	p.vertexinputstateci = ArmaturedMesh::getArmVISCI(
@@ -288,25 +304,49 @@ int main() {
 	ArmaturedMesh m("resources/test.fbx");
 	VkDescriptorSet ds_temp;
 	GH::createDS(main_rp->getRenderSet(vpa_pidx).pipeline, ds_temp);
-	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, m.getPoseBuffer().getDBI(), {});
+	GH::updateDS(ds_temp, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, m.getPoseBuffer().getDBI());
 	main_rp->addMesh(&m, ds_temp, &m.getModelMatrix(), vpa_pidx);
+	glm::mat4* poses;
+	vkMapMemory(GH::getLD(), m.getPoseBuffer().memory, 0, m.getPoseBuffer().size, 0, reinterpret_cast<void**>(&poses));
+	poses[0] = glm::mat4(1);
+	poses[1] = glm::mat4(1);
+
+	AnimationHandler ah;
+	float wiggle_theta;
+	Animation<float> wiggle(wiggle_theta);
+	wiggle.setInitialKeyframe(0);
+	wiggle.addKeyframe(1.57/6, 0.5);
+	wiggle.addKeyframe(-1.57/6, 1);
+	wiggle.addKeyframe(0, 0.5);
+
+	InputHandler ih;
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&ah, &wiggle] (const SDL_Event& e) {
+		if (e.key.scancode == SDL_SCANCODE_SPACE) {
+			ah.play(&wiggle);
+			return true;
+		}
+		return false;
+	}));
+
 
 	w.addTasks(s.getDrawTasks());
 
 	while (w.frameCallback()) {
+		ih.update();
 		SDL_PumpEvents();
 		float theta = (float)SDL_GetTicks() * 0.0001;
-		s.getCamera()->setPos(10.f*glm::vec3(sin(theta), 1, cos(theta)));
-		s.getCamera()->setForward(-s.getCamera()->getPos());
+		// s.getCamera()->setPos(10.f*glm::vec3(sin(theta), 1, cos(theta)));
+		// s.getCamera()->setForward(-s.getCamera()->getPos());
 		s.getCamera()->updateView();
 		s.getCamera()->updateProj();
 		// m_pcd = {0, m.getModelMatrix()};
 		dns_spcd = {s.getCamera()->getVP(), s.getCamera()->getPos()};
 		// TODO: what's the associated overhead with mapping/unmapping? should we do it once or a bunch?
-		void* dst;
-		vkMapMemory(GH::getLD(), m.getPoseBuffer().memory, 0, m.getPoseBuffer().size, 0, &dst);
-		vkUnmapMemory(GH::getLD(), m.getPoseBuffer().memory);
+		glm::mat4 tmp = glm::rotate(glm::mat4(1), 3.14f/6*sin(theta*20), glm::vec3(0, 1, 0));
+		ah.update();
+		poses[0] = glm::rotate(glm::mat4(1), wiggle_theta, glm::vec3(0, 1, 0));
 	}
+	vkUnmapMemory(GH::getLD(), m.getPoseBuffer().memory);
 
 	vkQueueWaitIdle(GH::getGenericQueue());
 

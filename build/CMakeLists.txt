@@ -60,7 +60,8 @@ add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
 	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
 	../src/InputHandler.cpp ../src/InputHandler.h
 	../src/AudioHandler.cpp ../src/AudioHandler.h
-	../src/Geometry.cpp ../src/Geometry.h)
+	../src/Geometry.cpp ../src/Geometry.h
+	../src/AnimationHandler.cpp ../src/AnimationHandler.h)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE} ${FBX_INCLUDE})
 
@@ -91,6 +92,7 @@ install(
 	../src/InputHandler.h
 	../src/AudioHandler.h
 	../src/Geometry.h
+	../src/AnimationHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
 
 include(GNUInstallDirs)
@@ -108,6 +110,7 @@ install(
 	../src/InputHandler.h
 	../src/AudioHandler.h
 	../src/Geometry.h
+	../src/AnimationHandler.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Package Config Hell

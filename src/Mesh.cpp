@@ -500,6 +500,11 @@ void LODMesh::recordDraw(
 	}
 }
 
+ArmaturedMesh::~ArmaturedMesh() {
+	if (pose_buffer.buffer != VK_NULL_HANDLE) 
+		GH::destroyBuffer(pose_buffer);
+}
+
 ArmaturedMesh::ArmaturedMesh(const char* fp) {
 	// TODO handle fbx instances on a higher level
 	FbxManager* fbx_man = FbxManager::Create();
@@ -616,7 +621,7 @@ ArmaturedMesh::ArmaturedMesh(const char* fp) {
 	delete[] vertices;
 
 	pose_buffer.size = n_bones * sizeof(glm::mat4);
-	pose_buffer.usage = VK_BUFFER_USAGE_FLAGS_UNIFORM_BUFFER_BIT;
+	pose_buffer.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	pose_buffer.memprops = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 	GH::createBuffer(pose_buffer);
 }

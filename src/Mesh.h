@@ -251,8 +251,9 @@ private:
 class ArmaturedMesh : public Mesh {
 public:
 	ArmaturedMesh(const char* fp);
+	~ArmaturedMesh();
 
-	const BufferInfo& getPoseBuffer const {return pose_buffer;}
+	const BufferInfo& getPoseBuffer() const {return pose_buffer;}
 
 	static VkPipelineVertexInputStateCreateInfo getArmVISCI(
 		size_t n_bones, 
