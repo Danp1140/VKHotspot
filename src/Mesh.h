@@ -1,13 +1,13 @@
 #ifndef MESH_H
 #define MESH_H
 
-
 #include "GraphicsHandler.h"
 class MeshBase;
 class Mesh;
 class InstancedMesh;
 #include "Scene.h"
 
+#include <fbxsdk.h>
 #include <gtc/quaternion.hpp>
 
 class MeshBase {
@@ -65,10 +65,9 @@ typedef enum VertexBufferTraitBits {
 	VERTEX_BUFFER_TRAIT_NORMAL = 0x04,
 	VERTEX_BUFFER_TRAIT_TANGENT = 0x08,
 	VERTEX_BUFFER_TRAIT_BITANGENT = 0x10,
-	VERTEX_BUFFER_TRAIT_WEIGHT = 0x20,
 } VertexBufferTraitBits;
 typedef uint8_t VertexBufferTraits;
-#define MAX_VERTEX_BUFFER_NUM_TRAITS 6
+#define MAX_VERTEX_BUFFER_NUM_TRAITS 5
 
 typedef struct MeshPCData {
 	glm::mat4 m;
@@ -111,6 +110,7 @@ public:
 protected:
 	BufferInfo vertexbuffer, indexbuffer;
 	static VkDeviceSize vboffsettemp;
+	VertexBufferTraits vbtraits;
 
 	/*
 	 * Also creates buffers, so make sure there aren't valid buffers that will get
@@ -119,9 +119,8 @@ protected:
 	void loadOBJ(const char* fp);
 
 private:
-	VertexBufferTraits vbtraits;
 
-	size_t getVertexBufferElementSize() const;
+	virtual size_t getVertexBufferElementSize() const;
 };
 
 typedef struct InstancedMeshData {
@@ -248,5 +247,24 @@ private:
  * If you want any texture, you need uvs
  * If you want armatures, you need weights
  */
+
+class ArmaturedMesh : public Mesh {
+public:
+	ArmaturedMesh(const char* fp);
+	~ArmaturedMesh();
+
+	const BufferInfo& getPoseBuffer() const {return pose_buffer;}
+
+	static VkPipelineVertexInputStateCreateInfo getArmVISCI(
+		size_t n_bones, 
+		VertexBufferTraits t, 
+		VertexBufferTraits o = VERTEX_BUFFER_TRAIT_NONE);
+
+private:
+	uint8_t n_bones;
+	BufferInfo pose_buffer;
+
+	size_t getVertexBufferElementSize() const;
+};
 
 #endif
