@@ -40,35 +40,20 @@ void DirectionalProjectionBase::setForward(const glm::vec3& f) {
 }
 
 /*
+ * PerspectiveProjectionBase
+ */
+
+/*
  * Camera
  */
 
 // -- Public --
 
-Camera::Camera() : 
-	fovy(glm::quarter_pi<float>()),
-	aspectratio(1),
-	nearclip(CAMERA_DEFAULT_NEAR_CLIP),
-	farclip(CAMERA_DEFAULT_FAR_CLIP),
-	PositionalProjectionBase(),
-	DirectionalProjectionBase() {
+Camera::Camera(const CameraInitInfo& ii) :
+	PerspectiveProjectionBase(ii.perspective_super),
+	PositionalProjectionBase(ii.positional_super),
+	DirectionalProjectionBase(ii.directional_super) {
 	updateView();
-	updateProj();
-}
-
-Camera::Camera(glm::vec3 p, glm::vec3 f, float fov, float ar) : 
-	fovy(fov), 
-	aspectratio(ar),
-	nearclip(CAMERA_DEFAULT_NEAR_CLIP),
-	farclip(CAMERA_DEFAULT_FAR_CLIP),
-	PositionalProjectionBase(p),
-	DirectionalProjectionBase(f) {
-	updateView();
-	updateProj();
-}
-
-void Camera::setFOVY(float f) {
-	fovy = f;
 	updateProj();
 }
 
@@ -78,7 +63,7 @@ void Camera::updateView() {
 }
 
 void Camera::updateProj() {
-	projection = glm::perspectiveRH_ZO<float>(fovy, aspectratio, nearclip, farclip); 
+	projection = glm::perspectiveRH_ZO<float>(fov_y, aspect_ratio, near_clip, far_clip); 
 	projection[1][1] *= -1;
 	vp = projection * view;
 }
@@ -104,13 +89,6 @@ void LightSMData::clearFocus() {
  */
 
 Light::Light(const LightInitInfo& i) : color(i.c) {}
-
-/*
-Light& Light::operator=(Light&& rhs) {
-	swap(*this, rhs);
-	return *this;
-}
-*/
 
 void swap(Light& lhs, Light& rhs) {
 	std::swap(lhs.color, rhs.color);
@@ -186,6 +164,80 @@ void DirectionalLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_A
 	 * Ortho's near and far are positive numbers along this -z.
 	 * So, we flip and negate to convert from +z to -z.
 	 */
+
+	sm_data[sm_i].updateProj();
+}
+
+void swap(SpotLight& lhs, SpotLight& rhs) {
+	swap(static_cast<Light&>(lhs), static_cast<Light&>(rhs));
+}
+
+void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
+	glm::mat4 view = glm::lookAt<float>(position, position + forward, up);
+
+	sm_data[sm_i].setView(view);
+
+	glm::vec3 temp = ProjectionBase::apply(view, sm_data[sm_i].getFocus()[0]);
+	glm::vec3 ls_aabb[2] = {temp, temp};
+	for (uint8_t i = 1; i < 8; i++) {
+		temp = ProjectionBase::apply(view, glm::vec3(
+					sm_data[sm_i].getFocus()[i % 2].x, 
+					sm_data[sm_i].getFocus()[(uint8_t)floor(i/2) % 2].y, 
+					sm_data[sm_i].getFocus()[(uint8_t)floor(i/4) % 2].z));
+		for (uint8_t j = 0; j < 3; j++) {
+			if (temp[j] < ls_aabb[0][j]) ls_aabb[0][j] = temp[j];
+			if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
+		}
+	}
+	if (cam_AABB) {
+		temp = ProjectionBase::apply(view, cam_AABB[0]);
+		glm::vec3 ls_cam_aabb[2] = {temp, temp};
+		for (uint8_t i = 1; i < 8; i++) {
+			temp = ProjectionBase::apply(view, cam_AABB[i]);
+			for (uint8_t j = 0; j < 3; j++) {
+				if (temp[j] < ls_cam_aabb[0][j]) ls_cam_aabb[0][j] = temp[j];
+				if (temp[j] > ls_cam_aabb[1][j]) ls_cam_aabb[1][j] = temp[j];
+			}
+		}
+		// TODO: could just use minimum of the two here
+		ls_aabb[0].x = ls_cam_aabb[0].x;
+		ls_aabb[1].x = ls_cam_aabb[1].x;
+		ls_aabb[0].y = ls_cam_aabb[0].y;
+		ls_aabb[1].y = ls_cam_aabb[1].y;
+	}
+
+	glm::mat4 p = glm::perspectiveRH_ZO<float>(
+		fov_y, 
+		aspect_ratio, 
+	// 	-ls_aabb[1].z, -ls_aabb[0].z);
+		near_clip, far_clip);
+
+	/* 
+	 * To get temp_aabb for real:
+	 * project extrema into plane at near_clip normal to ±z,
+	 * find where line from origin to extrema intersects this plane
+	 * use these as bounds of frust
+	 */
+
+	temp = ls_aabb[0] * -near_clip / ls_aabb[0].z;
+	glm::vec2 temp_aabb[2] = {glm::vec2(temp.x, temp.y), glm::vec2(temp.x, temp.y)};
+	for (uint8_t i = 1; i < 8; i++) {
+		temp = glm::vec3(
+					ls_aabb[i % 2].x, 
+					ls_aabb[(uint8_t)floor(i/2) % 2].y, 
+					ls_aabb[(uint8_t)floor(i/4) % 2].z);
+		temp *= -near_clip / temp.z;
+		std::cout << temp.x << ", " << temp.y << ", " << temp.z << '\n';
+		for (uint8_t j = 0; j < 2; j++) {
+			if (temp[j] < temp_aabb[0][j]) temp_aabb[0][j] = temp[j];
+			if (temp[j] > temp_aabb[1][j]) temp_aabb[1][j] = temp[j];
+		}
+	}
+
+	sm_data[sm_i].setProj(glm::frustumRH_ZO<float>(
+		temp_aabb[0].x, temp_aabb[1].x,
+		temp_aabb[0].y, temp_aabb[1].y,
+		near_clip, far_clip));
 
 	sm_data[sm_i].updateProj();
 }

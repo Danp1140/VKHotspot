@@ -133,6 +133,8 @@ public:
 	// if we wanted to make updateLUB priv, we'd need some sort of check-out,
 	// check-in func, but even then its still up to the user to check the ptr back in
 	DirectionalLight* addDirectionalLight(const DirectionalLight& l, const std::vector<VkExtent2D>& sm_exts);
+	SpotLight* addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>& sm_exts);
+	void updateSpotLight(size_t lidx);
 	std::vector<size_t> addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd);
 
 	/*
@@ -142,7 +144,11 @@ public:
 	 * (but it wastes a bit of processing).
 	 * Does not update view or projection matrices.
 	 */
-	void addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& scdlidxs);
+	void addShadowCaster(
+		const MeshBase* m, 
+		const std::vector<uint32_t>& dlidxs,
+		const std::vector<uint32_t>& slidxs,
+		const std::vector<uint32_t>& plidxs);
 	// gotta update three descriptor sets: LUB, SM array, and CUB
 	// diff btwn below two functions is that hookup increments numcatchers and 
 	// writes LUB DS. both with write SM array and CUB DS
@@ -186,7 +192,7 @@ private:
 	DirectionalLight dir_lights[SCENE_MAX_DIR_LIGHTS];
 	SpotLight spot_lights[SCENE_MAX_SPOT_LIGHTS];
 	PointLight point_lights[SCENE_MAX_POINT_LIGHTS];
-	LightIndex n_dir_lights, n_spot_lights, n_point_lights, n_sc_lights, n_sc_dir_lights;
+	LightIndex n_dir_lights, n_spot_lights, n_point_lights, n_sc_lights, n_sc_dir_lights, n_sc_spot_lights;
 	uint32_t n_catchers;
 	BufferInfo lightub;
 	ImageInfo shadow_atlas;

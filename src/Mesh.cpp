@@ -72,11 +72,23 @@ Mesh::Mesh(Mesh&& rvalue) :
 }
 
 Mesh::Mesh(const char* f) : Mesh() {
-	loadOBJ(f);
+	std::string suffix = std::string(f).substr(std::string(f).rfind('.'));
+	if (suffix == ".obj")
+		loadOBJ(f);
+	else if (suffix == ".fbx")
+		loadFBX(f);
+	else
+		FatalError("Unrecognized suffix " + suffix + " for mesh load").raise();
 }
 
 Mesh::Mesh(const char* f, VertexBufferTraits vbt) : vbtraits(vbt) {
-	loadOBJ(f);
+	std::string suffix = std::string(f).substr(std::string(f).rfind('.'));
+	if (suffix == ".obj")
+		loadOBJ(f);
+	else if (suffix == ".fbx")
+		loadFBX(f);
+	else
+		FatalError("Unrecognized suffix " + suffix + " for mesh load").raise();
 }
 
 Mesh::Mesh(VertexBufferTraits vbt, size_t vbs, size_t ibs, VkBufferUsageFlags abu) : vbtraits(vbt) {
@@ -303,23 +315,24 @@ void Mesh::loadOBJ(const char* fp) {
 				memcpy(vscan, &normaltemps[normalindices[idx0]], sizeof(glm::vec3));
 				vscan += sizeof(glm::vec3);
 			}
+			// TODO this system of calculation does not work for smooth normals
 			glm::vec3 e1 = vertextemps[vertexindices[idx1]] - vertextemps[vertexindices[idx0]],
 								e2 = vertextemps[vertexindices[idx2]] - vertextemps[vertexindices[idx0]];
 			glm::vec2 uv1 = uvtemps[uvindices[idx1]] - uvtemps[uvindices[idx0]],
 								uv2 = uvtemps[uvindices[idx2]] - uvtemps[uvindices[idx0]];
 			float norm = uv1.x*uv2.y - uv2.x*uv1.y;
 			if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
-				*reinterpret_cast<glm::vec3*>(vscan) = glm::vec3(
+				*reinterpret_cast<glm::vec3*>(vscan) = glm::normalize(glm::vec3(
 					e1.x*uv2.y - e2.x*uv1.y, 
 					e1.y*uv2.y - e2.y*uv1.y, 
-					e1.z*uv2.y - e2.z*uv1.y) / norm;
+					e1.z*uv2.y - e2.z*uv1.y) / norm);
 				vscan += sizeof(glm::vec3);
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
-				*reinterpret_cast<glm::vec3*>(vscan) = glm::vec3(
+				*reinterpret_cast<glm::vec3*>(vscan) = glm::normalize(glm::vec3(
 					-e1.x*uv2.x + e2.x*uv1.x, 
 					-e1.y*uv2.x + e2.y*uv1.x, 
-					-e1.z*uv2.x + e2.z*uv1.x) / norm;
+					-e1.z*uv2.x + e2.z*uv1.x) / norm);
 				vscan += sizeof(glm::vec3);
 			}
 			itemp = 3 * x + y;
@@ -331,6 +344,167 @@ void Mesh::loadOBJ(const char* fp) {
 	free(vdst);
 	GH::updateWholeBuffer(indexbuffer, idst);
 	free(idst);
+}
+
+void Mesh::loadFBX(const char* fp) {
+	// TODO handle fbx instances on a higher level
+	FbxManager* fbx_man = FbxManager::Create();
+	FbxImporter* fbx_importer = FbxImporter::Create(fbx_man, "");
+
+	const bool imp = fbx_importer->Initialize(fp, -1, fbx_man->GetIOSettings());
+	if (!imp) FatalError(std::string("FBX importer failed to initialize file ") + fp).raise();
+
+	FbxScene* fbx_scene = FbxScene::Create(fbx_man, "");
+	fbx_importer->Import(fbx_scene);
+	fbx_importer->Destroy();
+
+	// Just pulls first mesh node it finds
+	FbxNode* node;
+	int default_attrib_idx;
+	for (int n_i = 0; n_i < fbx_scene->GetNodeCount(); n_i++) {
+		node = fbx_scene->GetNode(n_i);
+		default_attrib_idx = node->GetDefaultNodeAttributeIndex();
+		if (default_attrib_idx != -1 && node->GetNodeAttributeByIndex(default_attrib_idx)->GetAttributeType() == FbxNodeAttribute::eMesh)
+			break;
+	}
+	if (node->GetNodeAttributeByIndex(default_attrib_idx)->GetAttributeType() != FbxNodeAttribute::eMesh)
+		FatalError(std::string("Couldn't find mesh node in FBX file ") + fp).raise();
+
+	FbxMesh* mesh = node->GetMesh();
+	size_t n_polys = (size_t)mesh->GetPolygonCount();
+
+	vertexbuffer.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	vertexbuffer.size = getVertexBufferElementSize() * 3*n_polys;
+	GH::createBuffer(vertexbuffer);
+	indexbuffer.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	indexbuffer.size = sizeof(MeshIndex) * 3*n_polys;
+	GH::createBuffer(indexbuffer);
+
+	int uv_layer_idx = 0, norm_layer_idx, tan_layer_idx, bitan_layer_idx;
+	FbxLayerElementUV* uvs = nullptr;
+	FbxLayerElementNormal* norms = nullptr;
+	FbxLayerElementTangent* tans = nullptr;
+	FbxLayerElementBinormal* bitans = nullptr;
+
+	if (vbtraits & VERTEX_BUFFER_TRAIT_UV) {
+		uv_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eUV, false);
+		uvs = mesh->GetLayer(uv_layer_idx)->GetUVs();
+		if (uvs->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex)
+			FatalError("Unsupported UV mapping mode (must be by polygon vertex)").raise();
+		if (uvs->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect)
+			FatalError("Unsupported UV reference mode (must be index to direct)").raise();
+	}
+	if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) {
+		norm_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eNormal, false);
+		norms = mesh->GetLayer(norm_layer_idx)->GetNormals();
+		if (norms->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) 
+			FatalError("Unsupported normal mapping mode (must be by polygon vertex)").raise();
+		if (norms->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eDirect)
+			FatalError("Unsupported normal reference mode (must be direct)").raise();
+	}
+	if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
+		tans = mesh->GetElementTangent();
+		if (!tans) {
+			mesh->GenerateTangentsData(uv_layer_idx);
+			tans = mesh->GetElementTangent();
+		}
+		if (tans->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) 
+			FatalError("Unsupported tangent mapping mode").raise();
+		if (tans->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eDirect)
+			FatalError("Unsupported tangent reference mode").raise();
+	}
+	if (vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
+		bitans = mesh->GetElementBinormal();
+		if (!bitans) {
+			mesh->GenerateTangentsData(uv_layer_idx);
+			bitans = mesh->GetElementBinormal();
+		}
+		if (bitans->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) 
+			FatalError("Unsupported bitangent mapping mode").raise();
+		if (bitans->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eDirect)
+			FatalError("Unsupported bitangent reference mode").raise();
+	}
+
+	float* vertices = new float[n_polys*3*getVertexBufferElementSize()/sizeof(float)], * v_scan = vertices;
+	MeshIndex* indices = new MeshIndex[n_polys*3];
+
+	glm::mat3 ws_rot(
+		1, 0, 0,
+		0, 0, -1,
+		0, 1, 0
+	);
+
+	for (size_t poly_i = 0; poly_i < n_polys; poly_i++) {
+		for (uint8_t vert_i = 0; vert_i < 3; vert_i++) {
+			indices[poly_i*3 + vert_i] = poly_i*3 + vert_i;
+			FbxVector4 cp = mesh->GetControlPointAt(mesh->GetPolygonVertex(poly_i, vert_i));
+			glm::vec3 cp_trans = ws_rot * glm::vec3(cp[0], cp[1], cp[2]);
+			*v_scan++ = cp_trans[0];
+			*v_scan++ = cp_trans[1];
+			*v_scan++ = cp_trans[2];
+			if (vbtraits & VERTEX_BUFFER_TRAIT_UV) {
+				if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
+					FbxVector2 uv;
+					bool unmapped;
+					mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
+					if (unmapped) {
+						*v_scan++ = 0;
+						*v_scan++ = 0;
+					}
+					else {
+						*v_scan++ = uv[0];
+						*v_scan++ = uv[1];
+					}
+				}
+			}
+			if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) {
+				if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
+					FbxVector4 norm;
+					mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
+					glm::vec3 norm_trans = ws_rot * glm::vec3(norm[0], norm[1], norm[2]);
+					*v_scan++ = norm_trans[0];
+					*v_scan++ = norm_trans[1];
+					*v_scan++ = norm_trans[2];
+				}
+			}
+			if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
+				if (tans->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
+					if (tans->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) {
+						FbxLayerElementArrayTemplate<FbxVector4>& tan_arr = tans->GetDirectArray();
+						FbxVector4 tan = tan_arr[poly_i*3 + vert_i];
+						glm::vec3 tan_trans = glm::normalize(ws_rot * glm::vec3(tan[0], tan[1], tan[2]));
+						*v_scan++ = tan_trans[0];
+						*v_scan++ = tan_trans[1];
+						*v_scan++ = tan_trans[2];
+					}
+				}
+			}
+			if (vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
+				if (bitans->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
+					if (bitans->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) {
+						FbxLayerElementArrayTemplate<FbxVector4>& bitan_arr = bitans->GetDirectArray();
+						FbxVector4 bitan = bitan_arr[poly_i*3 + vert_i];
+						glm::vec3 bitan_trans = glm::normalize(ws_rot * glm::vec3(bitan[0], bitan[1], bitan[2]));
+						*v_scan++ = bitan_trans[0];
+						*v_scan++ = bitan_trans[1];
+						*v_scan++ = bitan_trans[2];
+					}
+				}
+			}
+		}
+	}
+
+	GH::updateWholeBuffer(vertexbuffer, vertices);
+	GH::updateWholeBuffer(indexbuffer, indices);
+
+	/* 
+	 * make raw per-polyvert list
+	 * test it
+	 * when it works, run a pass that checks for uniqueness and sets indices/removes items if not unique (if scrolling, can use an accumulating offset to allow shifting the rest down upon removal)
+	 */
+
+	delete[] indices;
+	delete[] vertices;
 }
 
 InstancedMesh::InstancedMesh(InstancedMesh&& rvalue) :

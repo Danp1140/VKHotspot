@@ -25,10 +25,14 @@ protected:
 	glm::mat4 view, projection, vp;
 };
 
+typedef struct PositionalProjectionBaseInitInfo {
+	glm::vec3 position = glm::vec3(0);
+} PositionalProjectionBaseInitInfo;
+
 class PositionalProjectionBase {
 public:
-	PositionalProjectionBase() : position(0) {}
-	PositionalProjectionBase(const glm::vec3& p) : position(p) {}
+	PositionalProjectionBase() : PositionalProjectionBase((PositionalProjectionBaseInitInfo){}) {}
+	PositionalProjectionBase(const PositionalProjectionBaseInitInfo& ii) : position(ii.position) {}
 
 	const glm::vec3& getPos() const {return position;}
 
@@ -56,26 +60,52 @@ protected:
 	glm::vec3 forward;
 };
 
-#define CAMERA_DEFAULT_NEAR_CLIP 1.f
-#define CAMERA_DEFAULT_FAR_CLIP 100.f
+typedef struct PerspectiveProjectionBaseInitInfo {
+	float fov_y = 1.57, 
+				aspect_ratio = 1, 
+				near_clip = 1, 
+				far_clip = 100;
+} PerspectiveProjectionBaseInitInfo;
 
-class Camera : public ProjectionBase, public PositionalProjectionBase, public DirectionalProjectionBase {
+class PerspectiveProjectionBase {
 public:
-	Camera();
-	Camera(glm::vec3 p, glm::vec3 f, float fov, float ar);
-	~Camera() = default;
-	
-	float getFOVY() const {return fovy;}
-	float getNearClip() const {return nearclip;}
-	float getFarClip() const {return farclip;}
+	PerspectiveProjectionBase() : PerspectiveProjectionBase((PerspectiveProjectionBaseInitInfo){}) {}
+	PerspectiveProjectionBase(PerspectiveProjectionBaseInitInfo ii) :
+		fov_y(ii.fov_y),
+		aspect_ratio(ii.aspect_ratio),
+		near_clip(ii.near_clip),
+		far_clip(ii.far_clip) {}
 
-	void setFOVY(float f);
+	float getFOVY() const {return fov_y;}
+	float getNearClip() const {return near_clip;}
+	float getFarClip() const {return far_clip;}
+
+	void setFOVY(float f) {fov_y = f;}
+	void setAspectRatio(float ar) {aspect_ratio = ar;}
+	void setFarClip(float f) {far_clip = f;}
+
+protected:
+	float fov_y, aspect_ratio, near_clip, far_clip;
+};
+
+typedef struct CameraInitInfo {
+	PerspectiveProjectionBase perspective_super = {};
+	PositionalProjectionBase positional_super = {};
+	DirectionalProjectionBase directional_super = {};
+} CameraInitInfo;
+
+class Camera : 
+	public ProjectionBase, 
+	public PerspectiveProjectionBase, 
+	public PositionalProjectionBase, 
+	public DirectionalProjectionBase {
+public:
+	Camera() : Camera((CameraInitInfo){}) {}
+	Camera(const CameraInitInfo& ii);
+	~Camera() = default;
 
 	void updateView();
 	void updateProj();
-
-private:
-	float fovy, aspectratio, nearclip, farclip;
 };
 
 #define LIGHT_SHADOW_MAP_FORMAT VK_FORMAT_D32_SFLOAT // consider more efficient formats...
@@ -123,11 +153,6 @@ class Light {
 public:
 	Light() : Light((LightInitInfo){}) {}
 	Light(const LightInitInfo& i);
-
-	/*
-	Light& operator=(const Light& rhs) = delete;
-	Light& operator=(Light&& rhs);
-	*/
 
 	friend void swap(Light& lhs, Light& rhs);
 
@@ -195,9 +220,30 @@ public:
 private:
 };
 
-class SpotLight : public Light, public PositionalProjectionBase, public DirectionalProjectionBase {
+typedef struct SpotLightInitInfo {
+	LightInitInfo super_light = {};
+	PositionalProjectionBaseInitInfo super_positional = {};
+	DirectionalProjectionBaseInitInfo super_directional = {};
+	PerspectiveProjectionBaseInitInfo super_perspective = {};
+} SpotLightInitInfo;
+
+class SpotLight : 
+	public Light, 
+	public PositionalProjectionBase, 
+	public DirectionalProjectionBase, 
+	public PerspectiveProjectionBase {
 public:
-	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {}
+	SpotLight() : SpotLight((SpotLightInitInfo){}) {}
+	SpotLight(const SpotLightInitInfo& ii) :
+		Light(ii.super_light),
+		PositionalProjectionBase(ii.super_positional),
+		DirectionalProjectionBase(ii.super_directional),
+		PerspectiveProjectionBase(ii.super_perspective) {}
+	~SpotLight() = default;
+
+	friend void swap(SpotLight& lhs, SpotLight& rhs);
+
+	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB);
 };
 
 class PointLight : public Light, public PositionalProjectionBase {
