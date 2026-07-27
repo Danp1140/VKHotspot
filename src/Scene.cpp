@@ -168,11 +168,14 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 
 Scene::Scene(float a) : 
 	n_dir_lights(0), 
+	n_spot_lights(0), 
+	n_point_lights(0), 
 	n_sc_lights(0),
 	n_sc_dir_lights(0),
+	n_sc_spot_lights(0),
 	n_catchers(0),
 	sa_offset({0, 0}) {
-	camera = new Camera(glm::vec3(10, 8, 10), glm::vec3(-5, -4, -5), glm::quarter_pi<float>(), a);
+	camera = new Camera(); // TODO: consider making this no longer a pointer, and even allowing multiple cameras
 	lightub.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	lightub.size = sizeof(LUBData);
 	GH::createBuffer(lightub);
@@ -258,6 +261,72 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 	return &added;
 }
 
+SpotLight* Scene::addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>& sm_exts) {
+	if (n_spot_lights == SCENE_MAX_SPOT_LIGHTS) {
+		WarningError("Maximum spot lights exceeded, not adding\n").raise();
+		return nullptr;
+	}
+	spot_lights[n_spot_lights] = l;
+	SpotLight& added = spot_lights[n_spot_lights];
+
+	glm::vec4 vectors[3];
+	vectors[0] = glm::vec4(added.getCol().x, added.getCol().y, added.getCol().z, 0);
+	vectors[1] = glm::vec4(added.getForward().x, added.getForward().y, added.getForward().z, 0);
+	vectors[2] = glm::vec4(added.getPos().x, added.getPos().y, added.getPos().z, 0);
+	GH::updateBuffer(
+		lightub, 
+		&vectors[0], 
+		3*sizeof(glm::vec4), 
+		offsetof(LUBData, vectors) + SCENE_MAX_DIR_LIGHTS * 2 * sizeof(glm::vec4) + n_spot_lights * 3 * sizeof(glm::vec4));
+
+	if (sm_exts.size() > 0) {
+		uint32_t sm_idxs[sm_exts.size()];
+
+		for (size_t sm_i = 0; sm_i < sm_exts.size(); sm_i++) {
+			if (n_sc_lights + 1 == SCENE_MAX_SC_LIGHTS) {
+				WarningError("Maximum shadowmaps lights exceeded, not adding\n").raise();
+				break;
+			}
+			LightSMData smd;
+			smd.setExtent(sm_exts[sm_i]);
+			smd.setOffset(getSAZone(smd.getExtent()));
+			smd.setSM(&shadow_atlas);
+			added.addSMData(smd);
+
+			updateSMD(added, sm_i);
+
+			sm_idxs[sm_i] = n_spot_lights;
+			
+			n_sc_lights++;
+		}
+
+		GH::updateBuffer(
+			lightub, 
+			&sm_idxs[0], 
+			sm_exts.size()*sizeof(LightIndex), 
+			offsetof(LUBData, sm_idxs) + n_sc_dir_lights * sizeof(LightIndex) + n_sc_spot_lights * sizeof(LightIndex)); // TODO: this update strategy will cause trouble if a spot is added before a dir
+		n_sc_spot_lights += sm_exts.size();
+	}
+
+	n_spot_lights++;
+	GH::updateBuffer(lightub, &n_spot_lights, sizeof(uint32_t), offsetof(LUBData, light_counts) + sizeof(float));
+
+	return &added;
+}
+
+void Scene::updateSpotLight(size_t lidx) {
+	SpotLight& added = spot_lights[lidx];
+	glm::vec4 vectors[3];
+	vectors[0] = glm::vec4(added.getCol().x, added.getCol().y, added.getCol().z, 0);
+	vectors[1] = glm::vec4(added.getForward().x, added.getForward().y, added.getForward().z, 0);
+	vectors[2] = glm::vec4(added.getPos().x, added.getPos().y, added.getPos().z, 0);
+	GH::updateBuffer(
+		lightub, 
+		&vectors[0], 
+		3*sizeof(glm::vec4), 
+		offsetof(LUBData, vectors) + SCENE_MAX_DIR_LIGHTS * 2 * sizeof(glm::vec4) + lidx * 3 * sizeof(glm::vec4));
+}
+
 std::vector<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd) {
 	std::vector<size_t> res;
 	for (const LightSMData& smd : l.getSMData()) {
@@ -266,18 +335,26 @@ std::vector<size_t> Scene::addSMPipeline(const Light& l, const PipelineInfo& p, 
 	return res;
 }
 
-void Scene::addShadowCaster(const MeshBase* m, const std::vector<uint32_t>& dl_idxs) {
+void Scene::addShadowCaster(
+	const MeshBase* m, 
+	const std::vector<uint32_t>& dl_idxs,
+	const std::vector<uint32_t>& sl_idxs,
+	const std::vector<uint32_t>& pl_idxs) {
 	glm::vec3 temp;
-	for (uint8_t i = 0; i < dl_idxs.size(); i++) {
-		for (uint8_t j = 0; j < 8; j++) { 
-			temp = ProjectionBase::apply(m->getModelMatrix(), glm::vec3(
-						m->getAABB()[j % 2].x, 
-						m->getAABB()[(uint8_t)floor(j/2) % 2].y, 
-						m->getAABB()[(uint8_t)floor(j/4) % 2].z));
-			for (uint8_t k = 0; k < dir_lights[dl_idxs[i]].getSMData().size(); k++) {
+	for (uint8_t v_idx = 0; v_idx < 8; v_idx++) { 
+		temp = ProjectionBase::apply(m->getModelMatrix(), glm::vec3(
+			m->getAABB()[v_idx % 2].x, 
+			m->getAABB()[(uint8_t)floor(v_idx/2) % 2].y, 
+			m->getAABB()[(uint8_t)floor(v_idx/4) % 2].z));
+		for (uint8_t i = 0; i < dl_idxs.size(); i++) {
+			for (uint8_t k = 0; k < dir_lights[dl_idxs[i]].getSMData().size(); k++) 
 				dir_lights[dl_idxs[i]].getSMDatum(k).addVecToFocus(temp);
-			}
 		}
+		for (uint8_t i = 0; i < sl_idxs.size(); i++) {
+			for (uint8_t k = 0; k < spot_lights[sl_idxs[i]].getSMData().size(); k++) 
+				spot_lights[sl_idxs[i]].getSMDatum(k).addVecToFocus(temp);
+		}
+		// TODO: impl for point lights
 	}
 }
 
@@ -311,7 +388,11 @@ void Scene::updateLightCatcher(
 	CatcherEntry entry;
 
 	entry.light_counts[0] = d_l_idxs.size();
+	entry.light_counts[1] = s_l_idxs.size();
+	entry.light_counts[2] = p_l_idxs.size();
 	memcpy(&entry.dir_light_idxs[0], d_l_idxs.data(), entry.light_counts[0] * sizeof(uint32_t));
+	memcpy(&entry.spot_light_idxs[0], s_l_idxs.data(), entry.light_counts[1] * sizeof(uint32_t));
+	memcpy(&entry.point_light_idxs[0], p_l_idxs.data(), entry.light_counts[2] * sizeof(uint32_t));
 	GH::updateBuffer(lightub, &entry, sizeof(CatcherEntry), offsetof(LUBData, catcher_entries) + cidx * sizeof(CatcherEntry));
 }
 

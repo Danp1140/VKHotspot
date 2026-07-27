@@ -319,7 +319,7 @@ public:
 
 private:
 	std::mt19937 gen;
-	std::uniform_int_distribution<U> dist;
+	std::conditional_t<std::is_integral_v<U>, std::uniform_int_distribution<U>, std::uniform_real_distribution<U>> dist;
 };
 
 class TextureSet {
@@ -351,6 +351,7 @@ public:
 
 		void* data = malloc(res*res*sizeof(T)*roots.size());
 		T* scan = (T*)data;
+		std::cout << "begin tex gen" << std::endl;
 		for (size_t i = 0; i < res; i++) {
 			for (size_t j = 0; j < res; j++) {
 				for (uint8_t k = 0; k < roots.size(); k++) {
@@ -358,6 +359,7 @@ public:
 				}
 			}
 		}
+		std::cout << "end tex gen" << std::endl;
 		GH::updateImage(*dst, data);
 		free(data);
 	}

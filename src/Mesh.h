@@ -117,6 +117,7 @@ protected:
 	 * lost in vertexbuffer and indebuffer before you call this
 	 */
 	void loadOBJ(const char* fp);
+	void loadFBX(const char* fp);
 
 private:
 
