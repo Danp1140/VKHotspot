@@ -285,7 +285,6 @@ int main() {
 	 * FBX Loading
 	 * Will be moved to Mesh once we have a branch for animation
 	 */
-	/*
 	FbxManager* fbx_man = FbxManager::Create();
 	FbxImporter* fbx_importer = FbxImporter::Create(fbx_man, "");
 
@@ -298,8 +297,9 @@ int main() {
 	fbx_importer->Destroy();
 
 	std::cout << "node count: " << fbx_scene->GetNodeCount() << std::endl;
-	printNode(fbx_scene->GetNode(0));
-	*/
+	for (int i = 0; i < fbx_scene->GetNodeCount(); i++) {
+		printNode(fbx_scene->GetNode(i));
+	}
 
 	ArmaturedMesh m("resources/test.fbx");
 	VkDescriptorSet ds_temp;
