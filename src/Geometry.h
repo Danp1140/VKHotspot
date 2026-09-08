@@ -130,15 +130,7 @@ public:
 					Q.setCol(r, Mat<1, D_col, T>((uint8_t)0, r));
 			}
 			Mat<D_row, D_col, T> pivoted = *this * Q;
-
-			/*
-			 * Setting known parts of U and L
-			 */
-			U.setCol(0, Mat<1, D_col, T>((uint8_t)0, (uint8_t)0)); // left col of U is all 0 except top left, which is overwritten next line
-			U.setRow(0, pivoted.getRow(0));                        // top row of U is same as that of *this
-			L.setCol(0, pivoted.getCol(0) / pivoted.data[0]);      // left col of L is that of *this div by upper left of *this
-			L.setRow(0, Mat<D_row, 1, T>((uint8_t)0, (uint8_t)0)); // top row of L is just 1 at the left 
-
+	
 			/*
 			 * Next recursive call
 			 */
@@ -154,15 +146,6 @@ public:
 					next_M.data[c*(D_row-1) + r] = pivoted.data[(c+1)*D_row+r+1] - outer_prod.data[c*(D_row-1) + r];
 				}
 			}
-			std::cout << "l:" << std::endl;
-			std::cout << l.to_string() << std::endl;
-			std::cout << "uT:" << std::endl;
-			std::cout << uT.to_string() << std::endl;
-			std::cout << "pivoted A:" << std::endl;
-			std::cout << pivoted.to_string() << std::endl;
-			std::cout << "luT:" << std::endl;
-			std::cout << outer_prod.to_string() << std::endl;
-
 			next_M.LUQ(next_L, next_U, next_Q);
 
 			/*
@@ -175,18 +158,50 @@ public:
 					L.data[(c+1)*D_row+r+1] = next_L.data[c*(D_row-1) + r];
 					U.data[(c+1)*D_row+r+1] = next_U.data[c*(D_row-1) + r];
 					temp_Q.data[(c+1)*D_row+r+1] = next_Q.data[c*(D_row-1) + r];
+					/*
+					if (r < max_piv_col_idx) 
+						Q.data[(c+1)*D_row+r] = next_Q.data[c*(D_row-1)+r];
+					else if (r >= max_piv_col_idx)
+						Q.data[(c+1)*D_row+(r+1)] = next_Q.data[c*(D_row-1)+r];
+					*/
 				}
 			}
+
+			/*
+			 * Setting known parts of U and L
+			 */
 			Q = Q * temp_Q;
+			uT = uT * next_Q;
+			Mat<D_row, 1, T> uT_long;
+			uT_long.data[0] = pivoted.data[0];
+			memcpy(&uT_long.data[1], uT.data, (D_row - 1)*sizeof(T));
+			U.setCol(0, Mat<1, D_col, T>((uint8_t)0, (uint8_t)0)); // left col of U is all 0 except top left, which is overwritten next line
+			U.setRow(0, uT_long);                        // top row of U is same as that of *this
+			L.setCol(0, pivoted.getCol(0) / pivoted.data[0]);      // left col of L is that of *this div by upper left of *this
+			L.setRow(0, Mat<D_row, 1, T>((uint8_t)0, (uint8_t)0)); // top row of L is just 1 at the left 
 		}
 	}
 
 	Mat<D_row, D_col, T> invert() {
-		Mat<D_row, D_col, T> L, U, Q;
+		Mat<D_row, D_col, T> L, U, Q, M;
 		LUQ(L, U, Q);
-		for (uint8_t c = 0; c < D_col; c++) {
-
+		Mat<1, D_col, T> w, v;
+		for (uint8_t r = 0; r < D_row; r++) {
+			for (uint8_t c = 0; c < D_col; c++) {
+				w.data[c] = (c == r ? 1 : 0);
+				for (uint8_t c2 = 0; c2 < c; c2++) 
+					w.data[c] -= w.data[c2] * L.data[c*D_row + c2];
+				w.data[c] /= L.data[c*D_row + c];
+			}
+			for (uint8_t c = D_col - 1; c < (uint8_t)-1; c--) {
+				v.data[c] = w.data[c];
+				for (uint8_t c2 = c+1; c2 < D_col; c2++) 
+					v.data[c] -= v.data[c2] * U.data[c*D_row + c2];
+				v.data[c] /= U.data[c*D_row + c];
+			}
+			M.setCol(r, v);
 		}
+		return Q * M;
 	}
 
 	std::string to_string() const {
@@ -456,257 +471,6 @@ private:
 			// v_adj_f.add(
 			fillCavity(v_adj_f, boundary);
 		}
-	}
-};
-
-template<uint8_t D, typename T=float>
-class Vec {
-public:
-	Vec() = default;
-	Vec(T v) {
-		for (uint8_t d = 0; d < D; d++) 
-			data[d] = (T)v;
-	}
-
-	T& operator[](const uint8_t i) {
-		if (i > D) 
-			FatalError("Index " + std::to_string(i) + " out of range for vector of dimension " + std::to_string(D)).raise();
-		return data[i];
-	}
-	Vec<D, T> operator+(const Vec<D, T>& rhs) const {
-		Vec<D, T> res;
-		for (uint8_t d = 0; d < D; d++) 
-			res.data[d] = data[d] + rhs.data[d];
-		return res;
-	}
-	Vec<D, T> operator-(const Vec<D, T>& rhs) const {
-		Vec<D, T> res;
-		for (uint8_t d = 0; d < D; d++) 
-			res.data[d] = data[d] - rhs.data[d];
-		return res;
-	}
-	Vec<D, T> operator*(const T& rhs) const {
-		Vec<D, T> res;
-		for (uint8_t d = 0; d < D; d++)
-			res.data[d] = data[d] * rhs;
-		return res;
-	}
-	Vec<D, T> operator/(const T& rhs) const {
-		Vec<D, T> res;
-		for (uint8_t d = 0; d < D; d++)
-			res.data[d] = data[d] / rhs;
-		return res;
-	}
-	const Vec<D, T>& operator-=(const Vec<D, T>& rhs) {
-		*this = *this - rhs;
-		return *this;
-	}
-	T magSq() const {
-		T res = (T)0;
-		for (uint8_t d = 0; d < D; d++) 
-			res += pow(data[d], 2);
-		return res;
-	}
-	T mag() const {
-		return sqrt(magSq());
-	}
-
-private:
-	T data[D];
-};
-
-template<uint8_t D_col, uint8_t D_row, typename T=float>
-class Mat {
-public:
-private:
-	Vec<D_row> cols[D_col];
-};
-
-template<uint8_t D, typename T=float>
-class Facet {
-public:
-	Facet(Vec<D, T>** v) {
-		for (uint8_t d = 0; d < D+1; d++) {
-			member_vertices[d] = v[d];
-			direct_adj[d] = nullptr;
-		}
-	}
-	Facet(Facet<D-1, T>* f, Vec<D, T>* v) {
-		for (uint8_t d = 0; d < D; d++) {
-			member_vertices[d] = f.member_vertices[d];
-			direct_adj[d] = nullptr;
-		}
-		member_vertices[D] = v;
-		direct_adj[D] = nullptr;
-	}
-
-	size_t operator[](const uint8_t i) const {
-		if (i > D) 
-			FatalError("Index " + std::to_string(i) + " out of range for facet of dimension " + std::to_string(D)).raise();
-		return indices[i];
-	}
-
-	std::set<Facet<D-1, T>> getChildFacets() const {
-		std::set<Facet<D-1, T>> res;
-		Vec<D, T> vert_tmp[D];
-		for (uint8_t d = 0; d < D; d++) {
-			/*
-			 * just do a scrolling window of len D-1 that can wrap around
-			 * so for a tetrahedron, indices[0, 1, 2], [1, 2, 3], [2, 3, 0], [3, 0, 1]
-			 */
-			for (uint8_t i = 0; i < D - 1; i++) 
-				vert_tmp[i] = member_vertices[(d + i) % D];
-			res.insert(Facet<D-1, T>(vert_tmp));
-		}
-	}
-	Vec<D, T>* getUnique(const Facet<D, T>& other) { // returns this's member_vertex not contained in other, both dD facets 
-		bool found;
-		for (uint8_t d1 = 0; d1 < D; d1++) {
-			found = false;
-			for (uint8_t d2 = 0; d2 < D; d2++) {
-				if (member_vertices[d1] == other.member_vertices[d2]) {
-					found = true;
-					break;
-				}
-			}
-			if (!found) return member_vertices[d1]
-		}
-		return nullptr;
-	}
-	Vec<D, T> centroid() {
-		Vec<D, T> res;
-		for (uint8_t i = 0; i < D+1; i++) 
-			res += member_vertices[d];
-		return res / (T)(D+1);
-	}
-
-private:
-	Vec<D, T>* member_vertices[D+1];
-	Facet<D, T>* direct_adj[D+1]; // facets of dim D which are adjacent via a facet of dim D-1
-																// a nullptr means that face is unbounded 
-};
-
-template<uint8_t D, typename T=float>
-class Graph {
-public:
-	~Graph() {
-		for (Vec<D, T>* v : vertices) delete v;
-		for (Facet<D, T>* f : facets) delete f;
-	}
-protected:
-	std::vector<Vec<D, T>*> vertices;
-	
-	void removeFacet(Facet f) {
-		Facet* adj;
-		for (uint8_t d = 0; d < f.getDim() + 1; d++) {
-			adj = f.getDirAdj()[d];
-			if (adj)
-				adj.replaceDirAdj(f, nullptr);
-		}
-		facets[f.getDim() - 2].remove(f);
-	}
-
-private:
-	std::set<Facet<D, T>*> facets; // Dd facets. lower dim facets are implicit 
-};
-
-template<uint8_t D, typename T=float>
-class DelaunayGraph : public Graph<D, T> {
-	using Graph<D, T>::vertices;
-	using Graph<D, T>::facets;
-public:
-	/* 
-	 * by default constructs a hypertetrahedron with each side length 1 centered on origin
-	 */
-	DelaunayGraph() {
-		vertices.push_back(Vec<D, T>(0));
-		Vec<D, T> to_add, centroid(0);
-		for (uint8_t d = 0; d < D; d++) {
-			to_add = centroid;
-			to_add[d] = sqrt(1 - centroid.magSq());
-			vertices.push_back(new Vec<D, T>(to_add));
-			centroid = (centroid*(d+1) + to_add) / (d+2);
-		}
-		Vec<D, T>* Dd_facets_temp[D+1];
-		for (uint8_t d = 0; d < D; d++) {
-			*vertices[d] -= centroid;
-			Dd_facets_temp[d] = verctices[d];
-		}
-		facets.insert(new Facet<D, T>(Dd_facets_temp));
-	}
-
-	/* 
-	 * places a vertex at the centroid of the D-dimensional facet at the given index
-	 */
-	void addVertex(const Facet* f) {
-		Vec<D, T>* to_add = new Vec<D, T>(f->centroid());
-
-		Facet<D, T>* adj;
-		for (uint8_t d = 0; d < D + 1; d++) {
-			std::set<Facet<D, T>*> cavity;
-			adj = f->getDirAdj()[d];
-			if (adj) digCavity(to_add, adj, f->getUnique(*adj), cavity);
-			fillCavity();
-		}
-
-		facets.remove(f);
-		delete f;
-
-		// handle delaunay nastiness
-		//
-		// remove the given Dd facet
-		// make new facets between vertex and removed Dd facet's D+1 (D-1)d child facets
-		// for each created facet:
-		//   find the Dd facet it is adjacent to by the shared (D-1)d child facet
-		//   check if non shared vertex is in circumsphere
-		//     if not all good
-		//     if so, create a cavity by destroying both Dd facets
-		//       on the D old Dd facets adjacent to the cavity just created, run the same test against the newest vertex
-		//       continue digging the cavity until all good
-		//       fill the cavity
-		//         for each (D-1)d facet of the cavity NOT adjacent to the newest vertex, create a Dd facet between it
-		//         and the newest vertex
-		//
-		// TODOs for this algorithm:
-		// - easy addition and removal of arbitrary dimension facets (namely D and D-1 dimensional)
-		// - easy determination of adjacent facets
-		// - easy comparison of if facets are same
-		// - determination of which vertex is part of parent facet but not child
-		// - circumsphere test
-	}
-private:
-	/*
-	 * v is the added vertex
-	 * f is the Dd facet to test against
-	 * w is the vertex of f that is not on the cavity boundary (undergoes circumcenter test against Dd facet between v and
-	 * remaining vertices of f)
-	 * boundary is a set of (D-d) facets CONFIRMED to be part of the boundary
-	 */
-	void digCavity(Vec<D, T>* v, Facet<D, T>* f, Vec<D, T>* w, std::set<Facet>& boundary) {
-		Facet<D-1, T> poss_bound = f->getNot(w);
-		float c = Facet(poss_bound, v).circumcenter();
-		if (c > 0) {
-			boundary.insert(poss_bound);
-		}
-		else if (c < 0) {
-			facets[D-1].remove(f);
-			Facet* next;
-			for (uint8_t d = 0; d < D+1; d++) {
-				next = f.getDirAdj()[d];
-				if (next) 
-					digCavity(v, *next, next.getUnique(f), boundary);
-			}
-			facets.remove(f);
-			delete f;
-		}
-		else {
-			FatalError("Circumcenter test exactly 0, unimplemented").raise();
-		}
-	}
-	/*
-	 */
-	void fillCavity(Facet<D, T>* v_adj_f, std::set<Facet<D, T>*>& boundary) {
-		
 	}
 };
 
