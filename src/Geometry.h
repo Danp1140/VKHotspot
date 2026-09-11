@@ -8,6 +8,8 @@ class Octree;
 #include "Mesh.h"
 #include <sstream>
 
+typedef uint8_t Dim;
+
 // row major
 // D_row is number of entries in row, num col
 // D_col is number of entries in col, num row
@@ -231,10 +233,14 @@ private:
 
 // typedef Mat<D, 1, T> Vec<D, T>
 
+
 template<uint8_t D, typename T=float>
 class Vec {
 public:
-	Vec() = default;
+	Vec() {
+		for (uint8_t d = 0; d < D; d++) 
+			data[d] = (T)0;
+	}
 	Vec(T v) {
 		for (uint8_t d = 0; d < D; d++) 
 			data[d] = (T)v;
@@ -287,103 +293,141 @@ private:
 	T data[D];
 };
 
-template<uint8_t D, typename T=float>
-class Facet {
+// N-simplex existing in dimension D with positional precision T
+template<Dim D, Dim N, typename T=float>
+class Simplex {
 public:
-	Facet(Vec<D, T>** v) {
-		for (uint8_t d = 0; d < D+1; d++) {
-			member_vertices[d] = v[d];
-			direct_adj[d] = nullptr;
+	Simplex() : member_vertices(nullptr), direct_adj(nullptr), parent(nullptr) {}
+	Simplex(Vec<D, T>** v) : parent(nullptr) {
+		for (Dim n = 0; n < N; n++) {
+			member_vertices[n] = v[n];
+			direct_adj[n] = nullptr;
 		}
 	}
-	Facet(Facet<D-1, T>* f, Vec<D, T>* v) {
-		for (uint8_t d = 0; d < D; d++) {
-			member_vertices[d] = f->member_vertices[d];
-			direct_adj[d] = nullptr;
+	Simplex(Simplex<D, N-1, T>* f, Vec<D, T>* v) : parent(nullptr) {
+		for (Dim n = 0; n < N - 1; n++) {
+			member_vertices[n] = f->member_vertices[n];
+			direct_adj[n] = nullptr;
 		}
-		member_vertices[D] = v;
-		direct_adj[D] = nullptr;
+		member_vertices[N - 1] = v;
+		direct_adj[N - 1] = nullptr;
 	}
 
-	Vec<D, T>* operator[](const uint8_t i) const {
-		if (i > D + 1) 
-			FatalError("Index " + std::to_string(i) + " out of range for facet of dimension " + std::to_string(D)).raise();
-		return member_vertices[i];
+	Vec<D, T>* operator[](Dim n) const {
+		if (n > N) {
+			FatalError("Index " + std::to_string(n) + " out of range for " + std::to_string(N) + " facet").raise();
+			return nullptr;
+		}
+		return member_vertices[n];
 	}
 
-	std::set<Facet<D-1, T>> getChildFacets() const {
-		std::set<Facet<D-1, T>> res;
+	void setParent(Simplex<D, N+1, T>* p) {parent = p;}
+
+	Simplex<D, N, T>** getDirAdj() {return &direct_adj[0];}
+	Simplex<D, N-1, T> getDirAdj(Dim n) {
+		Vec<D, T>* points[N-1], * u = getUnique(*direct_adj[n]);
+		Dim idx = 0;
+		for (Dim n = 0; n < D+1; n++) {
+			if (member_vertices[n] != u) {
+				points[idx] = member_vertices[n];
+				idx++;
+			}
+		}
+		Simplex<D, N-1, T> res(&points[0]);
+		res.setParent(this);
+		return res;
+	}
+
+/*
+	std::set<Simplex<D, N-1, T>> getChildFacets() const {
+		std::set<Simplex<D, N-1, T>> res;
 		Vec<D, T> vert_tmp[D];
 		for (uint8_t d = 0; d < D; d++) {
-			/*
-			 * just do a scrolling window of len D-1 that can wrap around
-			 * so for a tetrahedron, indices[0, 1, 2], [1, 2, 3], [2, 3, 0], [3, 0, 1]
-			 */
+			// just do a scrolling window of len D-1 that can wrap around
+			// so for a tetrahedron, indices[0, 1, 2], [1, 2, 3], [2, 3, 0], [3, 0, 1]
 			for (uint8_t i = 0; i < D - 1; i++) 
 				vert_tmp[i] = member_vertices[(d + i) % D];
 			res.insert(Facet<D-1, T>(vert_tmp));
 		}
 	}
-	Vec<D, T>* getUnique(const Facet<D, T>& other) { // returns this's member_vertex not contained in other, both dD facets 
+*/
+	Vec<D, T>* getUnique(const Simplex<D, N, T>& other) const { // returns this's member_vertex not contained in other, both dD facets 
 		bool found;
-		for (uint8_t d1 = 0; d1 < D; d1++) {
+		for (Dim n1 = 0; n1 < N; n1++) {
 			found = false;
-			for (uint8_t d2 = 0; d2 < D; d2++) {
-				if (member_vertices[d1] == other.member_vertices[d2]) {
+			for (uint8_t n2 = 0; n2 < N; n2++) {
+				if (member_vertices[n1] == other.member_vertices[n2]) {
 					found = true;
 					break;
 				}
 			}
-			if (!found) return member_vertices[d1];
+			if (!found) return member_vertices[n1];
 		}
 		return nullptr;
 	}
-	Vec<D, T> centroid() {
+
+	Vec<D, T> centroid() const {
 		Vec<D, T> res;
-		for (uint8_t d = 0; d < D+1; d++) 
-			res += member_vertices[d];
-		return res / (T)(D+1);
+		for (Dim n = 0; n < N; n++) 
+			res = res + *member_vertices[n];
+		return res / (T)N;
+	}
+	// < 0 if in circumsphere
+	// 0 if on circumsphere
+	// > 0 if out of circumsphere
+	T circumcenterTest(Vec<D, T> v) const {
+		Mat<N+1, N+1, T> C;
+		for (Dim n = 1; n < N+1; n++) {
+			C.data[n] = 1;	
+			C.data[n*(N+1)] = 1;
+		}
+		for (Dim r = 0; r < N; r++) {
+			for (Dim c = 0; c < N; c++) {
+				if (r != c) 
+					C.data[(c+1)*(N+1) + (r+1)] = (*member_vertices[c] - *member_vertices[r]).magSq();
+			}
+		}
+		Mat<N+1, N+1, T> M = -2 * C.invert();
+		T r = 0.5 * sqrt(M.data[0]);
+		Vec<D, T> c;
+		T denom = 0;
+		for (Dim n = 1; n < N; n++) {
+			c = c + M.data[n] * *member_vertices[n];
+			denom += M.data[n];
+		}
+		c = c / denom;
+		return (*c - v).mag() - r;
 	}
 
 private:
-	Vec<D, T>* member_vertices[D+1];
-	Facet<D, T>* direct_adj[D+1]; // facets of dim D which are adjacent via a facet of dim D-1
+	Vec<D, T>* member_vertices[N];
+	Simplex<D, N, T>* direct_adj[N]; // facets of dim D which are adjacent via a facet of dim D-1
 																// a nullptr means that face is unbounded 
+	Simplex<D, N+1, T>* parent; // nullptr if not part of a larger facet
 };
 
-template<uint8_t D, typename T=float>
+// Graph in spatial dimension D made of N-simplices
+template<Dim D, Dim N, typename T=float>
 class Graph {
 public:
 	~Graph() {
 		for (Vec<D, T>* v : vertices) delete v;
-		for (Facet<D, T>* f : facets) delete f;
+		for (Simplex<D, N, T>* s : simplices) delete s;
 	}
 
-	void addFacet(Facet<D, T>* f) {facets.insert(f);}
-	void removeFacet(Facet<D, T>* f) {facets.remove(f);}
+	void addSimplex(Simplex<D, N, T>* s) {simplices.insert(s);}
+	void removeSimplex(Simplex<D, N, T>* s) {simplices.remove(s);}
+	const std::set<Simplex<D, N, T>*>& getSimplices() {return simplices;}
 protected:
 	std::vector<Vec<D, T>*> vertices;
 	
-/*
-	void removeFacet(Facet f) {
-		Facet* adj;
-		for (uint8_t d = 0; d < f.getDim() + 1; d++) {
-			adj = f.getDirAdj()[d];
-			if (adj)
-				adj.replaceDirAdj(f, nullptr);
-		}
-		facets[f.getDim() - 2].remove(f);
-	}
-*/
-
 private:
-	std::set<Facet<D, T>*> facets; // Dd facets. lower dim facets are implicit 
+	std::set<Simplex<D, N, T>*> simplices; // Dd facets. lower dim facets are implicit 
 };
 
-template<uint8_t D, typename T=float>
-class DelaunayGraph : public Graph<D, T> {
-	using Graph<D, T>::vertices;
-	// using Graph<D, T>::facets;
+template<Dim D, Dim N, typename T=float>
+class DelaunayGraph : public Graph<D, N, T> {
+	using Graph<D, N, T>::vertices;
 public:
 	/* 
 	 * by default constructs a hypertetrahedron with each side length 1 centered on origin
@@ -402,24 +446,30 @@ public:
 			*vertices[d] -= centroid;
 			Dd_facets_temp[d] = vertices[d];
 		}
-		Graph<D, T>::addFacet(new Facet<D, T>(Dd_facets_temp));
+		Graph<D, N, T>::addSimplex(new Simplex<D, N, T>(Dd_facets_temp));
 	}
 
 	/* 
 	 * places a vertex at the centroid of the D-dimensional facet at the given index
 	 */
-	void addVertex(const Facet<D, T>* f) {
+	void addVertex(Simplex<D, N, T>* f) {
 		Vec<D, T>* to_add = new Vec<D, T>(f->centroid());
 
-		Facet<D, T>* adj;
-		for (uint8_t d = 0; d < D + 1; d++) {
-			std::set<Facet<D, T>*> cavity;
-			adj = f->getDirAdj()[d];
+		Simplex<D, N, T>* adj;
+		Simplex<D, N-1, T> other_adj[N-1];
+		for (Dim n = 0; n < N; n++) {
+			std::set<Simplex<D, N-1, T>> cavity;
+			adj = f->getDirAdj()[n];
+			for (Dim other_n = 0; other_n < N; other_n++) {
+				if (other_n < n) other_adj[other_n] = f->getDirAdj(other_n);
+				else if (other_n > n) other_adj[other_n - 1] = f->getDirAdj(other_n);
+			}
 			if (adj) digCavity(to_add, adj, f->getUnique(*adj), cavity);
-			fillCavity();
+			std::set<Simplex<D, N-1, T>> other_adj_set(&other_adj[0], &other_adj[N-1]);
+			fillCavity(other_adj_set, cavity);
 		}
 
-		removeFacet(f);
+		Graph<D, N, T>::removeSimplex(f);
 		delete f;
 	}
 private:
@@ -430,42 +480,41 @@ private:
 	 * remaining vertices of f)
 	 * boundary is a set of (D-d) facets CONFIRMED to be part of the boundary
 	 */
-	void digCavity(Vec<D, T>* v, Facet<D, T>* f, Vec<D, T>* w, std::set<Facet<D-1, T>>& boundary) {
-		Facet<D-1, T> poss_bound = f->getNot(w);
-		float c = Facet(poss_bound, v).circumcenter();
+	void digCavity(Vec<D, T>* v, Simplex<D, N, T>* f, Vec<D, T>* w, std::set<Simplex<D, N-1, T>>& boundary) {
+		Simplex<D, N-1, T> poss_bound = f->getNot(w);
+		float c = Simplex(poss_bound, v).circumcenter();
 		if (c > 0) 
 			boundary.insert(poss_bound);
 		else if (c < 0) {
-			Facet<D, T>* next;
-			for (uint8_t d = 0; d < D+1; d++) {
-				next = f->getDirAdj()[d];
+			Simplex<D, N, T>* next;
+			for (Dim n = 0; n < N; n++) {
+				next = f->getDirAdj()[n];
 				if (next) 
 					digCavity(v, *next, next->getUnique(f), boundary);
 			}
-			removeFacet(f);
+			removeSimplex(f);
 			delete f;
 		}
 		else {
 			FatalError("Circumcenter test exactly 0, unimplemented").raise();
 		}
 	}
-	/*
-	 */
-	void fillCavity(std::set<Facet<D-1, T>*>& v_adj_f, std::set<Facet<D-1, T>*>& boundary) {
+	// could make first param a ptr cuz we know the size and itd be easy enough to swap stuff in and out
+	void fillCavity(std::set<Simplex<D, N-1, T>>& v_adj_f, std::set<Simplex<D, N-1, T>>& boundary) {
 		if (boundary.size() == 1) {
-			addFacet(new Facet<D, T>(v_adj_f));
+			addSimplex(new Simplex<D, N, T>(v_adj_f));
 		}
 		else {
-			Facet<D-1, T>* f1 = *v_adj_f.begin(), * f2 = nullptr;
-			for (uint8_t d = 0; d < D; d++) {
-				if (boundary.contains(f1->getDirAdj()[d]) && !v_adj_f.contains(f1->getDirAdj()[d])) {
+			Simplex<D, N-1, T>* f1 = *v_adj_f.begin(), * f2 = nullptr;
+			for (Dim d = 0; d < D; d++) {
+				if (boundary.contains(f1->getDirAdj(d)) && !v_adj_f.contains(f1->getDirAdj(d))) {
 					f2 = f1->getDirAdj()[d];
 					break;
 				}
 			}
 			if (f2 == nullptr) 
 				FatalError("Couldn't find second facet for fillCav").raise();
-			addFacet(new Facet<D, T>(f1, f2));
+			addSimplex(new Simplex<D, N, T>(f1, f2));
 			boundary.remove(f2);
 			v_adj_f.remove(f1);
 			// v_adj_f.add(
