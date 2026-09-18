@@ -497,6 +497,12 @@ public:
 	void addSimplex(Simplex<D, N, T>* s) {simplices.insert(s);}
 	void removeSimplex(Simplex<D, N, T>* s) {simplices.erase(s);}
 	const std::set<Simplex<D, N, T>*>& getSimplices() {return simplices;}
+
+	size_t getNumVertices() const {return vertices.size();}
+	size_t getNumSimplices() const {return simplices.size();}
+	const std::vector<VectD, T>*>& getVertices() const {return vertices;}
+	const std::set<Simplex<D, N, T>*>& getSimplices() const {return simplices;}
+
 protected:
 	std::vector<Vec<D, T>*> vertices;
 	
