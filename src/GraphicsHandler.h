@@ -374,6 +374,7 @@ public:
 	// use sparingly, only if all window tasks truly change, e.g. scene change
 	void clearTasks();
 
+	uint32_t getFIFIndex() const {return fifindex;}
 	const VkSwapchainKHR& getSwapchain() const {return swapchain;}
 	VkSampleCountFlagBits getMSAASamples() const {return mscolorbuffer.samples;}
 	const ImageInfo* const getSCImages() const {return scimages;}
@@ -382,6 +383,8 @@ public:
 	const VkExtent2D& getSCExtent() const {return scimages[0].extent;}
 	uint32_t getNumSCIs() const {return numscis;}
 	SDL_Window* getSDLWindow() {return sdlwindow;}
+	const VkFence& getCurrentSubmitFinishedFence() const {return subfinishfences[fifindex];}
+	const VkFence* getSubmitFinishedFences() const {return &subfinishfences[0];}
 
 private:
 	SDL_Window* sdlwindow;

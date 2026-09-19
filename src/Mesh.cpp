@@ -389,18 +389,10 @@ void Mesh::loadFBX(const char* fp) {
 	if (vbtraits & VERTEX_BUFFER_TRAIT_UV) {
 		uv_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eUV, false);
 		uvs = mesh->GetLayer(uv_layer_idx)->GetUVs();
-		if (uvs->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex)
-			FatalError("Unsupported UV mapping mode (must be by polygon vertex)").raise();
-		if (uvs->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect)
-			FatalError("Unsupported UV reference mode (must be index to direct)").raise();
 	}
 	if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) {
 		norm_layer_idx = mesh->GetLayerIndex(0, FbxLayerElement::EType::eNormal, false);
 		norms = mesh->GetLayer(norm_layer_idx)->GetNormals();
-		if (norms->GetMappingMode() != fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex) 
-			FatalError("Unsupported normal mapping mode (must be by polygon vertex)").raise();
-		if (norms->GetReferenceMode() != fbxsdk::FbxLayerElement::EReferenceMode::eDirect)
-			FatalError("Unsupported normal reference mode (must be direct)").raise();
 	}
 	if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
 		tans = mesh->GetElementTangent();
@@ -446,7 +438,9 @@ void Mesh::loadFBX(const char* fp) {
 				if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
 					FbxVector2 uv;
 					bool unmapped;
-					mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
+					if (uvs->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex)
+						mesh->GetPolygonVertexUV(poly_i, vert_i, uvs->GetName(), uv, unmapped);
+					else FatalError("Unsupported mapping mode").raise();
 					if (unmapped) {
 						*v_scan++ = 0;
 						*v_scan++ = 0;
@@ -456,16 +450,31 @@ void Mesh::loadFBX(const char* fp) {
 						*v_scan++ = uv[1];
 					}
 				}
+				else FatalError("Unsupported reference mode").raise();
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) {
+				FbxVector4 norm;
+				glm::vec3 norm_trans;
 				if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {
-					FbxVector4 norm;
-					mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
-					glm::vec3 norm_trans = ws_rot * glm::vec3(norm[0], norm[1], norm[2]);
+					if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex)
+						mesh->GetPolygonVertexNormal(poly_i, vert_i, norm);
+					else FatalError("Unsupported mapping mode").raise();
+					norm_trans = ws_rot * glm::vec3(norm[0], norm[1], norm[2]);
 					*v_scan++ = norm_trans[0];
 					*v_scan++ = norm_trans[1];
 					*v_scan++ = norm_trans[2];
 				}
+				else if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {	
+					if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByControlPoint)
+						norm = norms->GetDirectArray()[norms->GetIndexArray()[mesh->GetPolygonVertex(poly_i, vert_i)]];
+					else FatalError("Unsupported mapping mode").raise();
+					norm_trans = ws_rot * glm::vec3(norm[0], norm[1], norm[2]);
+					*v_scan++ = norm_trans[0];
+					*v_scan++ = norm_trans[1];
+					*v_scan++ = norm_trans[2];
+
+				}
+				else FatalError("Unsupported reference mode").raise();
 			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
 				if (tans->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eDirect) {

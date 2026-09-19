@@ -7,6 +7,7 @@ find_dependency(Freetype REQUIRED)
 find_dependency(Vulkan REQUIRED)
 find_dependency(SDL3 REQUIRED)
 find_dependency(PNG REQUIRED)
-find_dependency(portaudio REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(portaudio REQUIRED IMPORTED_TARGET portaudio-2.0)
 
 check_required_components(VKH)
