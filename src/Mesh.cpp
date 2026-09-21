@@ -431,9 +431,12 @@ void Mesh::loadFBX(const char* fp) {
 			indices[poly_i*3 + vert_i] = poly_i*3 + vert_i;
 			FbxVector4 cp = mesh->GetControlPointAt(mesh->GetPolygonVertex(poly_i, vert_i));
 			glm::vec3 cp_trans = ws_rot * glm::vec3(cp[0], cp[1], cp[2]);
-			*v_scan++ = cp_trans[0];
-			*v_scan++ = cp_trans[1];
-			*v_scan++ = cp_trans[2];
+			addVecToAABB(cp_trans);
+			if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) {
+				*v_scan++ = cp_trans[0];
+				*v_scan++ = cp_trans[1];
+				*v_scan++ = cp_trans[2];
+			}
 			if (vbtraits & VERTEX_BUFFER_TRAIT_UV) {
 				if (uvs->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {
 					FbxVector2 uv;

@@ -1,4 +1,11 @@
 #include "Scene.h"
+
+void RenderSet::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc) {
+	meshes.push_back(m);
+	objdss.push_back(ds);
+	objpcdata.push_back(pc);
+}
+
 RenderPassInfo::RenderPassInfo(
 	VkRenderPass r, 
 	const uint32_t nsci,
@@ -50,9 +57,7 @@ size_t RenderPassInfo::addPipeline(const PipelineInfo& p, const void* pcd, VkVie
 }
 
 void RenderPassInfo::addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc, size_t pidx) {
-	rendersets[pidx].meshes.push_back(m);
-	rendersets[pidx].objdss.push_back(ds);
-	rendersets[pidx].objpcdata.push_back(pc);
+	rendersets[pidx].addMesh(m, ds, pc);
 }
 
 std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
