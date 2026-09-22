@@ -362,6 +362,7 @@ public:
 	Simplex<D, N+1, T>* getParent() {return parent;}
 	Vec<D, T>* getMemberVertex(Dim n) const {return member_vertices[n];}
 	Simplex<D, N, T>** getDirAdj() {return &direct_adj[0];}
+	Simplex<D, N, T>* const * getDirAdj() const {return &direct_adj[0];}
 	Simplex<D, N-1, T> getDirAdj(Dim n) {
 		Vec<D, T>* points[N-1];
 		if (!direct_adj[n]) {
@@ -444,6 +445,15 @@ public:
 		}
 		return Simplex<D, N-1, T>(&verts[0]);
 	}
+	void swapDirAdj(const Simplex<D, N, T>* old, Simplex<D, N, T>* newe) {
+		for (Dim n = 0; n < N; n++) {
+			if (direct_adj[n] == old) {
+				direct_adj[n] = newe;
+				return;
+			}
+		}
+		FatalError("Didn't find direct adjacency to swap").raise();
+	}
 
 	Vec<D, T> centroid() const {
 		Vec<D, T> res;
@@ -480,8 +490,10 @@ public:
 
 private:
 	Vec<D, T>* member_vertices[N];
-	Simplex<D, N, T>* direct_adj[N]; // facets of dim D which are adjacent via a facet of dim D-1
-																// a nullptr means that face is unbounded 
+	Simplex<D, N, T>* direct_adj[N]; // N-simplices which are adjacent via a shared N-1-simplex
+																// adj n is adjacent via an N-1 simplex of member_vertices v_n, ..., v_((n+N-1)%N)
+																// for instance, with a triangle, adjacency 0 is adjacent via an edge of vertices 0 and 1
+																// a nullptr means there is no adjacency on that simplex 
 	Simplex<D, N+1, T>* parent; // nullptr if not part of a larger facet
 };
 
@@ -500,7 +512,7 @@ public:
 
 	size_t getNumVertices() const {return vertices.size();}
 	size_t getNumSimplices() const {return simplices.size();}
-	const std::vector<VectD, T>*>& getVertices() const {return vertices;}
+	const std::vector<Vec<D, T>*>& getVertices() const {return vertices;}
 	const std::set<Simplex<D, N, T>*>& getSimplices() const {return simplices;}
 
 protected:
@@ -520,16 +532,16 @@ public:
 	DelaunayGraph() {
 		vertices.push_back(new Vec<D, T>(0));
 		Vec<D, T> to_add, centroid(0);
-		for (uint8_t d = 0; d < D; d++) {
+		for (uint8_t n = 0; n < N-1; n++) {
 			to_add = centroid;
-			to_add[d] = sqrt(1 - centroid.magSq());
+			to_add[n] = sqrt(1 - centroid.magSq());
 			vertices.push_back(new Vec<D, T>(to_add));
-			centroid = (centroid*(d+1) + to_add) / (d+2);
+			centroid = (centroid*(n+1) + to_add) / (n+2);
 		}
-		Vec<D, T>* Dd_facets_temp[D+1];
-		for (uint8_t d = 0; d < D; d++) {
-			*vertices[d] -= centroid;
-			Dd_facets_temp[d] = vertices[d];
+		Vec<D, T>* Dd_facets_temp[N];
+		for (uint8_t n = 0; n < N; n++) {
+			*vertices[n] -= centroid;
+			Dd_facets_temp[n] = vertices[n];
 		}
 		Graph<D, N, T>::addSimplex(new Simplex<D, N, T>(Dd_facets_temp));
 	}
@@ -542,22 +554,20 @@ public:
 		vertices.push_back(vert_to_add);
 	
 		Vec<D, T>* tmp[N];																																	// pre-construct new simplices for adjacency
-		tmp[0] = vert_to_add;
+		tmp[N-1] = vert_to_add;
 		Simplex<D, N, T>* init_simps[N];
 		for (Dim n = 0; n < N; n++) {
-			for (Dim n2 = 1; n2 < N; n2++) 
+			for (Dim n2 = 0; n2 < N-1; n2++) 
 				tmp[n2] = f->getMemberVertex((n + n2) % N);
 			init_simps[n] = new Simplex<D, N, T>(&tmp[0]);
 			Graph<D, N, T>::addSimplex(init_simps[n]);
 		}
 		for (Dim n = 0; n < N; n++) {																												// set adjacencies
-			init_simps[n]->setDirAdj(0, nullptr); // TODO: this will not always be null, but this will work for the first subdiv
+			init_simps[n]->setDirAdj(0, f->getDirAdj()[n]);
+			if (f->getDirAdj()[n]) f->getDirAdj()[n]->swapDirAdj(f, init_simps[n]);
 			for (Dim n2 = 1; n2 < N; n2++) 
 				init_simps[n]->setDirAdj(n2, init_simps[(n + n2) % N]);
 		}
-
-		// TODO: remember to sort init_simps by existing adj after you get a first subdiv working
-		// related to above adj set
 
 		Simplex<D, N, T>* adj;																															// dig and fill cavities for each new simplex
 		std::set<Simplex<D, N-1, T>> other_adj;
