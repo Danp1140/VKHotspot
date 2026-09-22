@@ -52,17 +52,14 @@ public:
 	friend void swap(Mat& lhs, Mat& rhs) {
 		std::swap(lhs.data, rhs.data);
 	}
-
-	Mat<D_row, 1, T> getRow(uint8_t n) const {
-		return Mat<D_row, 1, T>(data + n * D_row);
-	}
-	Mat<1, D_col, T> getCol(uint8_t n) const {
-		return Mat<1, D_col, T>(data + n, D_row);
-	}
-	void setRow(uint8_t n, Mat<D_row, 1, T> r) {
-		memcpy(data + n*D_row, r.data, D_row*sizeof(T));
-	}
-	void setCol(uint8_t n, Mat<1, D_col, T> c) {
+	
+	T get(Dim row, Dim col) const {return data[col*D_row + row];}
+	// wraps OOB values by row and col individually
+	T getWrap(Dim row, Dim col) const {return data[(col%D_col)*D_row + (row%D_row)];}
+	Mat<D_row, 1, T> getRow(Dim n) const {return Mat<D_row, 1, T>(data + n * D_row);}
+	Mat<1, D_col, T> getCol(Dim n) const {return Mat<1, D_col, T>(data + n, D_row);}
+	void setRow(Dim n, Mat<D_row, 1, T> r) {memcpy(data + n*D_row, r.data, D_row*sizeof(T));}
+	void setCol(Dim n, Mat<1, D_col, T> c) {
 		for (uint8_t r = 0; r < D_row; r++) {
 			data[r*D_row + n] = c.data[r];
 		}
@@ -76,6 +73,29 @@ public:
 			}
 		}
 		return M;
+	}
+	T determinant() const {
+		T res = 0;
+		if constexpr (D_row == 1) res = data[0];
+		else if constexpr (D_row == 2) res = data[0] * data[3] - data[1] * data[2];
+		else {
+			Mat<D_row - 1, D_col - 1, T> M;
+			for (Dim d = 0; d < D_row; d++) {
+				Dim row_offset = 0;
+				for (Dim row = 0; row < D_row; row++) {
+					if (row == d) {
+						row_offset++;
+					}
+					else {
+						for (Dim col = 0; col < D_col - 1; col++) {
+							M.data[col*(D_row-1) + row - row_offset] = getWrap(row, col + 1);
+						}
+					}
+				}
+				res += data[d] * M.determinant() * pow(-1, d);
+			}
+		}
+		return res;
 	}
 
 	template<uint8_t rhs_D_row>
@@ -242,7 +262,6 @@ private:
 
 // typedef Mat<D, 1, T> Vec<D, T>
 
-
 template<uint8_t D, typename T=float>
 class Vec {
 public:
@@ -296,6 +315,11 @@ public:
 	}
 	T mag() const {
 		return sqrt(magSq());
+	}
+	T dot(const Vec<D, T>& rhs) const {
+		T res = 0;
+		for (Dim d = 0; d < D; d++) res += data[d] * rhs.data[d];
+		return res;
 	}
 
 private:
@@ -414,6 +438,17 @@ public:
 		}
 		return res;
 	}
+	// no parent assigned so it can remain const, but only geometric data
+	Simplex<D, N-1, T> getTempChild(Dim n) const {
+		Simplex<D, N-1, T> tmp;
+		Vec<D, T>* vert_tmp[N-1];
+		// just do a scrolling window of len D-1 that can wrap around
+		// so for a tetrahedron, indices[0, 1, 2], [1, 2, 3], [2, 3, 0], [3, 0, 1]
+		for (uint8_t i = 0; i < N - 1; i++) 
+			vert_tmp[i] = member_vertices[(n + i) % N];
+		tmp = Simplex<D, N-1, T>(&vert_tmp[0]);
+		return tmp;
+	}
 	bool contains(const Vec<D, T>* v) const {
 		for (Dim n = 0; n < N; n++) {
 			if (member_vertices[n] == v) return true;
@@ -455,6 +490,42 @@ public:
 		FatalError("Didn't find direct adjacency to swap").raise();
 	}
 
+	bool vecLiesIn(Vec<D, T>& v) const {
+		Vec<D, T> d;
+		Simplex<D, N-1, T> child;
+		for (Dim n = 0; n < N; n++) {
+			d = v - *member_vertices[n];
+			child = getTempChild(n);
+			if (child.sideTest(d) > 0) // if outside on any side
+				return false;
+		}
+		return true;
+	}
+	// < 0 if on "in" side
+	// 0 if lies on simplex's space (not bounded by vertices, just in the D-dim space the simplex lies in)
+	// > 0 if on "out" side
+	T sideTest(Vec<D, T>& v) const {
+		return v.dot(norm()); // inward facing normal
+	}
+	Vec<D, T> norm() const {
+		// TODO: order here is crucial, combined with implicit info of member_vertices order
+		// to ensure normal points outward
+		// currently seems to work for 2-facets in 2D, testing insufficient
+		
+		// for this to result in a single vector instead of a space, it requires D = N
+		Vec<D, T> diff_vecs[N - 1];
+		for (Dim n = 0; n < N - 1; n++) diff_vecs[n] = member_vertices[n + 1] - member_vertices[0];
+		Mat<N-1, N-1, T> M;
+		Vec<D, T> res;
+		for (Dim d = 0; d < D; d++) {
+			for (Dim row = 0; row < N-1; row++) {
+				for (Dim col = 0; col < N-1; col++) 
+					M.data[col*N + row] = diff_vecs[col][(d + row) % (N - 1)];
+			}
+			res[(d+N-1) % (N-1)] = M.determinant() * pow(-1, d);
+		}
+		return res;
+	}
 	Vec<D, T> centroid() const {
 		Vec<D, T> res;
 		for (Dim n = 0; n < N; n++) 
