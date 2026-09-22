@@ -322,6 +322,15 @@ public:
 		return res;
 	}
 
+	std::string to_string() {
+		std::string res = "[";
+		for (Dim d = 0; d < D; d++) 
+			res += std::to_string(data[d]) + ", ";
+		res.pop_back();
+		res += "]";
+		return res;
+	}
+
 private:
 	T data[D];
 };
@@ -505,6 +514,9 @@ public:
 	// 0 if lies on simplex's space (not bounded by vertices, just in the D-dim space the simplex lies in)
 	// > 0 if on "out" side
 	T sideTest(Vec<D, T>& v) const {
+		if constexpr (D == 2) std::cout << "testing v = [" << v[0] << ", " << v[1] << "]\n";
+		Vec<D, T> n = norm();
+		if constexpr (D == 2) std::cout << "against normal n = [" << n[0] << ", " << n[1] << "]\n";
 		return v.dot(norm()); // inward facing normal
 	}
 	Vec<D, T> norm() const {
@@ -514,15 +526,24 @@ public:
 		
 		// for this to result in a single vector instead of a space, it requires D = N
 		Vec<D, T> diff_vecs[N - 1];
-		for (Dim n = 0; n < N - 1; n++) diff_vecs[n] = member_vertices[n + 1] - member_vertices[0];
+		for (Dim n = 0; n < N - 1; n++) diff_vecs[n] = *member_vertices[n + 1] - *member_vertices[0];
+		std::cout << "edge from " << member_vertices[0]->to_string() << " to " << member_vertices[1]->to_string() << " makes norm\n";
 		Mat<N-1, N-1, T> M;
 		Vec<D, T> res;
 		for (Dim d = 0; d < D; d++) {
-			for (Dim row = 0; row < N-1; row++) {
-				for (Dim col = 0; col < N-1; col++) 
-					M.data[col*N + row] = diff_vecs[col][(d + row) % (N - 1)];
+			Dim row_offset = 0;
+			for (Dim row = 0; row < N; row++) {
+				if (row == d) {
+					row_offset++;
+				}
+				else {
+					for (Dim col = 0; col < N - 1; col++) {
+						M.data[col*(N-1) + row - row_offset] = diff_vecs[col][row];
+					}
+				}
 			}
-			res[(d+N-1) % (N-1)] = M.determinant() * pow(-1, d);
+			// res[(d+N-1) % (N-1)] = M.determinant() * pow(-1, d);
+			res[d] = M.determinant() * pow(-1, d);
 		}
 		return res;
 	}
@@ -621,7 +642,24 @@ public:
 	 * places a vertex at the centroid of the D-dimensional facet at the given index
 	 */
 	void addVertex(Simplex<D, N, T>* f) {
-		Vec<D, T>* vert_to_add = new Vec<D, T>(f->centroid());																		// new vertex in center
+		_addVertex(f, new Vec<D, T>(f->centroid()));	
+	}
+	void addVertex(Vec<D, T>& v) {
+		// TODO: better algs exist, this is just to test
+		Simplex<D, N, T>* s = nullptr;
+		for (Simplex<D, N, T>* s_i : Graph<D, N, T>::getSimplices()) {
+			if (s_i->vecLiesIn(v)) {
+				s = s_i;
+				break;
+			}
+		}
+		if (!s) FatalError("Couldn't find simplex containing vector, adding exterior vertex not yet supported").raise();
+		_addVertex(s, new Vec<D, T>(v));
+	}
+private:
+	// vert_to_add should be alloc'd with new, graph will handle freeing
+	// contains_vert should already be a valid simplex in the graph
+	void _addVertex(Simplex<D, N, T>* contains_vert, Vec<D, T>* vert_to_add) {
 		vertices.push_back(vert_to_add);
 	
 		Vec<D, T>* tmp[N];																																	// pre-construct new simplices for adjacency
@@ -629,13 +667,13 @@ public:
 		Simplex<D, N, T>* init_simps[N];
 		for (Dim n = 0; n < N; n++) {
 			for (Dim n2 = 0; n2 < N-1; n2++) 
-				tmp[n2] = f->getMemberVertex((n + n2) % N);
+				tmp[n2] = contains_vert->getMemberVertex((n + n2) % N);
 			init_simps[n] = new Simplex<D, N, T>(&tmp[0]);
 			Graph<D, N, T>::addSimplex(init_simps[n]);
 		}
 		for (Dim n = 0; n < N; n++) {																												// set adjacencies
-			init_simps[n]->setDirAdj(0, f->getDirAdj()[n]);
-			if (f->getDirAdj()[n]) f->getDirAdj()[n]->swapDirAdj(f, init_simps[n]);
+			init_simps[n]->setDirAdj(0, contains_vert->getDirAdj()[n]);
+			if (contains_vert->getDirAdj()[n]) contains_vert->getDirAdj()[n]->swapDirAdj(contains_vert, init_simps[n]);
 			for (Dim n2 = 1; n2 < N; n2++) 
 				init_simps[n]->setDirAdj(n2, init_simps[(n + n2) % N]);
 		}
@@ -644,7 +682,7 @@ public:
 		std::set<Simplex<D, N-1, T>> other_adj;
 		for (Dim n = 0; n < N; n++) {
 			std::set<Simplex<D, N-1, T>> cavity;
-			adj = f->getDirAdj()[n];
+			adj = contains_vert->getDirAdj()[n];
 			other_adj = init_simps[n]->getChildren();
 			for (const Simplex<D, N-1, T>& s : other_adj) {
 				if (!s.contains(vert_to_add)) {
@@ -652,14 +690,13 @@ public:
 					break;
 				}
 			}
-			if (adj) digCavity(vert_to_add, adj, f->getUnique(*adj), cavity);
+			if (adj) digCavity(vert_to_add, adj, contains_vert->getUnique(*adj), cavity);
 			if (cavity.size() > 1) fillCavity(other_adj, cavity);
 		}
 
-		Graph<D, N, T>::removeSimplex(f);
-		delete f;
+		Graph<D, N, T>::removeSimplex(contains_vert);
+		delete contains_vert;
 	}
-private:
 	/*
 	 * v is the added vertex
 	 * f is the Dd facet to test against
