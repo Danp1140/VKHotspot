@@ -388,6 +388,10 @@ public:
 		}
 		return member_vertices[n];
 	}
+	/*
+	 * TODO: below allows simplices with same members in different order to be not equal
+	 * should probably call them equal if the have the same sequence of member verts and dir adj, regardless of starting pos
+   */
 	bool operator<(const Simplex<D, N, T>& rhs) const {
 		for (Dim n = 0; n < N; n++) {
 			if (member_vertices[n] < rhs.member_vertices[n]) return true;
@@ -401,6 +405,19 @@ public:
 			else if (member_vertices[n] < rhs.member_vertices[n]) return false;
 		}
 		return false;
+	}
+	bool operator==(const Simplex<D, N, T>& rhs) const {
+		for (Dim n = 0; n < N; n++) {
+			bool found = false;
+			for (Dim rhs_n = 0; rhs_n < N; rhs_n++) {
+				if (rhs.member_vertices[rhs_n] == member_vertices[n]) {
+					found = true;
+					break;
+				}
+			}
+			if (!found) return false;
+		}
+		return true;
 	}
 
 	void setParent(Simplex<D, N+1, T>* p) {parent = p;}
@@ -490,6 +507,12 @@ public:
 			vert_tmp[i] = member_vertices[(n + i) % N];
 		tmp = Simplex<D, N-1, T>(&vert_tmp[0]);
 		return tmp;
+	}
+	bool isChild(const Simplex<D, N-1, T>& c) const {
+		for (Dim n = 0; n < N-1; n++) {
+			if (!contains(c.getMemberVertex(n))) return false;
+		}
+		return true;
 	}
 	bool contains(const Vec<D, T>* v) const {
 		for (Dim n = 0; n < N; n++) {
@@ -587,11 +610,9 @@ public:
 		return res;
 	}
 	Vec<D, T> centroid() const {
-		std::cout << "centroid call: " << std::endl;
 		Vec<D, T> res;
 		for (Dim n = 0; n < N; n++) {
 			res = res + *member_vertices[n];
-			std::cout << "adding " << member_vertices[n]->to_string() << std::endl;
 		}
 		return res / (T)N;
 	}
@@ -826,19 +847,26 @@ private:
 			vec_temp[1] = f2.getUnique(f1);
 			adj_temp[1] = f1.getParent();
 			Simplex<D, N-2, T> overlap = f1.getNot(vec_temp[0]);
-			// Dim n_offset = 0;
 			for (Dim n = 0; n < N - 2; n++) {
-				// if (f1.getMemberVertex(n) == vec_temp[0]) n_offset++;
-				// vec_temp[n + 2] = f1.getMemberVertex(n + n_offset);
 				vec_temp[n + 2] = overlap.getMemberVertex(n);
 				std::cout << "add'l vertex " << vec_temp[n + 2]->to_string() << std::endl;
-				adj_temp[n + 2] = nullptr; // this side is on the cavity side 
+				adj_temp[n + 2] = nullptr; // this side is on the cavity side; if it has an adj, it is handled below simplex creation
 			}
 			Simplex<D, N, T>* next_simp = new Simplex<D, N, T>(&vec_temp[0]);
 			for (Dim n = 0; n < N; n++) {
 				next_simp->setDirAdj(n, adj_temp[n]);
 				if (adj_temp[n]) {
 					adj_temp[n]->swapDirAdj(next_simp);
+				}
+				else if (n > 1) {
+					for (Simplex<D, N-1, T> b : boundary) {
+						if (b != f2 && !b.contains(next_simp->getMemberVertex(n)) && next_simp->isChild(b)) {
+							next_simp->setDirAdj(n, b.getParent());
+							b.getParent()->swapDirAdj(next_simp);	
+							boundary.erase(b);
+							break;
+						}
+					}
 				}
 			}
 			
