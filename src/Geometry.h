@@ -498,6 +498,7 @@ public:
 		return res;
 	}
 	// no parent assigned so it can remain const, but only geometric data
+	// returns child starting at member vertex 0
 	Simplex<D, N-1, T> getTempChild(Dim n) const {
 		Simplex<D, N-1, T> tmp;
 		Vec<D, T>* vert_tmp[N-1];
@@ -571,7 +572,17 @@ public:
 		for (Dim n = 0; n < N; n++) {
 			d = v - *member_vertices[n];
 			child = getTempChild(n);
-			if (child.sideTest(d) > 0) // if outside on any side
+			Vec<D, T> norm = child.norm();
+			std::cout << "computed norm " << norm.to_string() << std::endl;
+			std::cout << "comparing against vertex " << member_vertices[(n - 1 + N) % N]->to_string() << std::endl;
+			std::cout << "results in diff vec " << (*member_vertices[(n - 1 + N) % N] - *member_vertices[n]).to_string() << std::endl;
+			if ((*member_vertices[(n - 1 + N) % N] - *member_vertices[n]).dot(norm) < 0) {
+				std::cout << "flipping norm\n";
+				norm = norm * (T)-1;
+			}
+			std::cout << "bound testing vertex " << v.to_string() << std::endl;
+			std::cout << "w/ diff vec " << d.to_string() << std::endl;
+			if (d.dot(norm) < 0) // if outside on any side
 				return false;
 		}
 		return true;
@@ -728,10 +739,13 @@ public:
 		// TODO: better algs exist, this is just to test
 		Simplex<D, N, T>* s = nullptr;
 		for (Simplex<D, N, T>* s_i : Graph<D, N, T>::getSimplices()) {
+			std::cout << v.to_string() << " lies in " << s_i->getMemberVertex(0)->to_string() << " -> " << s_i->getMemberVertex(1)->to_string() << " -> " << s_i->getMemberVertex(2)->to_string() << "?" << std::endl;
 			if (s_i->vecLiesIn(v)) {
+				std::cout << "1" << std::endl;
 				s = s_i;
 				break;
 			}
+			std::cout << "0" << std::endl;
 		}
 		if (!s) FatalError("Couldn't find simplex containing vector, adding exterior vertex not yet supported").raise();
 		_addVertex(s, new Vec<D, T>(v));
@@ -788,12 +802,12 @@ private:
 		Simplex<D, N, T> to_circum_test(&poss_bound, v);
 		float c = to_circum_test.circumcenterTest(*w);
 		std::cout << "digcav called with circumcenter test " << c << std::endl;
-		if (c > 0) {
+		if (c >= 0) {
 			poss_bound.setParent(f);
 			boundary.insert(poss_bound);
 			std::cout << "added circum bound " << poss_bound.getMemberVertex(0)->to_string() << " -> " << poss_bound.getMemberVertex(1)->to_string() << std::endl;
 		}
-		else if (c < 0) {
+		else {
 			Simplex<D, N, T>* next;
 			for (Dim n = 0; n < N; n++) {
 				next = f->getDirAdj()[n];
@@ -816,9 +830,6 @@ private:
 			}
 */
 			Graph<D, N, T>::removeSimplex(f);
-		}
-		else {
-			FatalError("Circumcenter test exactly 0, unimplemented").raise();
 		}
 	}
 	void fillCavity(std::set<Simplex<D, N-1, T>>& v_adj_f, std::set<Simplex<D, N-1, T>>& boundary) {
