@@ -1,6 +1,7 @@
 #include "GraphicsHandler.h"
 #include "Scene.h"
 #include "Geometry.h"
+#include "InputHandler.h"
 #include <random>
 
 void matrixTests() {
@@ -196,24 +197,49 @@ void makeGrid(size_t n, float scale, Vec<2>* dst) {
 	}		
 }
 
-int main() {
-	detTests();
+void setupProgressivePoints(InputHandler& ih, DelaunayGraph<2, 3>& dg, Mesh& graph_mesh, Mesh& adj_mesh, std::random_device& rd, std::mt19937& gen) {
+	ih.addCheck(InputCheck(SDL_EVENT_KEY_DOWN, [&dg, &graph_mesh, &adj_mesh, &rd, &gen] (const SDL_Event& e) {
+		if (e.key.scancode == SDL_SCANCODE_SPACE && !e.key.repeat) {
+			std::uniform_real_distribution<float> dist(-0.2, 0.2);
+			Vec<2> to_add;
+			to_add[0] = dist(gen); 
+			to_add[1] = dist(gen); 
+			dg.addVertex(to_add);
 
-	const size_t n_pta = 4;
+			graph_mesh = makeDelaunayMesh2D(dg);
+			adj_mesh = makeDelaunayAdjMesh2D(dg);
+
+			return true;
+		}
+		return false;
+	}));
+}
+
+int main() {
+	// detTests();
+	Vec<2> temp;
+	temp[0] = 0;
+	temp[1] = 0;
+
+	const size_t n_pta = 16;
 	Vec<2> points_to_add[n_pta];
-	makeGrid(2, 0.2, &points_to_add[0]);
+	// makeGrid(4, 0.2, &points_to_add[0]);
 
 	DelaunayGraph<2, 3> delaunay_triangulation;
+	delaunay_triangulation.addVertex(temp);
 	
+/*
 	for (size_t pta_i = 0; pta_i < n_pta; pta_i++)
 		delaunay_triangulation.addVertex(points_to_add[pta_i]);
 
-	Vec<2> temp;
+*/
+/*
 	temp[0] = 0;
 	temp[1] = -0.25;
 	delaunay_triangulation.addVertex(temp);
 	temp[1] = 0.4;
 	delaunay_triangulation.addVertex(temp);
+*/
 
 /*
 	Simplex<2, 3>* simp;
@@ -282,7 +308,13 @@ int main() {
 
 	w.addTasks(s.getDrawTasks());
 
+	InputHandler ih;
+	std::random_device rd;
+	std::mt19937 gen(0);
+	setupProgressivePoints(ih, delaunay_triangulation, delaunay_mesh, delaunay_adj_mesh, rd, gen);
+
 	while (w.frameCallback()) {
+		ih.update();
 		SDL_PumpEvents();
 	}
 
