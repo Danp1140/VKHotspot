@@ -291,6 +291,11 @@ public:
 			FatalError("Index " + std::to_string(i) + " out of range for vector of dimension " + std::to_string(D)).raise();
 		return data[i];
 	}
+	T operator[](const uint8_t i) const {
+		if (i > D) 
+			FatalError("Index " + std::to_string(i) + " out of range for vector of dimension " + std::to_string(D)).raise();
+		return data[i];
+	}	
 	Vec<D, T> operator+(const Vec<D, T>& rhs) const {
 		Vec<D, T> res;
 		for (uint8_t d = 0; d < D; d++) 
@@ -309,10 +314,22 @@ public:
 			res.data[d] = data[d] * rhs;
 		return res;
 	}
+	Vec<D, T> operator/(const Vec<D, T>& rhs) const {
+		Vec<D, T> res;
+		for (uint8_t d = 0; d < D; d++)
+			res.data[d] = data[d] / rhs.data[d];
+		return res;
+	}
 	Vec<D, T> operator/(const T& rhs) const {
 		Vec<D, T> res;
 		for (uint8_t d = 0; d < D; d++)
 			res.data[d] = data[d] / rhs;
+		return res;
+	}
+	friend Vec<D, T> operator/(T lhs, const Vec<D, T>& rhs) {
+		Vec<D, T> res;
+		for (uint8_t d = 0; d < D; d++)
+			res.data[d] = lhs / rhs.data[d];
 		return res;
 	}
 	const Vec<D, T>& operator-=(const Vec<D, T>& rhs) {
@@ -334,7 +351,7 @@ public:
 		return res;
 	}
 
-	std::string to_string() {
+	std::string to_string() const {
 		std::string res = "[";
 		for (Dim d = 0; d < D; d++) 
 			res += std::to_string(data[d]) + ", ";
@@ -716,6 +733,13 @@ public:
 	size_t getNumSimplices() const {return simplices.size();}
 	const std::vector<Vec<D, T>*>& getVertices() const {return vertices;}
 	const std::set<Simplex<D, N, T>*>& getSimplices() const {return simplices;}
+
+	Graph<D, N-1, T> getNm1Graph() {
+		Graph<D, N-1, T> res;
+		for (const Simplex<D, N, T>& s : simplices) {
+			
+		}
+	}
 
 protected:
 	std::vector<Vec<D, T>*> vertices;
