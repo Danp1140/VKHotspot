@@ -82,6 +82,7 @@ public:
 
 	void setFOVY(float f) {fov_y = f;}
 	void setAspectRatio(float ar) {aspect_ratio = ar;}
+	void setNearClip(float n) {near_clip = n;}
 	void setFarClip(float f) {far_clip = f;}
 
 protected:
