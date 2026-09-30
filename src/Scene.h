@@ -174,6 +174,7 @@ public:
 	 * Presumes a valid index.
 	 */
 	void updateSMD(Light& l, size_t smd_idx);
+	void updateSpotSMD(size_t sl_idx, size_t sc_sl_idx, size_t smd_idx);
 	/*
 	 * Same as updateSMD but provides updateSMDatum with 8 points of camera frust from depths[0] to depths[1] (0–1).
 	 */

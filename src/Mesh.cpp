@@ -470,6 +470,8 @@ void Mesh::loadFBX(const char* fp) {
 				else if (norms->GetReferenceMode() == fbxsdk::FbxLayerElement::EReferenceMode::eIndexToDirect) {	
 					if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByControlPoint)
 						norm = norms->GetDirectArray()[norms->GetIndexArray()[mesh->GetPolygonVertex(poly_i, vert_i)]];
+					else if (norms->GetMappingMode() == fbxsdk::FbxLayerElement::EMappingMode::eByPolygonVertex)
+						norm = norms->GetDirectArray()[norms->GetIndexArray()[poly_i*3 + vert_i]];
 					else FatalError("Unsupported mapping mode").raise();
 					norm_trans = ws_rot * glm::vec3(norm[0], norm[1], norm[2]);
 					*v_scan++ = norm_trans[0];

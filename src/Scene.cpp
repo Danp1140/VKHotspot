@@ -401,6 +401,7 @@ void Scene::updateLightCatcher(
 	GH::updateBuffer(lightub, &entry, sizeof(CatcherEntry), offsetof(LUBData, catcher_entries) + cidx * sizeof(CatcherEntry));
 }
 
+// TODO: no good, doesn't work for multiple lights
 void Scene::updateSMD(Light& l, size_t smd_idx) {
 	l.updateSMDatum(smd_idx, camera->getForward(), nullptr);
 	SMEntry entry;
@@ -408,6 +409,15 @@ void Scene::updateSMD(Light& l, size_t smd_idx) {
 	entry.uv_ext_off = l.getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);
 
 	GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + smd_idx * sizeof(SMEntry));
+}
+
+void Scene::updateSpotSMD(size_t sl_idx, size_t sc_sl_idx, size_t smd_idx) {
+	spot_lights[sl_idx].updateSMDatum(smd_idx, camera->getForward(), nullptr);
+	SMEntry entry;
+	entry.vp = Light::smadjmat * spot_lights[sl_idx].getSMData()[smd_idx].getVP();
+	entry.uv_ext_off = spot_lights[sl_idx].getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);
+
+	GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + (sc_sl_idx + smd_idx) * sizeof(SMEntry));
 }
 
 void Scene::updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths) {

@@ -375,7 +375,7 @@ void addLight(WindowInfo& w, Scene& s, MeshBase& suzanne, MeshBase& plane, Pipel
 	// - since one at a time hookup works, it seems like its an issue with the CUB
 	s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], idxs, {}, {}, 0);
 	// s.updateLightCatcher(&plane, rs.objdss[rs.findMesh(&plane)], {}, {s.getNumDirSCLights() - 1}, 0);
-	s.addShadowCaster(&suzanne, idxs);
+	s.addShadowCaster(&suzanne, idxs, {}, {});
 }
 
 int main() {
@@ -499,10 +499,10 @@ int main() {
 	DNSObjectPCData text_pcd = {s.addLightCatcher(&text, temp, {0, 1}, {}, {}), text.getModelMatrix()};
 	main_rp->addMesh(&text, temp, &text_pcd, shadowcatch_pidx);
 
-	s.addShadowCaster(&text, {0});
-	s.addShadowCaster(&suz, {0});
-	s.addShadowCaster(&m, {0});
-	s.addShadowCaster(&plane, {0});
+	s.addShadowCaster(&text, {0}, {}, {});
+	s.addShadowCaster(&suz, {0}, {}, {});
+	s.addShadowCaster(&m, {0}, {}, {});
+	s.addShadowCaster(&plane, {0}, {}, {});
 	for (size_t i = 0; i < sm_p_idxs.size(); i++) {
 		sm_rp->addMesh(&text, VK_NULL_HANDLE, &text.getModelMatrix(), sm_p_idxs[i]); 
 		sm_rp->addMesh(&suz, VK_NULL_HANDLE, &suz.getModelMatrix(), sm_p_idxs[i]); 
@@ -518,14 +518,21 @@ int main() {
 	w.addTasks(s.getDrawTasks());
 
 	w.addTask(cbRecTaskTemplate(cbRecTaskRenderPassTemplate(VK_NULL_HANDLE, nullptr, 0, {0, 0}, 0, nullptr)));
-	w.addTask(cbRecTaskTemplate([scis = w.getSCImages(), dst = volumetrics.getSrc()] (uint8_t scii, VkCommandBuffer& c) {PPStep::recordCopy(scii, c, scis, dst);}));
+	w.addTask(cbRecTaskTemplate([scis = w.getSCImages(), dst = volumetrics.getSrc()] (uint8_t scii, VkCommandBuffer& c) {
+		PPStep::recordCopy(scii, c, scis, dst);
+		return true;
+	}));
 	w.addTask(cbRecTaskTemplate(volumetrics.getRTRPT()));
-	w.addTask(cbRecTaskTemplate([rs = volumetrics.getRS()] (uint8_t scii, VkCommandBuffer& c) {PPStep::recordDraw(scii, c, rs);}));
+	w.addTask(cbRecTaskTemplate([rs = volumetrics.getRS()] (uint8_t scii, VkCommandBuffer& c) {
+		PPStep::recordDraw(scii, c, rs);
+		return true;
+	}));
 
 	w.addTask(cbRecTaskTemplate(uirpi.getRPT()));
 	w.addTask(cbRecTaskTemplate([&ui, rp = uirpi.getRenderPass(), fb = uirpi.getFramebuffers()]
 		(uint8_t scii, VkCommandBuffer& c) {
 		ui.recordDraw(fb[scii], rp, c); // might need to mod fb idx against ui's own scii count
+		return true;
 	}));
 
 	/*

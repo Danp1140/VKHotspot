@@ -24,6 +24,17 @@ glm::mat4 ProjectionBase::ortho(float l, float r, float b, float t, float n, flo
 }
 
 /*
+ * Presumes p in view space, and therefore camera at z = 1 pointing toward -z
+ * plane is distance along camera forward vector
+ * if point is behind camera, it is brought just to the near plane
+ */
+glm::vec2 ProjectionBase::projectIntoCameraPlane(glm::vec3 p, float plane) {
+	// return plane / (p.z - 1) * glm::vec2(p.x, p.y);
+	if (p.z < 1 - plane) p.z = 1 - plane;
+	return -plane / p.z * glm::vec2(p.x, p.y);
+}
+
+/*
  * PositionalProjectionBase
  */
 
@@ -177,7 +188,7 @@ void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 
 	sm_data[sm_i].setView(view);
 
-	glm::vec3 temp = ProjectionBase::apply(view, sm_data[sm_i].getFocus()[0]);
+	glm::vec3 temp = ProjectionBase::apply(view, sm_data[sm_i].getFocus()[0]);		// create a view-space AABB around scene
 	glm::vec3 ls_aabb[2] = {temp, temp};
 	for (uint8_t i = 1; i < 8; i++) {
 		temp = ProjectionBase::apply(view, glm::vec3(
@@ -189,7 +200,7 @@ void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 			if (temp[j] > ls_aabb[1][j]) ls_aabb[1][j] = temp[j];
 		}
 	}
-	if (cam_AABB) {
+	if (cam_AABB) {																																// if desired, create a view-space AABB around camera frust
 		temp = ProjectionBase::apply(view, cam_AABB[0]);
 		glm::vec3 ls_cam_aabb[2] = {temp, temp};
 		for (uint8_t i = 1; i < 8; i++) {
@@ -204,13 +215,7 @@ void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 		ls_aabb[1].x = ls_cam_aabb[1].x;
 		ls_aabb[0].y = ls_cam_aabb[0].y;
 		ls_aabb[1].y = ls_cam_aabb[1].y;
-	}
-
-	glm::mat4 p = glm::perspectiveRH_ZO<float>(
-		fov_y, 
-		aspect_ratio, 
-	// 	-ls_aabb[1].z, -ls_aabb[0].z);
-		near_clip, far_clip);
+	}	
 
 	/* 
 	 * To get temp_aabb for real:
@@ -219,24 +224,33 @@ void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 	 * use these as bounds of frust
 	 */
 
-	temp = ls_aabb[0] * -near_clip / ls_aabb[0].z;
-	glm::vec2 temp_aabb[2] = {glm::vec2(temp.x, temp.y), glm::vec2(temp.x, temp.y)};
-	for (uint8_t i = 1; i < 8; i++) {
+	glm::vec2 temp2d = ProjectionBase::projectIntoCameraPlane(ls_aabb[0], near_clip);
+	glm::vec2 temp_aabb[2] = {temp2d, temp2d};
+	for (uint8_t i = 1; i < 8; i++) {																						// create a 2D AABB using the z-divide
 		temp = glm::vec3(
 					ls_aabb[i % 2].x, 
 					ls_aabb[(uint8_t)floor(i/2) % 2].y, 
 					ls_aabb[(uint8_t)floor(i/4) % 2].z);
-		temp *= -near_clip / temp.z;
-		std::cout << temp.x << ", " << temp.y << ", " << temp.z << '\n';
+		temp2d = ProjectionBase::projectIntoCameraPlane(temp, near_clip);
 		for (uint8_t j = 0; j < 2; j++) {
-			if (temp[j] < temp_aabb[0][j]) temp_aabb[0][j] = temp[j];
-			if (temp[j] > temp_aabb[1][j]) temp_aabb[1][j] = temp[j];
+			if (temp2d[j] < temp_aabb[0][j]) temp_aabb[0][j] = temp2d[j];
+			if (temp2d[j] > temp_aabb[1][j]) temp_aabb[1][j] = temp2d[j];
 		}
 	}
 
+	/* new thing im trying: clamp aabb so that it cant artificial raise the fov */
+	float v_max = near_clip * tan(fov_y / 2);
+	float h_max = v_max * aspect_ratio;
+
+	temp_aabb[0].x = fmax(-h_max, temp_aabb[0].x);
+	temp_aabb[1].x = fmin(h_max, temp_aabb[1].x);
+	temp_aabb[0].y = fmax(-v_max, temp_aabb[0].y);
+	temp_aabb[1].y = fmin(v_max, temp_aabb[1].y);
+
+
 	sm_data[sm_i].setProj(glm::frustumRH_ZO<float>(
 		temp_aabb[0].x, temp_aabb[1].x,
-		temp_aabb[0].y, temp_aabb[1].y,
+		temp_aabb[1].y, temp_aabb[0].y,
 		near_clip, far_clip));
 
 	sm_data[sm_i].updateProj();
