@@ -285,6 +285,9 @@ public:
 		for (uint8_t d = 0; d < D; d++) 
 			data[d] = (T)v;
 	}
+	Vec(T* d) {
+		memcpy(data, d, D * sizeof(T));
+	}
 
 	T& operator[](const uint8_t i) {
 		if (i > D) 
@@ -332,8 +335,16 @@ public:
 			res.data[d] = lhs / rhs.data[d];
 		return res;
 	}
+	const Vec<D, T>& operator+=(const Vec<D, T>& rhs) {
+		*this = *this + rhs;
+		return *this;
+	}
 	const Vec<D, T>& operator-=(const Vec<D, T>& rhs) {
 		*this = *this - rhs;
+		return *this;
+	}
+	const Vec<D, T>& operator*=(const T& rhs) {
+		*this = *this * rhs;
 		return *this;
 	}
 	bool operator==(const Vec<D, T>& rhs) const {
@@ -368,6 +379,25 @@ public:
 	T dot(const Vec<D, T>& rhs) const {
 		T res = 0;
 		for (Dim d = 0; d < D; d++) res += data[d] * rhs.data[d];
+		return res;
+	}
+	// requires D - 2 rhs's
+	Vec<D, T> cross(const Vec<D, T>* rhs) const {
+		Mat<D-1, D-1, T> M;
+		Vec<D, T> res;
+		for (Dim d = 0; d < D; d++) {
+			Dim row_offset = 0;
+			for (Dim row = 0; row < D; row++) {
+				if (row == d) row_offset++;
+				else {
+					for (Dim col = 0; col < D - 1; col++) {
+						if (col == 0) M.data[row - row_offset] = data[row];
+						else M.data[col*(D-1) + row - row_offset] = rhs[col - 1][row];
+					}
+				}
+			}
+			res[d] = M.determinant() * pow(-1, d);
+		}
 		return res;
 	}
 
@@ -573,6 +603,13 @@ public:
 		}
 		return false;
 	}
+	Dim getIdx(const Vec<D, T>* v) const {
+		for (Dim n = 0; n < N; n++) {
+			if (member_vertices[n] == v) return n;
+		}
+		FatalError("Couldn't find vertex matching given in getIdx").raise();
+		return 0xff;
+	}
 	Vec<D, T>* getUnique(const Simplex<D, N, T>& other) const { // returns this's member_vertex not contained in other, both dD facets 
 		bool found;
 		for (Dim n1 = 0; n1 < N; n1++) {
@@ -629,7 +666,7 @@ public:
 		return res;
 	}
 
-	bool vecLiesIn(Vec<D, T>& v) const {
+	bool vecLiesIn(const Vec<D, T>& v) const {
 		Vec<D, T> d;
 		Simplex<D, N-1, T> child;
 		for (Dim n = 0; n < N; n++) {
@@ -683,6 +720,29 @@ public:
 			res = res + *member_vertices[n];
 		}
 		return res / (T)N;
+	}
+	Vec<D, T> circumcenter() const {
+		Mat<N+1, N+1, T> C;
+		for (Dim n = 1; n < N+1; n++) {
+			C.data[n] = 1;	
+			C.data[n*(N+1)] = 1;
+		}
+		for (Dim r = 0; r < N; r++) {
+			for (Dim c = 0; c < N; c++) {
+				if (r > c)
+					C.data[(c+1)*(N+1) + (r+1)] = (*member_vertices[c] - *member_vertices[r]).magSq();
+			}
+		}
+		C = C.mirrorFromUpper();
+		Mat<N+1, N+1, T> M = C.invert() * (T)(-2);
+		T r = 0.5 * sqrt(M.data[0]);
+		Vec<D, T> c;
+		T denom = 0;
+		for (Dim n = 1; n < N + 1; n++) {
+			c = c + *member_vertices[n - 1] * M.data[n];
+			denom += M.data[n];
+		}
+		return c / denom;
 	}
 	// < 0 if in circumsphere
 	// 0 if on circumsphere
@@ -752,6 +812,7 @@ public:
 			}
 			removeSimplex(k);
 		}
+		delete v;
 	}
 
 	void addSimplex(Simplex<D, N, T>* s) {simplices.insert(s);}
@@ -801,11 +862,13 @@ public:
 				for (Dim mv_i = 0; mv_i < N-1; mv_i++) {
 					mv_temp[mv_i] = value_refs.at(*s->getMemberVertex((n + mv_i) % N));
 				}
+				// TODO: fix this, this is a ridiculous speculative allocation lol
 				Simplex<D, N-1, T>* candidate = new Simplex<D, N-1, T>(&mv_temp[0]);
 				if (!added.contains(*candidate)) {
 					res.addSimplex(candidate);
 					added.insert(*candidate);
 				}
+				else delete candidate;
 			}
 		}
 		return res;
@@ -826,8 +889,8 @@ public:
 	 * by default constructs a single Simplex<D, N, T> with each side length 1 centered on origin
 	 */
 	DelaunayGraph() {
-		vertices.push_back(new Vec<D, T>(0));
-		Vec<D, T> to_add, centroid(0);
+		vertices.push_back(new Vec<D, T>((T)0));
+		Vec<D, T> to_add, centroid((T)0);
 		for (uint8_t n = 0; n < N-1; n++) {
 			to_add = centroid;
 			to_add[n] = sqrt(1 - centroid.magSq());
