@@ -16,6 +16,10 @@ public:
 
 	const UIContainer& getRoot() const {return root;}
 
+	void clear() {
+		root.clearChildren();
+	}
+
 	/* 
 	 * another hack to get polymorphic functions to work
 	 * (e.g., text needs to regen tex on ds set)
@@ -24,6 +28,10 @@ public:
 	template <class T>
 	T* addComponent(T c) {
 		return root.addChild(c);
+	}
+	template<class T>
+	void removeComponent(T* c) {
+		root.removeChild(c);
 	}
 	void setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p);
 

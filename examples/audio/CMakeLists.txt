@@ -6,6 +6,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_DEBUG} -std=c++20")
 
 find_package(VKH REQUIRED)
 
-add_executable(${PROJECT_NAME} ../src/main.cpp)
+find_library(FBX_LIB fbxsdk HINTS "build" REQUIRED)
 
-target_link_libraries(${PROJECT_NAME} VKH::VKH)
+add_executable(${PROJECT_NAME} src/main.cpp)
+
+target_link_libraries(${PROJECT_NAME} VKH::VKH ${FBX_LIB})

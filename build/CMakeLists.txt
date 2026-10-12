@@ -10,7 +10,7 @@ if (UNIX)
 		set(CMAKE_FIND_FRAMEWORK LAST)
 		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework Metal -framework Foundation -framework QuartzCore -framework IOKit -framework IOSurface -framework Cocoa -framework CoreAudio -framework AudioToolbox -framework AudioUnit -framework CoreServices -framework Carbon -framework CoreFoundation -framework Security")
 		set(CMAKE_PREFIX_PATH "/usr/local/opt/zlib" ${CMAKE_PREFIX_PATH})
-		set(ENV{PKG_CONFIG_PATH} "/usr/local/opt/zlib/lib/pkgconfig/")
+		# set(ENV{PKG_CONFIG_PATH} "/usr/local/lib/pkgconfig/")
 		# set(CMAKE_IGNORE_PATH "/Library/Frameworks/")
 		set(CMAKE_FIND_LIBRARY_SUFFIXES ".dylib" ".a")
 	else()
@@ -23,12 +23,13 @@ find_package(Freetype REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3-shared Headers)
 find_package(PNG REQUIRED)
-find_package(portaudio REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(portaudio REQUIRED IMPORTED_TARGET portaudio-2.0)
 
 find_path(GLM_INCLUDE glm.hpp PATH_SUFFIXES glm REQUIRED)
 find_path(USMINT_INCLUDE UI.h PATH_SUFFIXES UsMInt REQUIRED)
 if (APPLE)
-	find_path(FBX_INCLUDE fbxsdk.h PATH_SUFFIXES "2020.3.9/include" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
+	find_path(FBX_INCLUDE fbxsdk.h PATH_SUFFIXES "2020.3.10/include" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
 	# find_library(FBX_LIB fbxsdk PATH_SUFFIXES "2020.3.9/lib/clang/release" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
 	# add_library(FBX SHARED IMPORTED)
 	# set_target_properties(FBX PROPERTIES IMPORTED_LOCATION "${FBX_LIB}")
@@ -72,7 +73,7 @@ target_link_libraries(
 	Vulkan::Vulkan
 	SDL3::SDL3
 	PNG::PNG
-	portaudio)
+	PkgConfig::portaudio)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_NAME_DIR "@rpath" BUILD_WITH_INSTALL_NAME_DIR ON)
 

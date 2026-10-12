@@ -34,6 +34,9 @@ typedef struct RenderSet {
 	VkViewport viewport; // only used if pipeline has dynamic viewport state
 	VkRect2D scissor; // same as above
 
+	void addMesh(const MeshBase* m, VkDescriptorSet ds, const void* pc);	
+		
+	// TODO: what the hell is this function for?
 	inline size_t findMesh(const MeshBase* m) const {
 		for (size_t i = 0; i < meshes.size(); i++) if (meshes[i] == m) return i;
 		FatalError("Did not find mesh in renderset").raise();
@@ -67,6 +70,7 @@ public:
 	const VkRenderPass getRenderPass() const {return renderpass;}
 	const VkFramebuffer* getFramebuffers() const {return framebuffers;}
 	const RenderSet& getRenderSet(size_t i) const {return rendersets[i];}
+	RenderSet& getRenderSet(size_t i) {return rendersets[i];}
 	const VkExtent2D& getExtent() const {return extent;}
 	const std::vector<VkClearValue>& getClears() const {return clears;}
 	cbRecTaskRenderPassTemplate getRPT() const;
@@ -134,6 +138,7 @@ public:
 	// check-in func, but even then its still up to the user to check the ptr back in
 	DirectionalLight* addDirectionalLight(const DirectionalLight& l, const std::vector<VkExtent2D>& sm_exts);
 	SpotLight* addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>& sm_exts);
+	PointLight* addPointLight(const PointLight& l);
 	void updateSpotLight(size_t lidx);
 	std::vector<size_t> addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd);
 
@@ -170,6 +175,7 @@ public:
 	 * Presumes a valid index.
 	 */
 	void updateSMD(Light& l, size_t smd_idx);
+	void updateSpotSMD(size_t sl_idx, size_t sc_sl_idx, size_t smd_idx);
 	/*
 	 * Same as updateSMD but provides updateSMDatum with 8 points of camera frust from depths[0] to depths[1] (0–1).
 	 */
