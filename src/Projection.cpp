@@ -253,5 +253,14 @@ void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 		temp_aabb[1].y, temp_aabb[0].y,
 		near_clip, far_clip));
 
+	// glm::mat4 ptemp = glm::perspectiveRH_ZO<float>(fov_y, aspect_ratio, near_clip, far_clip);
+
+	// sm_data[sm_i].setProj(ptemp);
+
 	sm_data[sm_i].updateProj();
 }
+
+void swap(PointLight& lhs, PointLight& rhs) {
+	swap(static_cast<Light&>(lhs), static_cast<Light&>(rhs));
+}
+

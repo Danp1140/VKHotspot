@@ -14,6 +14,8 @@ public:
 	const glm::mat4& getView() const {return view;}
 	const glm::mat4& getProj() const {return projection;}
 
+	void setVP(glm::mat4 m) {vp = m;}
+
 	static glm::vec3 apply(glm::mat4 A, glm::vec3 v);
 	static glm::vec3 applyHomo(glm::mat4 A, glm::vec3 v);
 	static glm::mat4 ortho(float l, float r, float b, float t, float n, float f);
@@ -247,8 +249,21 @@ public:
 	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB);
 };
 
+typedef struct PointLightInitInfo {
+	LightInitInfo super_light = {};
+	PositionalProjectionBaseInitInfo super_positional = {};
+} PointLightInitInfo;
+
 class PointLight : public Light, public PositionalProjectionBase {
 public:
+	PointLight() : PointLight((PointLightInitInfo){}) {}
+	PointLight(const PointLightInitInfo& ii) :
+		Light(ii.super_light),
+		PositionalProjectionBase(ii.super_positional) {}
+	~PointLight() = default;	
+
+	friend void swap(PointLight& lhs, PointLight& rhs);
+
 	void updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {}
 };
 #endif

@@ -138,6 +138,7 @@ public:
 	// check-in func, but even then its still up to the user to check the ptr back in
 	DirectionalLight* addDirectionalLight(const DirectionalLight& l, const std::vector<VkExtent2D>& sm_exts);
 	SpotLight* addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>& sm_exts);
+	PointLight* addPointLight(const PointLight& l);
 	void updateSpotLight(size_t lidx);
 	std::vector<size_t> addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd);
 
