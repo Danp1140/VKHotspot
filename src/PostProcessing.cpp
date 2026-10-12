@@ -14,19 +14,33 @@ PPStep::PPStep(const WindowInfo* w, const char* shader_fpp) : window(w), fb(null
 	depth_res.sampler = GH::getNearestSampler();
 	GH::createImage(depth_res);
 
-	createRenderPass();
+	createRenderPass(true);
 	createPipeline();
+}
+
+PPStep::PPStep(const PPStepInitInfo ii) :
+	window(ii.w),
+	pipeline(ii.pipeline),
+	rp(ii.rp),
+	fb(ii.fbs),
+	src(ii.src),
+	dsts(ii.dsts),
+	n_dsts(ii.n_dsts),
+	pcd(ii.pcd) {
+	if (rp == VK_NULL_HANDLE) createRenderPass(ii.last);
+	pipeline.renderpass = rp;
+	GH::createPipeline(pipeline);
+	GH::createDS(pipeline, ds);
 }
 
 PPStep::~PPStep() {
 	GH::destroyPipeline(pipeline);
 	GH::destroyRenderPass(rp);
 	if (fb) {
-		for (uint8_t scii = 0; scii < window->getNumSCIs(); scii++) vkDestroyFramebuffer(GH::getLD(), fb[scii], nullptr);
+		for (uint8_t scii = 0; scii < n_dsts; scii++) vkDestroyFramebuffer(GH::getLD(), fb[scii], nullptr);
 		delete fb;
 	}
-	GH::destroyImage(depth_res);
-	GH::destroyImage(src);
+	if (depth_res.image != VK_NULL_HANDLE) GH::destroyImage(depth_res);
 }
 
 void PPStep::recordCopy(uint8_t scii, VkCommandBuffer& c, const ImageInfo* src, const ImageInfo& dst) {
@@ -96,18 +110,21 @@ void PPStep::recordDraw(uint8_t scii, VkCommandBuffer& c, const PPRenderSet& rs)
 	};
 	vkBeginCommandBuffer(c, &cbbi);
 	vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
-	vkCmdPushConstants(c, rs.pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(temp_pc_dat), rs.pcdata);
-	vkCmdBindDescriptorSets(
-		c,
-		VK_PIPELINE_BIND_POINT_GRAPHICS,
-		rs.pipeline.layout,
-		0, 1, &rs.ds,
-		0, nullptr);
+	vkCmdPushConstants(c, rs.pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, rs.pipeline.pushconstantrange.size, rs.pcdata);
+	if (rs.ds != VK_NULL_HANDLE) {
+		vkCmdBindDescriptorSets(
+			c,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			rs.pipeline.layout,
+			0, 1, &rs.ds,
+			0, nullptr);
+	}
 	vkCmdDraw(c, 6, 1, 0, 0);
 	vkEndCommandBuffer(c);
 }
 
-void PPStep::createRenderPass() {
+void PPStep::createRenderPass(bool last) {
+	/* below was used for volumetrics
 	VkAttachmentDescription attachdescs[1] {{
 			0, 
 			GH_SWAPCHAIN_IMAGE_FORMAT,
@@ -119,6 +136,18 @@ void PPStep::createRenderPass() {
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 	}};
+	*/
+	VkAttachmentDescription attachdescs[1] {{
+			0, 
+			dsts[0].format,
+			VK_SAMPLE_COUNT_1_BIT, // TODO: do we just take the MSAA samples???
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			last ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	}};
 	VkAttachmentReference attachrefs[1] {
 		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
 	};
@@ -126,15 +155,15 @@ void PPStep::createRenderPass() {
 	clear = {0, 0.3, 0, 1};
 	// RenderPassInfo rpi(rp, window->getNumSCIs(), window->getSCImages(), nullptr, nullptr, {clear});
 
-	fb = new VkFramebuffer[window->getNumSCIs()];
-	for (uint8_t scii = 0; scii < window->getNumSCIs(); scii++) {
+	fb = new VkFramebuffer[n_dsts];
+	for (uint8_t scii = 0; scii < n_dsts; scii++) {
 		VkFramebufferCreateInfo framebufferci {
 			VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 			nullptr,
 			0,
 			rp,
-			1, &window->getSCImages()[scii].view,
-			window->getSCExtent().width, window->getSCExtent().height, 1
+			1, &dsts[scii].view,
+			dsts[0].extent.width, dsts[0].extent.height, 1
 		};
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &fb[scii]);
 	}
