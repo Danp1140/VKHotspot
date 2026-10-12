@@ -1,6 +1,8 @@
 #ifndef GEOMETRY_H
 #define GEOMETRY_H
 
+#define GRAPH_TROUBLESHOOT
+
 class AABB;
 class Octree;
 
@@ -52,17 +54,14 @@ public:
 	friend void swap(Mat& lhs, Mat& rhs) {
 		std::swap(lhs.data, rhs.data);
 	}
-
-	Mat<D_row, 1, T> getRow(uint8_t n) const {
-		return Mat<D_row, 1, T>(data + n * D_row);
-	}
-	Mat<1, D_col, T> getCol(uint8_t n) const {
-		return Mat<1, D_col, T>(data + n, D_row);
-	}
-	void setRow(uint8_t n, Mat<D_row, 1, T> r) {
-		memcpy(data + n*D_row, r.data, D_row*sizeof(T));
-	}
-	void setCol(uint8_t n, Mat<1, D_col, T> c) {
+	
+	T get(Dim row, Dim col) const {return data[col*D_row + row];}
+	// wraps OOB values by row and col individually
+	T getWrap(Dim row, Dim col) const {return data[(col%D_col)*D_row + (row%D_row)];}
+	Mat<D_row, 1, T> getRow(Dim n) const {return Mat<D_row, 1, T>(data + n * D_row);}
+	Mat<1, D_col, T> getCol(Dim n) const {return Mat<1, D_col, T>(data + n, D_row);}
+	void setRow(Dim n, Mat<D_row, 1, T> r) {memcpy(data + n*D_row, r.data, D_row*sizeof(T));}
+	void setCol(Dim n, Mat<1, D_col, T> c) {
 		for (uint8_t r = 0; r < D_row; r++) {
 			data[r*D_row + n] = c.data[r];
 		}
@@ -76,6 +75,29 @@ public:
 			}
 		}
 		return M;
+	}
+	T determinant() const {
+		T res = 0;
+		if constexpr (D_row == 1) res = data[0];
+		else if constexpr (D_row == 2) res = data[0] * data[3] - data[1] * data[2];
+		else {
+			Mat<D_row - 1, D_col - 1, T> M;
+			for (Dim d = 0; d < D_row; d++) {
+				Dim row_offset = 0;
+				for (Dim row = 0; row < D_row; row++) {
+					if (row == d) {
+						row_offset++;
+					}
+					else {
+						for (Dim col = 0; col < D_col - 1; col++) {
+							M.data[col*(D_row-1) + row - row_offset] = getWrap(row, col + 1);
+						}
+					}
+				}
+				res += data[d] * M.determinant() * pow(-1, d);
+			}
+		}
+		return res;
 	}
 
 	template<uint8_t rhs_D_row>
@@ -112,6 +134,16 @@ public:
 		swap(*this, rhs);
 		return *this;
 	}	
+
+	Mat<D_row, D_col, T> mirrorFromUpper() {
+		Mat<D_row, D_col, T> res = *this;
+		for (Dim r = 0; r < D_row; r++) {
+			for (Dim c = r+1; c < D_col; c++ ) {
+				res.data[c*D_row + r] = data[r*D_col + c];
+			}
+		}
+		return res;
+	}
 
 	void LUQ(Mat<D_row, D_col, T>& L, Mat<D_row, D_col, T>& U, Mat<D_row, D_col, T>& Q) {
 		if constexpr (D_row == 1 || D_col == 1) {
@@ -242,7 +274,6 @@ private:
 
 // typedef Mat<D, 1, T> Vec<D, T>
 
-
 template<uint8_t D, typename T=float>
 class Vec {
 public:
@@ -254,12 +285,20 @@ public:
 		for (uint8_t d = 0; d < D; d++) 
 			data[d] = (T)v;
 	}
+	Vec(T* d) {
+		memcpy(data, d, D * sizeof(T));
+	}
 
 	T& operator[](const uint8_t i) {
 		if (i > D) 
 			FatalError("Index " + std::to_string(i) + " out of range for vector of dimension " + std::to_string(D)).raise();
 		return data[i];
 	}
+	T operator[](const uint8_t i) const {
+		if (i > D) 
+			FatalError("Index " + std::to_string(i) + " out of range for vector of dimension " + std::to_string(D)).raise();
+		return data[i];
+	}	
 	Vec<D, T> operator+(const Vec<D, T>& rhs) const {
 		Vec<D, T> res;
 		for (uint8_t d = 0; d < D; d++) 
@@ -278,15 +317,55 @@ public:
 			res.data[d] = data[d] * rhs;
 		return res;
 	}
+	Vec<D, T> operator/(const Vec<D, T>& rhs) const {
+		Vec<D, T> res;
+		for (uint8_t d = 0; d < D; d++)
+			res.data[d] = data[d] / rhs.data[d];
+		return res;
+	}
 	Vec<D, T> operator/(const T& rhs) const {
 		Vec<D, T> res;
 		for (uint8_t d = 0; d < D; d++)
 			res.data[d] = data[d] / rhs;
 		return res;
 	}
+	friend Vec<D, T> operator/(T lhs, const Vec<D, T>& rhs) {
+		Vec<D, T> res;
+		for (uint8_t d = 0; d < D; d++)
+			res.data[d] = lhs / rhs.data[d];
+		return res;
+	}
+	const Vec<D, T>& operator+=(const Vec<D, T>& rhs) {
+		*this = *this + rhs;
+		return *this;
+	}
 	const Vec<D, T>& operator-=(const Vec<D, T>& rhs) {
 		*this = *this - rhs;
 		return *this;
+	}
+	const Vec<D, T>& operator*=(const T& rhs) {
+		*this = *this * rhs;
+		return *this;
+	}
+	bool operator==(const Vec<D, T>& rhs) const {
+		for (Dim d = 0; d < D; d++) {
+			if (data[d] != rhs.data[d]) return false;
+		}
+		return true;
+	}
+	bool operator<(const Vec<D, T>& rhs) const {
+		for (Dim d = 0; d < D; d++) {
+			if (data[d] > rhs.data[d]) return false;
+			if (data[d] < rhs.data[d]) return true;
+		}
+		return false;
+	}
+	bool operator>(const Vec<D, T>& rhs) const {
+		for (Dim d = 0; d < D; d++) {
+			if (data[d] < rhs.data[d]) return false;
+			if (data[d] > rhs.data[d]) return true;
+		}
+		return false;
 	}
 	T magSq() const {
 		T res = (T)0;
@@ -296,6 +375,39 @@ public:
 	}
 	T mag() const {
 		return sqrt(magSq());
+	}
+	T dot(const Vec<D, T>& rhs) const {
+		T res = 0;
+		for (Dim d = 0; d < D; d++) res += data[d] * rhs.data[d];
+		return res;
+	}
+	// requires D - 2 rhs's
+	Vec<D, T> cross(const Vec<D, T>* rhs) const {
+		Mat<D-1, D-1, T> M;
+		Vec<D, T> res;
+		for (Dim d = 0; d < D; d++) {
+			Dim row_offset = 0;
+			for (Dim row = 0; row < D; row++) {
+				if (row == d) row_offset++;
+				else {
+					for (Dim col = 0; col < D - 1; col++) {
+						if (col == 0) M.data[row - row_offset] = data[row];
+						else M.data[col*(D-1) + row - row_offset] = rhs[col - 1][row];
+					}
+				}
+			}
+			res[d] = M.determinant() * pow(-1, d);
+		}
+		return res;
+	}
+
+	std::string to_string() const {
+		std::string res = "[";
+		for (Dim d = 0; d < D; d++) 
+			res += std::to_string(data[d]) + ", ";
+		res.pop_back();
+		res += "]";
+		return res;
 	}
 
 private:
@@ -313,6 +425,7 @@ public:
 			direct_adj[n] = nullptr;
 		}
 	}
+	// does no adjacency setting, not enough known
 	Simplex(Simplex<D, N-1, T>* f, Vec<D, T>* v) : parent(nullptr) {
 		for (Dim n = 0; n < N - 1; n++) {
 			member_vertices[n] = f->getMemberVertex(n);
@@ -321,6 +434,7 @@ public:
 		member_vertices[N - 1] = v;
 		direct_adj[N - 1] = nullptr;
 	}
+	// does no adjacency setting, not enough known
 	Simplex(std::set<Simplex<D, N-1, T>>& in) : parent(nullptr) {
 		std::set<Vec<D, T>*> verts;
 		for (const Simplex<D, N-1, T>& s : in) {
@@ -341,27 +455,61 @@ public:
 		}
 		return member_vertices[n];
 	}
+	/*
+	 * TODO: below allows simplices with same members in different order to be not equal
+	 * should probably call them equal if the have the same sequence of member verts and dir adj, regardless of starting pos
+   */
 	bool operator<(const Simplex<D, N, T>& rhs) const {
+		Vec<D, T> mv_sort[N], rhs_mv_sort[N];	
 		for (Dim n = 0; n < N; n++) {
-			if (member_vertices[n] < rhs.member_vertices[n]) return true;
-			else if (member_vertices[n] > rhs.member_vertices[n]) return false;
+			mv_sort[n] = *member_vertices[n];
+			rhs_mv_sort[n] = *rhs.member_vertices[n];
+		}
+		std::sort(mv_sort, mv_sort + N);
+		std::sort(rhs_mv_sort, rhs_mv_sort + N);
+		for (Dim n = 0; n < N; n++) {
+			if (mv_sort[n] > rhs_mv_sort[n]) return false;
+			if (mv_sort[n] < rhs_mv_sort[n]) return true;
 		}
 		return false;
 	}
 	bool operator>(const Simplex<D, N, T>& rhs) const {
+		Vec<D, T> mv_sort[N], rhs_mv_sort[N];
 		for (Dim n = 0; n < N; n++) {
-			if (member_vertices[n] > rhs.member_vertices[n]) return true;
-			else if (member_vertices[n] < rhs.member_vertices[n]) return false;
+			mv_sort[n] = *member_vertices[n];
+			rhs_mv_sort[n] = *rhs.member_vertices[n];
+		}
+		std::sort(mv_sort, mv_sort + N);
+		std::sort(rhs_mv_sort, rhs_mv_sort + N);
+		for (Dim n = 0; n < N; n++) {
+			if (mv_sort[n] < rhs_mv_sort[n]) return false;
+			if (mv_sort[n] > rhs_mv_sort[n]) return true;
 		}
 		return false;
 	}
+	bool operator==(const Simplex<D, N, T>& rhs) const {
+		Vec<D, T> mv_sort[N], rhs_mv_sort[N];	
+		for (Dim n = 0; n < N; n++) {
+			mv_sort[n] = *member_vertices[n];
+			rhs_mv_sort[n] = *rhs.member_vertices[n];
+		}
+		std::sort(mv_sort, mv_sort + N);
+		std::sort(rhs_mv_sort, rhs_mv_sort + N);
+		for (Dim n = 0; n < N; n++) {
+			if (mv_sort[n] != rhs_mv_sort[n]) return false;
+		}
+		return true;
+	}
 
 	void setParent(Simplex<D, N+1, T>* p) {parent = p;}
+	void setMemberVertex(Dim n, Vec<D, T>* v) {member_vertices[n] = v;}
 	void setDirAdj(Dim n, Simplex<D, N, T>* s) {direct_adj[n] = s;}
 
 	Simplex<D, N+1, T>* getParent() {return parent;}
 	Vec<D, T>* getMemberVertex(Dim n) const {return member_vertices[n];}
 	Simplex<D, N, T>** getDirAdj() {return &direct_adj[0];}
+	Simplex<D, N, T>* const * getDirAdj() const {return &direct_adj[0];}
+	// creates and returns N-1-simplex child that is shared with N-simplex directly adjacent at index n
 	Simplex<D, N-1, T> getDirAdj(Dim n) {
 		Vec<D, T>* points[N-1];
 		if (!direct_adj[n]) {
@@ -397,6 +545,24 @@ public:
 		res.setParent(this);
 		return res;
 	}
+	// sets s to appropriate dir adj, the one at the same index of the member vertex not contained in s
+	void swapDirAdj(Simplex<D, N, T>* s) {
+		bool found;
+		for (Dim n1 = 0; n1 < N; n1++) {
+			found = false;
+			for (uint8_t n2 = 0; n2 < N; n2++) {
+				if (member_vertices[n1] == s->member_vertices[n2]) {
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				direct_adj[n1] = s;
+				return;
+			}
+		}
+		FatalError("Couldn't find vertex not shared with s in swapDirAdj").raise();
+	}
 
 	std::set<Simplex<D, N-1, T>> getChildren() {
 		std::set<Simplex<D, N-1, T>> res;
@@ -413,11 +579,36 @@ public:
 		}
 		return res;
 	}
+	// no parent assigned so it can remain const, but only geometric data
+	// returns child starting at member vertex 0
+	Simplex<D, N-1, T> getTempChild(Dim n) const {
+		Simplex<D, N-1, T> tmp;
+		Vec<D, T>* vert_tmp[N-1];
+		// just do a scrolling window of len D-1 that can wrap around
+		// so for a tetrahedron, indices[0, 1, 2], [1, 2, 3], [2, 3, 0], [3, 0, 1]
+		for (uint8_t i = 0; i < N - 1; i++) 
+			vert_tmp[i] = member_vertices[(n + i) % N];
+		tmp = Simplex<D, N-1, T>(&vert_tmp[0]);
+		return tmp;
+	}
+	bool isChild(const Simplex<D, N-1, T>& c) const {
+		for (Dim n = 0; n < N-1; n++) {
+			if (!contains(c.getMemberVertex(n))) return false;
+		}
+		return true;
+	}
 	bool contains(const Vec<D, T>* v) const {
 		for (Dim n = 0; n < N; n++) {
 			if (member_vertices[n] == v) return true;
 		}
 		return false;
+	}
+	Dim getIdx(const Vec<D, T>* v) const {
+		for (Dim n = 0; n < N; n++) {
+			if (member_vertices[n] == v) return n;
+		}
+		FatalError("Couldn't find vertex matching given in getIdx").raise();
+		return 0xff;
 	}
 	Vec<D, T>* getUnique(const Simplex<D, N, T>& other) const { // returns this's member_vertex not contained in other, both dD facets 
 		bool found;
@@ -433,7 +624,13 @@ public:
 		}
 		return nullptr;
 	}
+	/*
+	 * Returns the N-1 simplex composed of all member_vertices save for v
+	 * Will raise a FatalError if v is not in member_vertices or if it doesn't find exactly N-1 other vertices
+	 * DOESN'T SET PARENT so as to remain const; there are up to two potential parents anyway
+	 */
 	Simplex<D, N-1, T> getNot(Vec<D, T>* v) const {
+		bool v_found = false;
 		Vec<D, T>* verts[N-1];
 		Dim i = 0;
 		for (Dim n = 0; n < N; n++) {
@@ -441,15 +638,111 @@ public:
 				verts[i] = member_vertices[n];
 				i++;
 			}
+			else v_found = true;
 		}
+		if (!v_found) FatalError("getNot given v not in this simplex").raise();
+		if (i != N - 1) FatalError("getNot did not find the correct amount of overlap").raise();
 		return Simplex<D, N-1, T>(&verts[0]);
 	}
+	void swapDirAdj(const Simplex<D, N, T>* old, Simplex<D, N, T>* newe) {
+		for (Dim n = 0; n < N; n++) {
+			if (direct_adj[n] == old) {
+				direct_adj[n] = newe;
+				return;
+			}
+		}
+		FatalError("Didn't find direct adjacency to swap").raise();
+	}
+	Dim nOverlap(const Simplex<D, N, T>& s) const {
+		Dim res = 0;
+		for (Dim n1 = 0; n1 < N; n1++) {
+			for (Dim n2 = 0; n2 < N; n2++) {
+				if (member_vertices[n1] == s.getMemberVertex(n2)) {
+					res++;
+					break;
+				}
+			}
+		}
+		return res;
+	}
 
+	bool vecLiesIn(const Vec<D, T>& v) const {
+		Vec<D, T> d;
+		Simplex<D, N-1, T> child;
+		for (Dim n = 0; n < N; n++) {
+			d = v - *member_vertices[n];
+			child = getTempChild(n);
+			Vec<D, T> norm = child.norm();
+			if ((*member_vertices[(n - 1 + N) % N] - *member_vertices[n]).dot(norm) < 0) {
+				norm = norm * (T)-1;
+			}
+			if (d.dot(norm) < 0) // if outside on any side
+				return false;
+		}
+		return true;
+	}
+	// < 0 if on "in" side
+	// 0 if lies on simplex's space (not bounded by vertices, just in the D-dim space the simplex lies in)
+	// > 0 if on "out" side
+	T sideTest(Vec<D, T>& v) const {
+		Vec<D, T> n = norm();
+		return v.dot(norm()); // inward facing normal
+	}
+	Vec<D, T> norm() const {
+		// TODO: order here is crucial, combined with implicit info of member_vertices order
+		// to ensure normal points outward
+		// currently seems to work for 2-facets in 2D, testing insufficient
+		
+		// for this to result in a single vector instead of a space, it requires D = N
+		Vec<D, T> diff_vecs[N - 1];
+		for (Dim n = 0; n < N - 1; n++) diff_vecs[n] = *member_vertices[n + 1] - *member_vertices[0];
+		Mat<N-1, N-1, T> M;
+		Vec<D, T> res;
+		for (Dim d = 0; d < D; d++) {
+			Dim row_offset = 0;
+			for (Dim row = 0; row < N; row++) {
+				if (row == d) {
+					row_offset++;
+				}
+				else {
+					for (Dim col = 0; col < N - 1; col++) {
+						M.data[col*(N-1) + row - row_offset] = diff_vecs[col][row];
+					}
+				}
+			}
+			res[d] = M.determinant() * pow(-1, d);
+		}
+		return res;
+	}
 	Vec<D, T> centroid() const {
 		Vec<D, T> res;
-		for (Dim n = 0; n < N; n++) 
+		for (Dim n = 0; n < N; n++) {
 			res = res + *member_vertices[n];
+		}
 		return res / (T)N;
+	}
+	Vec<D, T> circumcenter() const {
+		Mat<N+1, N+1, T> C;
+		for (Dim n = 1; n < N+1; n++) {
+			C.data[n] = 1;	
+			C.data[n*(N+1)] = 1;
+		}
+		for (Dim r = 0; r < N; r++) {
+			for (Dim c = 0; c < N; c++) {
+				if (r > c)
+					C.data[(c+1)*(N+1) + (r+1)] = (*member_vertices[c] - *member_vertices[r]).magSq();
+			}
+		}
+		C = C.mirrorFromUpper();
+		Mat<N+1, N+1, T> M = C.invert() * (T)(-2);
+		T r = 0.5 * sqrt(M.data[0]);
+		Vec<D, T> c;
+		T denom = 0;
+		for (Dim n = 1; n < N + 1; n++) {
+			c = c + *member_vertices[n - 1] * M.data[n];
+			denom += M.data[n];
+		}
+		return c / denom;
 	}
 	// < 0 if in circumsphere
 	// 0 if on circumsphere
@@ -462,16 +755,17 @@ public:
 		}
 		for (Dim r = 0; r < N; r++) {
 			for (Dim c = 0; c < N; c++) {
-				if (r != c) 
+				if (r > c)
 					C.data[(c+1)*(N+1) + (r+1)] = (*member_vertices[c] - *member_vertices[r]).magSq();
 			}
 		}
+		C = C.mirrorFromUpper();
 		Mat<N+1, N+1, T> M = C.invert() * (T)(-2);
 		T r = 0.5 * sqrt(M.data[0]);
 		Vec<D, T> c;
 		T denom = 0;
-		for (Dim n = 1; n < N; n++) {
-			c = c + *member_vertices[n] * M.data[n];
+		for (Dim n = 1; n < N + 1; n++) {
+			c = c + *member_vertices[n - 1] * M.data[n];
 			denom += M.data[n];
 		}
 		c = c / denom;
@@ -480,8 +774,10 @@ public:
 
 private:
 	Vec<D, T>* member_vertices[N];
-	Simplex<D, N, T>* direct_adj[N]; // facets of dim D which are adjacent via a facet of dim D-1
-																// a nullptr means that face is unbounded 
+	Simplex<D, N, T>* direct_adj[N]; // N-simplices which are adjacent via a shared N-1-simplex
+																// adj n is adjacent via an N-1 simplex of member_vertices v_n, ..., v_((n+N-1)%N)
+																// for instance, with a triangle, adjacency 0 is adjacent via an edge of vertices 0 and 1
+																// a nullptr means there is no adjacency on that simplex 
 	Simplex<D, N+1, T>* parent; // nullptr if not part of a larger facet
 };
 
@@ -494,14 +790,89 @@ public:
 		for (Simplex<D, N, T>* s : simplices) delete s;
 	}
 
+	virtual void addVertex(Vec<D, T>* v) {
+		vertices.push_back(v);
+	}
+	void removeVertex(Vec<D, T>* v) {
+		for (size_t v_i = 0; v_i < vertices.size(); v_i++) {
+			if (vertices[v_i] == v) {
+				vertices.erase(vertices.begin() + v_i);
+			}
+		}
+		std::set<Simplex<D, N, T>*> to_kill;
+		for (Simplex<D, N, T>* s : simplices) {
+			if (s->contains(v)) {
+				to_kill.insert(s);
+			}
+		}
+		for (Simplex<D, N, T>* k : to_kill) {
+			for (Dim n = 0; n < N; n++) {
+				if (k->getDirAdj()[n])
+					k->getDirAdj()[n]->swapDirAdj(k, nullptr);
+			}
+			removeSimplex(k);
+		}
+		delete v;
+	}
+
 	void addSimplex(Simplex<D, N, T>* s) {simplices.insert(s);}
-	void removeSimplex(Simplex<D, N, T>* s) {simplices.erase(s);}
+	void removeSimplex(Simplex<D, N, T>* s) {
+		simplices.erase(s);
+		#ifdef GRAPH_TROUBLESHOOT
+		/*
+		for (Simplex<D, N, T>* s_i : simplices) {
+			for (Dim n = 0; n < N; n++) {
+				if (s_i == s) s->setDirAdj(n, nullptr);
+				else if (s_i->getDirAdj()[n] == s) FatalError("Deleting simplex that still has adjacency references").raise();
+			}
+		}
+		*/
+		for (Dim n = 0; n < N; n++) {
+			s->setMemberVertex(n, nullptr);
+			s->setDirAdj(n, nullptr);
+		}	
+		s->setParent(nullptr);	
+		#endif
+		delete s;
+	}
 	const std::set<Simplex<D, N, T>*>& getSimplices() {return simplices;}
 
 	size_t getNumVertices() const {return vertices.size();}
 	size_t getNumSimplices() const {return simplices.size();}
 	const std::vector<Vec<D, T>*>& getVertices() const {return vertices;}
 	const std::set<Simplex<D, N, T>*>& getSimplices() const {return simplices;}
+
+	/*
+   * Creates graph from all N-1-simplices implied by the N-simplices in this graph
+   * Currently sets no adjacencies, but could in the future
+	 * Does not set parent as there is ambiguity
+	 */ 
+	Graph<D, N-1, T> getNm1Graph() {
+		Graph<D, N-1, T> res;
+		Vec<D, T>* mv_temp[N-1];
+		std::map<Vec<2>, Vec<2>*> value_refs;
+		for (Vec<D, T>* v : vertices) {
+			Vec<D, T>* new_vert = new Vec<2>(*v);
+			res.addVertex(new_vert);
+			value_refs[*v] = new_vert;
+		}
+		std::set<Simplex<D, N-1, T>> added;
+		for (const Simplex<D, N, T>* s : simplices) {
+			for (Dim n = 0; n < N; n++) {
+				for (Dim mv_i = 0; mv_i < N-1; mv_i++) {
+					mv_temp[mv_i] = value_refs.at(*s->getMemberVertex((n + mv_i) % N));
+				}
+				// TODO: fix this, this is a ridiculous speculative allocation lol
+				Simplex<D, N-1, T>* candidate = new Simplex<D, N-1, T>(&mv_temp[0]);
+				if (!added.contains(*candidate)) {
+					res.addSimplex(candidate);
+					added.insert(*candidate);
+				}
+				else delete candidate;
+			}
+		}
+		return res;
+	}
 
 protected:
 	std::vector<Vec<D, T>*> vertices;
@@ -515,122 +886,198 @@ class DelaunayGraph : public Graph<D, N, T> {
 	using Graph<D, N, T>::vertices;
 public:
 	/* 
-	 * by default constructs a hypertetrahedron with each side length 1 centered on origin
+	 * by default constructs a single Simplex<D, N, T> with each side length 1 centered on origin
 	 */
 	DelaunayGraph() {
-		vertices.push_back(new Vec<D, T>(0));
-		Vec<D, T> to_add, centroid(0);
-		for (uint8_t d = 0; d < D; d++) {
+		vertices.push_back(new Vec<D, T>((T)0));
+		Vec<D, T> to_add, centroid((T)0);
+		for (uint8_t n = 0; n < N-1; n++) {
 			to_add = centroid;
-			to_add[d] = sqrt(1 - centroid.magSq());
+			to_add[n] = sqrt(1 - centroid.magSq());
 			vertices.push_back(new Vec<D, T>(to_add));
-			centroid = (centroid*(d+1) + to_add) / (d+2);
+			centroid = (centroid*(n+1) + to_add) / (n+2);
 		}
-		Vec<D, T>* Dd_facets_temp[D+1];
-		for (uint8_t d = 0; d < D; d++) {
-			*vertices[d] -= centroid;
-			Dd_facets_temp[d] = vertices[d];
+		Vec<D, T>* Dd_facets_temp[N];
+		for (uint8_t n = 0; n < N; n++) {
+			*vertices[n] -= centroid;
+			Dd_facets_temp[n] = vertices[n];
 		}
 		Graph<D, N, T>::addSimplex(new Simplex<D, N, T>(Dd_facets_temp));
 	}
+	/*
+	 * Same as null init, but scales initial simplex by scale
+	 */
+	DelaunayGraph(T scale) : DelaunayGraph() {
+		for (Vec<D, T>* v : vertices) *v = *v * scale;
+	}
 
 	/* 
-	 * places a vertex at the centroid of the D-dimensional facet at the given index
+	 * Places a vertex at the centroid of the D-dimensional facet at the given index
 	 */
 	void addVertex(Simplex<D, N, T>* f) {
-		Vec<D, T>* vert_to_add = new Vec<D, T>(f->centroid());																		// new vertex in center
-		vertices.push_back(vert_to_add);
+		_addVertex(f, new Vec<D, T>(f->centroid()));	
+	}
+	/*
+	 * Brute-force searches through all facets to find one containing v and adds it
+	 */
+	void addVertex(Vec<D, T>& v) {
+		// TODO: better algs exist, this is just to test
+		Simplex<D, N, T>* s = nullptr;
+		for (Simplex<D, N, T>* s_i : Graph<D, N, T>::getSimplices()) {
+			if (s_i->vecLiesIn(v)) {
+				s = s_i;
+				break;
+			}
+		}
+		if (!s) FatalError("Couldn't find simplex containing vector, adding exterior vertex not yet supported").raise();
+		_addVertex(s, new Vec<D, T>(v));
+	}
+private:
+	/*
+	 * Adds vert_to_add to contains_vert, presumes that the Vec lies in the Simplex
+	 * vert_to_add should be alloc'd with new, graph will handle freeing
+	 * contains_vert should already be a valid simplex in the graph
+	 */
+	void _addVertex(Simplex<D, N, T>* contains_vert, Vec<D, T>* vert_to_add) {
+		vertices.push_back(vert_to_add);																										// add new vert to vertex list
 	
+		/* Initial subdivision */
 		Vec<D, T>* tmp[N];																																	// pre-construct new simplices for adjacency
-		tmp[0] = vert_to_add;
+		tmp[N-1] = vert_to_add;
 		Simplex<D, N, T>* init_simps[N];
 		for (Dim n = 0; n < N; n++) {
-			for (Dim n2 = 1; n2 < N; n2++) 
-				tmp[n2] = f->getMemberVertex((n + n2) % N);
+			for (Dim n2 = 0; n2 < N-1; n2++) 
+				tmp[n2] = contains_vert->getMemberVertex((n + n2) % N);
 			init_simps[n] = new Simplex<D, N, T>(&tmp[0]);
 			Graph<D, N, T>::addSimplex(init_simps[n]);
 		}
 		for (Dim n = 0; n < N; n++) {																												// set adjacencies
-			init_simps[n]->setDirAdj(0, nullptr); // TODO: this will not always be null, but this will work for the first subdiv
-			for (Dim n2 = 1; n2 < N; n2++) 
-				init_simps[n]->setDirAdj(n2, init_simps[(n + n2) % N]);
+			init_simps[n]->setDirAdj(N-1, contains_vert->getDirAdj()[(n - 1 + N) % N]);
+			if (contains_vert->getDirAdj()[(n - 1 + N) % N]) 
+				contains_vert->getDirAdj()[(n - 1 + N) % N]->swapDirAdj(contains_vert, init_simps[n]);
+			for (Dim n2 = 0; n2 < N-1; n2++) 
+				init_simps[n]->setDirAdj(n2, init_simps[(n + n2 + 1) % N]);
 		}
 
-		// TODO: remember to sort init_simps by existing adj after you get a first subdiv working
-		// related to above adj set
-
-		Simplex<D, N, T>* adj;																															// dig and fill cavities for each new simplex
-		std::set<Simplex<D, N-1, T>> other_adj;
+		/* Cavity digging & filling */
 		for (Dim n = 0; n < N; n++) {
 			std::set<Simplex<D, N-1, T>> cavity;
-			adj = f->getDirAdj()[n];
-			other_adj = init_simps[n]->getChildren();
-			for (const Simplex<D, N-1, T>& s : other_adj) {
-				if (!s.contains(vert_to_add)) {
-					other_adj.erase(s);
-					break;
-				}
+			Simplex<D, N, T>* to_dig = init_simps[n]->getDirAdj()[N-1];												// always check against external adjacency (should be un-modified)
+			std::set<Simplex<D, N-1, T>> vta_adj;
+			for (Dim adj_i = 0; adj_i < N-1; adj_i++) {																				// vta_adj are all other adjacencies of init_simps[n]
+				Simplex<D, N-1, T> vta_adj_temp = init_simps[n]->getNot(init_simps[n]->getMemberVertex(adj_i));
+				vta_adj_temp.setParent(init_simps[n]->getDirAdj()[adj_i]);											// vta_adj parents are the simplex that is not init_simps[n]
+				vta_adj.insert(vta_adj_temp);
 			}
-			if (adj) digCavity(vert_to_add, adj, f->getUnique(*adj), cavity);
-			if (cavity.size() > 1) fillCavity(other_adj, cavity);
+			if (to_dig) digCavity(init_simps[n], vert_to_add, to_dig, to_dig->getUnique(*contains_vert), cavity);
+			if (cavity.size() > 1) {
+				fillCavity(vta_adj, cavity);
+				Graph<D, N, T>::removeSimplex(init_simps[n]);
+			}
 		}
-
-		Graph<D, N, T>::removeSimplex(f);
-		delete f;
+		Graph<D, N, T>::removeSimplex(contains_vert);																				// remove the original simplex we were subdividing once and for all
 	}
-private:
 	/*
 	 * v is the added vertex
 	 * f is the Dd facet to test against
 	 * w is the vertex of f that is not on the cavity boundary (undergoes circumcenter test against Dd facet between v and
 	 * remaining vertices of f)
-	 * boundary is a set of (D-d) facets CONFIRMED to be part of the boundary
+	 * boundary is a set of N-1 simplices CONFIRMED to be part of the boundary, each MUST have an accurate parent 
 	 */
-	void digCavity(Vec<D, T>* v, Simplex<D, N, T>* f, Vec<D, T>* w, std::set<Simplex<D, N-1, T>>& boundary) {
+	void digCavity(Simplex<D, N, T>* came_from, Vec<D, T>* v, Simplex<D, N, T>* f, Vec<D, T>* w, std::set<Simplex<D, N-1, T>>& boundary) {
 		Simplex<D, N-1, T> poss_bound = f->getNot(w);
-		float c = Simplex<D, N, T>(&poss_bound, v).circumcenterTest(*w);
-		if (c > 0) 
-			boundary.insert(poss_bound);
-		else if (c < 0) {
-			Simplex<D, N, T>* next;
-			for (Dim n = 0; n < N; n++) {
-				next = f->getDirAdj()[n];
-				if (next) 
-					digCavity(v, next, next->getUnique(*f), boundary);
-			}
-			Graph<D, N, T>::removeSimplex(f);
-			delete f;
+		Simplex<D, N, T> to_circum_test(&poss_bound, v);													// ONLY used for circumcenter test; adjacency/parent pointers will be no good
+		float c = to_circum_test.circumcenterTest(*w);
+		if (c >= 0) {																															// if w lies outside or on the circumcenter:
+			poss_bound.setParent(f);																								// this SHOULD be a redundant parent set
+			boundary.insert(poss_bound);																						// we know the boundary is solid and should be used to define the cavity
 		}
-		else {
-			FatalError("Circumcenter test exactly 0, unimplemented").raise();
+		else {																																		// if w lies inside the circumcenter
+			Simplex<D, N, T>* next;
+			for (Dim adj_i = 0; adj_i < N; adj_i++) {																						// try digging into every other adjacency of f that is not the one we came from
+				next = f->getDirAdj()[adj_i];
+				if (next && next != came_from) {
+					digCavity(f, v, next, next->getUnique(*f), boundary);													  // this is just as fast as looking up adjacency indices for implicit member vertex index 
+				}
+				else if (!next) {																																	// any adjacencies on the edge of the graph are a guaranteed cavity boundary
+					Vec<D, T>* simp_temp[N-1];
+					for (Dim n2 = 1; n2 < N; n2++)																									// it is defined by every member vertex of f that is not n
+						simp_temp[n2 - 1] = f->getMemberVertex((adj_i + n2) % N);
+					boundary.insert(Simplex<D, N-1, T>(&simp_temp[0]));															// parent should be nullptr
+				}
+			}
+			// TODO: do we need to swap simplex adjacencies equal to f to nullptr?
+			// prob not actually, fillcav looks these up by vertex orders
+/*
+			for (Dim adj_i = 0; adj_i < N; adj_i++) {
+				if (f->getDirAdj()[adj_i]) f->getDirAdj()[adj_i]->swapDirAdj(f, nullptr);
+			}
+*/
+			Graph<D, N, T>::removeSimplex(f);
 		}
 	}
-	// could make first param a ptr cuz we know the size and itd be easy enough to swap stuff in and out
 	void fillCavity(std::set<Simplex<D, N-1, T>>& v_adj_f, std::set<Simplex<D, N-1, T>>& boundary) {
-		if (boundary.size() < 2) {
-			// TODO: avoid redundant add if we never dug this out
-			// or just always dig it out haha
-			Graph<D, N, T>::addSimplex(new Simplex<D, N, T>(v_adj_f));
-		}
+		if (v_adj_f.size() == 1) return;																				// base case for recursion, we've already filled the cavity
 		else {
-			Simplex<D, N-1, T> f1 = *v_adj_f.begin(), f2 = nullptr;
-			bool f2_found = false;
-			for (Dim n = 0; n < N; n++) {
-				if (boundary.contains(f1.getParent()->getDirAdj(n)) && !v_adj_f.contains(f1.getParent()->getDirAdj(n))) {
-					f2 = f1.getParent()->getDirAdj(n);
+			Simplex<D, N-1, T> f1 = *v_adj_f.begin(), f2;													// grab the first v_adj_f as f1
+			bool f2_found = false;																								// find f2 as any simplex in boundary sharing exactly N - 2 member vertices with f1
+			for (const Simplex<D, N-1, T>& s : boundary) {
+				if (f1.nOverlap(s) == N - 2) {
+					f2 = s;
 					f2_found = true;
 					break;
 				}
 			}
 			if (!f2_found) 
 				FatalError("Couldn't find second facet for fillCav").raise();
-			std::set<Simplex<D, N-1, T>> next_simp;
-			next_simp.insert(f1);
-			next_simp.insert(f2);
-			Graph<D, N, T>::addSimplex(new Simplex<D, N, T>(next_simp));
-			boundary.erase(f2);
+
+
+			Vec<D, T>* vec_temp[N];																								// make the new simplex:
+			Simplex<D, N, T>* adj_temp[N];
+			vec_temp[0] = f1.getUnique(f2);																				// one point is f1's member not contained in f2
+			adj_temp[0] = f2.getParent();																					// it corresponds to the parent of f2 as an adjacency
+			vec_temp[1] = f2.getUnique(f1);																				// another is f2's member not contained in f1
+			adj_temp[1] = f1.getParent();																					// it corresponds to the parent of f1 as an adjacency
+			Simplex<D, N-2, T> overlap = f1.getNot(vec_temp[0]);									// remaining N - 2 vertices are their overlap
+			for (Dim n = 0; n < N - 2; n++) {																		
+				vec_temp[n + 2] = overlap.getMemberVertex(n);
+				adj_temp[n + 2] = nullptr;																					// this adj is on the cavity side; if it has an adj, it is handled below simplex creation
+			}
+			Simplex<D, N, T>* next_simp = new Simplex<D, N, T>(&vec_temp[0]);
+			for (Dim adj_i = 0; adj_i < N; adj_i++) {															// setup the adjacencies in the simplex itself:
+				next_simp->setDirAdj(adj_i, adj_temp[adj_i]);												// try setting directly from adj_temp
+				if (adj_temp[adj_i]) {																							// if it's not a nullptr:
+					adj_temp[adj_i]->swapDirAdj(next_simp);														// swap in the simplex we made as an adjaceency in the 
+				}
+				if (adj_i > 1) {																								// for potential adjacencies to simplices created by previous fillCav calls:
+					std::set<Simplex<D, N-1, T>> to_kill;
+					for (Simplex<D, N-1, T> b : v_adj_f) {														// look for a boundary simplex that is equal to the theoretical adjacency
+						if (b == next_simp->getNot(next_simp->getMemberVertex(adj_i))) {
+							next_simp->setDirAdj(adj_i, b.getParent());										// set next_simp's adjacency on that side
+							b.getParent()->swapDirAdj(next_simp);													// set the other guy's boundary
+							to_kill.insert(b);
+						}
+					}
+					for (const Simplex<D, N-1, T>& k : to_kill) v_adj_f.erase(k);
+				}
+			}
+			
+			Graph<D, N, T>::addSimplex(next_simp);																// actually add new simplex to set
+
+			boundary.erase(f2);																										// knock f1 and f2 out of their relevent sets
 			v_adj_f.erase(f1);
-			// v_adj_f.add(
+
+			Vec<D, T>* vec_temp2[N-1];																						// create new N-1 simplices for the next boundary, created by the addition of next_simp
+			vec_temp2[0] = f1.getUnique(f2);																			// two of the vectors are certainly the unique f1 and f2 vertices
+			vec_temp2[1] = f2.getUnique(f1);
+			Simplex<D, N-1, T> next_bound;
+			for (Dim b_i = 0; b_i < N - 2; b_i++) {																// this will create N - 2 new boundary simplices
+				for (Dim v_i = 0; v_i < N - 3; v_i++)																// the remaining N - 3 vertices are combinations of the other overlapping vertices
+					vec_temp2[v_i + 2] = overlap.getMemberVertex((b_i + v_i) % (N - 2));
+				next_bound = Simplex<D, N-1, T>(&vec_temp2[0]);
+				next_bound.setParent(next_simp);
+				v_adj_f.insert(next_bound);
+			}
 			fillCavity(v_adj_f, boundary);
 		}
 	}
