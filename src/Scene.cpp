@@ -25,7 +25,7 @@ RenderPassInfo::RenderPassInfo(
 
 RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx) :
 	renderpass(r), numscis(nsci), extent(ext), clears(c), cull_map(nullptr) {
-	createFBs(numscis, sci_att_idx, att);
+	createFBs(att, sci_att_idx);
 }
 
 void RenderPassInfo::destroy() {
@@ -136,6 +136,26 @@ void RenderPassInfo::createFBs(const uint32_t nsci, const ImageInfo* scis, const
 	};
 	for (uint8_t scii = 0; scii < nsci; scii++) {
 		if (scis) attachments[scattachidx] = scis[scii].view;
+		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &framebuffers[scii]);
+	}
+}
+
+void RenderPassInfo::createFBs(const std::vector<const ImageInfo*>& imgs, uint32_t sci_attach_idx) {
+	framebuffers = new VkFramebuffer[numscis];
+	VkImageView attachments[imgs.size()];
+	for (size_t i = 0; i < imgs.size(); i++) {
+		if (i != sci_attach_idx) attachments[i] = imgs[i]->view;
+	}
+	VkFramebufferCreateInfo framebufferci {
+		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		renderpass,
+		static_cast<uint32_t>(imgs.size()), &attachments[0],
+		extent.width, extent.height, 1
+	};
+	for (uint8_t scii = 0; scii < numscis; scii++) {
+		attachments[sci_attach_idx] = imgs[sci_attach_idx][scii].view;
 		vkCreateFramebuffer(GH::getLD(), &framebufferci, nullptr, &framebuffers[scii]);
 	}
 }
@@ -399,9 +419,11 @@ uint32_t Scene::addLightCatcher(
 		return -1u;
 	}
 
-	GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, catcher_entries)});
-	GH::updateDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shadow_atlas.getDII(), {});
-	GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, offsetof(LUBData, catcher_entries), SCENE_MAX_SHADOW_CATCHERS *  sizeof(CatcherEntry)});
+	if (ds != VK_NULL_HANDLE) {
+		GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, catcher_entries)});
+		GH::updateDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shadow_atlas.getDII(), {});
+		GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, offsetof(LUBData, catcher_entries), SCENE_MAX_SHADOW_CATCHERS *  sizeof(CatcherEntry)});
+	}
 	
 	updateLightCatcher(m, ds, d_l_idxs, s_l_idxs, p_l_idxs, n_catchers);
 

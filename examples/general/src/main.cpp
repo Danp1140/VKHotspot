@@ -529,9 +529,34 @@ int main() {
 	}));
 
 	w.addTask(cbRecTaskTemplate(uirpi.getRPT()));
-	w.addTask(cbRecTaskTemplate([&ui, rp = uirpi.getRenderPass(), fb = uirpi.getFramebuffers()]
+	w.addTask(cbRecTaskTemplate([&ui, rp = main_rp->getRenderPass(), fb = main_rp->getFramebuffers()]
 		(uint8_t scii, VkCommandBuffer& c) {
-		ui.recordDraw(fb[scii], rp, c); // might need to mod fb idx against ui's own scii count
+		VkCommandBufferInheritanceInfo cbinherinfo {
+			VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+			nullptr,
+			rs.rp, 1,
+			rs.fb[scii],
+			VK_FALSE, 0, 0
+		};
+		VkCommandBufferBeginInfo cbbi {
+			VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			nullptr,
+			VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
+			&cbinherinfo
+		};
+		vkBeginCommandBuffer(c, &cbbi);
+		vkCmdBindPipeline(c, VK_PIPELINE_BIND_POINT_GRAPHICS, rs.pipeline.pipeline);
+		vkCmdPushConstants(c, rs.pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, rs.pipeline.pushconstantrange.size, rs.pcdata);
+		if (rs.ds != VK_NULL_HANDLE) {
+			vkCmdBindDescriptorSets(
+				c,
+				VK_PIPELINE_BIND_POINT_GRAPHICS,
+				rs.pipeline.layout,
+				0, 1, &rs.ds,
+				0, nullptr);
+		}
+		vkCmdDraw(c, 6, 1, 0, 0);
+		vkEndCommandBuffer(c);
 		return true;
 	}));
 

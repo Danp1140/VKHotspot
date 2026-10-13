@@ -89,6 +89,7 @@ private:
 	// TODO: see if you can make this interface more intuitive
 	void createFBs(const uint32_t nsci, const ImageInfo* scis, const ImageInfo* r, const ImageInfo* d);
 	void createFBs(const uint32_t nsci, uint32_t sciidx, const std::vector<const ImageInfo*> imgs);
+	void createFBs(const std::vector<const ImageInfo*>& imgs, uint32_t sci_attach_idx);
 };
 
 typedef struct SMEntry {
