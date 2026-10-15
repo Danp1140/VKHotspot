@@ -169,7 +169,8 @@ void DirectionalLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_A
 		ls_aabb[0].x, ls_aabb[1].x,
 		ls_aabb[1].y, ls_aabb[0].y,
 		// 1 - ls_aabb[0].z, 1 - ls_aabb[1].z));
-		1 - ls_aabb[1].z, 1 - ls_aabb[0].z));
+		// 1 - ls_aabb[1].z, 1 - ls_aabb[0].z));
+		-ls_aabb[1].z, -ls_aabb[0].z));
 	/*
 	 * Why we flip and negate z here:
 	 * We calculate a light-space z range.

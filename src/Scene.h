@@ -117,7 +117,6 @@ typedef struct LUBData {
 	// contains c, f, and p (as required for each)
 	// really only needs vec4 but UBOs must be padded here to 16 even in array
 	alignas(16) glm::vec4 vectors[2*SCENE_MAX_DIR_LIGHTS + 3*SCENE_MAX_SPOT_LIGHTS + 2*SCENE_MAX_POINT_LIGHTS];
-	alignas(16) LightIndex sm_idxs[SCENE_MAX_SC_LIGHTS + SCENE_MAX_SC_LIGHTS]; // maps all light idxs to sm_entries, same ordering convention as vectors
 	alignas(16) SMEntry sm_entries[SCENE_MAX_SC_LIGHTS];
 
 	// TODO this maybe doesn't have to live in the same struct, allowing for dynamic padding when we make the buffer
@@ -137,10 +136,10 @@ public:
 	// leaving updateLUB public ties into giving out a non-const DL ptr;
 	// if we wanted to make updateLUB priv, we'd need some sort of check-out,
 	// check-in func, but even then its still up to the user to check the ptr back in
+	LightIndex getSMSlots(LightIndex n_sms);
 	DirectionalLight* addDirectionalLight(const DirectionalLight& l, const std::vector<VkExtent2D>& sm_exts);
 	SpotLight* addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>& sm_exts);
 	PointLight* addPointLight(const PointLight& l);
-	void updateSpotLight(size_t lidx);
 	std::vector<size_t> addSMPipeline(const Light& l, const PipelineInfo& p, RenderPassInfo& rpi, const void* pcd);
 
 	/*
@@ -171,17 +170,12 @@ public:
 		const std::vector<uint32_t>& s_l_idxs, 
 		const std::vector<uint32_t>& p_l_idxs,
 		uint32_t cidx);
-	/*
-	 * Calls updateSMDatum on light l's smd_idxth SM datum and updates corresponding LUB SMEntry.
-	 * Presumes a valid index.
-	 */
-	void updateSMD(Light& l, size_t smd_idx);
 	void updateDirSMD(size_t dl_idx, size_t sc_dl_idx, size_t smd_idx);
 	void updateSpotSMD(size_t sl_idx, size_t sc_sl_idx, size_t smd_idx);
 	/*
 	 * Same as updateSMD but provides updateSMDatum with 8 points of camera frust from depths[0] to depths[1] (0–1).
 	 */
-	void updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths);
+	// void updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths);
 
 	// TODO: func to add light to catcher
 	// really just needs to update that catcher's cub; lub should already be updated
