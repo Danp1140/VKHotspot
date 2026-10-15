@@ -127,7 +127,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 		vkCreateImageView(GH::getLD(), &imageviewcreateinfo, nullptr, &scimages[sciindex].view);
 	}
 	sciindex = 0;
-	GH_LOG_RESOURCE_SIZE(scimages, scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis)
+	GH_LOG_RESOURCE_SIZE(scimages, (scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis))
 
 	// it is the user's responsibility to not try to access this image if they haven't asked for MSAA
 	if (i.msaa != VK_SAMPLE_COUNT_1_BIT) {
@@ -137,7 +137,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 		mscolorbuffer.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		mscolorbuffer.samples = i.msaa;
 		GH::createImage(mscolorbuffer);
-		GH_LOG_RESOURCE_SIZE(mscolorbuffer, mscolorbuffer.getPixelSize() * mscolorbuffer.extent.width * mscolorbuffer.extent.height)
+		GH_LOG_RESOURCE_SIZE(mscolorbuffer, (mscolorbuffer.getPixelSize() * mscolorbuffer.extent.width * mscolorbuffer.extent.height))
 	}
 
 	depthbuffer.extent = scimages[0].extent;
@@ -146,7 +146,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 	depthbuffer.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthbuffer.samples = i.msaa;
 	GH::createImage(depthbuffer);
-	GH_LOG_RESOURCE_SIZE(depthbuffer, depthbuffer.getPixelSize() * mscolorbuffer.extent.width * depthbuffer.extent.height)
+	GH_LOG_RESOURCE_SIZE(depthbuffer, (depthbuffer.getPixelSize() * mscolorbuffer.extent.width * depthbuffer.extent.height))
 
 	createSyncObjects();
 	createPrimaryCBs();

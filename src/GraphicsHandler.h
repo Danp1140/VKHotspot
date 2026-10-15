@@ -128,6 +128,8 @@ typedef struct ImageInfo {
 				return 4;
 			case VK_FORMAT_R8G8B8A8_UNORM:
 				return 4;
+			case VK_FORMAT_R8G8B8A8_SNORM:
+				return 4;
 			case VK_FORMAT_D32_SFLOAT:
 				return 4;
 			case VK_FORMAT_R32G32B32A32_SFLOAT:

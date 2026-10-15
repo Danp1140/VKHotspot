@@ -117,7 +117,7 @@ typedef struct LUBData {
 	// contains c, f, and p (as required for each)
 	// really only needs vec4 but UBOs must be padded here to 16 even in array
 	alignas(16) glm::vec4 vectors[2*SCENE_MAX_DIR_LIGHTS + 3*SCENE_MAX_SPOT_LIGHTS + 2*SCENE_MAX_POINT_LIGHTS];
-	alignas(16) uint32_t sm_idxs[SCENE_MAX_DIR_LIGHTS + SCENE_MAX_SPOT_LIGHTS + SCENE_MAX_POINT_LIGHTS]; // maps all light idxs to sm_entries, same ordering convention as vectors
+	alignas(16) LightIndex sm_idxs[SCENE_MAX_SC_LIGHTS + SCENE_MAX_SC_LIGHTS]; // maps all light idxs to sm_entries, same ordering convention as vectors
 	alignas(16) SMEntry sm_entries[SCENE_MAX_SC_LIGHTS];
 
 	// TODO this maybe doesn't have to live in the same struct, allowing for dynamic padding when we make the buffer
@@ -176,6 +176,7 @@ public:
 	 * Presumes a valid index.
 	 */
 	void updateSMD(Light& l, size_t smd_idx);
+	void updateDirSMD(size_t dl_idx, size_t sc_dl_idx, size_t smd_idx);
 	void updateSpotSMD(size_t sl_idx, size_t sc_sl_idx, size_t smd_idx);
 	/*
 	 * Same as updateSMD but provides updateSMDatum with 8 points of camera frust from depths[0] to depths[1] (0–1).

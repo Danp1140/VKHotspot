@@ -214,6 +214,7 @@ Scene::Scene(float a) :
 	shadow_atlas.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	vkCreateSampler(GH::getLD(), &Light::defaultshadowsamplerci, nullptr, &shadow_atlas.sampler); 
 	GH::createImage(shadow_atlas);
+	GH_LOG_RESOURCE_SIZE(shadow_atlas, (shadow_atlas.extent.width * shadow_atlas.extent.height * shadow_atlas.getPixelSize()))
 }
 
 Scene::~Scene() {
@@ -253,10 +254,14 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 	glm::vec4 vectors[2];
 	vectors[0] = glm::vec4(added.getCol().x, added.getCol().y, added.getCol().z, 0);
 	vectors[1] = glm::vec4(added.getForward().x, added.getForward().y, added.getForward().z, 0);
-	GH::updateBuffer(lightub, &vectors[0], 2*sizeof(glm::vec4), offsetof(LUBData, vectors) + n_dir_lights * 2 * sizeof(glm::vec4));
+	GH::updateBuffer(
+		lightub, 
+		&vectors[0], 
+		2*sizeof(glm::vec4), 
+		offsetof(LUBData, vectors) + n_dir_lights * 2 * sizeof(glm::vec4));
 
 	if (sm_exts.size() > 0) {
-		uint32_t sm_idxs[sm_exts.size()];
+		LightIndex sm_idxs[sm_exts.size()];
 
 		for (size_t sm_i = 0; sm_i < sm_exts.size(); sm_i++) {
 			if (n_sc_lights + 1 == SCENE_MAX_SC_LIGHTS) {
@@ -276,7 +281,11 @@ DirectionalLight* Scene::addDirectionalLight(const DirectionalLight& l, const st
 			n_sc_lights++;
 		}
 
-		GH::updateBuffer(lightub, &sm_idxs[0], sm_exts.size()*sizeof(LightIndex), offsetof(LUBData, sm_idxs) + n_sc_dir_lights * sizeof(LightIndex));
+		GH::updateBuffer(
+			lightub, 
+			&sm_idxs[0], 
+			sm_exts.size()*sizeof(LightIndex), 
+			offsetof(LUBData, sm_idxs) + n_sc_dir_lights * sizeof(LightIndex));
 		n_sc_dir_lights += sm_exts.size();
 	}
 
@@ -305,7 +314,7 @@ SpotLight* Scene::addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>
 		offsetof(LUBData, vectors) + SCENE_MAX_DIR_LIGHTS * 2 * sizeof(glm::vec4) + n_spot_lights * 3 * sizeof(glm::vec4));
 
 	if (sm_exts.size() > 0) {
-		uint32_t sm_idxs[sm_exts.size()];
+		LightIndex sm_idxs[sm_exts.size()];
 
 		for (size_t sm_i = 0; sm_i < sm_exts.size(); sm_i++) {
 			if (n_sc_lights + 1 == SCENE_MAX_SC_LIGHTS) {
@@ -329,12 +338,16 @@ SpotLight* Scene::addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>
 			lightub, 
 			&sm_idxs[0], 
 			sm_exts.size()*sizeof(LightIndex), 
-			offsetof(LUBData, sm_idxs) + n_sc_dir_lights * sizeof(LightIndex) + n_sc_spot_lights * sizeof(LightIndex)); // TODO: this update strategy will cause trouble if a spot is added before a dir
+			offsetof(LUBData, sm_idxs) + (SCENE_MAX_SC_LIGHTS + n_sc_spot_lights) * sizeof(LightIndex));
 		n_sc_spot_lights += sm_exts.size();
 	}
 
 	n_spot_lights++;
-	GH::updateBuffer(lightub, &n_spot_lights, sizeof(uint32_t), offsetof(LUBData, light_counts) + sizeof(float));	
+	GH::updateBuffer(
+		lightub, 
+		&n_spot_lights, 
+		sizeof(uint32_t), 
+		offsetof(LUBData, light_counts) + sizeof(float));	
 
 	return &added;
 }
@@ -445,28 +458,47 @@ void Scene::updateLightCatcher(
 	memcpy(&entry.dir_light_idxs[0], d_l_idxs.data(), entry.light_counts[0] * sizeof(uint32_t));
 	memcpy(&entry.spot_light_idxs[0], s_l_idxs.data(), entry.light_counts[1] * sizeof(uint32_t));
 	memcpy(&entry.point_light_idxs[0], p_l_idxs.data(), entry.light_counts[2] * sizeof(uint32_t));
-	GH::updateBuffer(lightub, &entry, sizeof(CatcherEntry), offsetof(LUBData, catcher_entries) + cidx * sizeof(CatcherEntry));
+	GH::updateBuffer(
+		lightub, 
+		&entry, 
+		sizeof(CatcherEntry), 
+		offsetof(LUBData, catcher_entries) + cidx * sizeof(CatcherEntry));
 }
 
 // TODO: no good, doesn't work for multiple lights
 void Scene::updateSMD(Light& l, size_t smd_idx) {
 	l.updateSMDatum(smd_idx, camera->getForward(), nullptr);
 	SMEntry entry;
-	entry.vp = Light::smadjmat * l.getSMData()[smd_idx].getVP();
+	entry.vp = l.getSMData()[smd_idx].getVP();
 	entry.uv_ext_off = l.getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);
 
 	GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + smd_idx * sizeof(SMEntry));
 }
 
+void Scene::updateDirSMD(size_t dl_idx, size_t sc_dl_idx, size_t smd_idx) {
+	dir_lights[dl_idx].updateSMDatum(smd_idx, camera->getForward(), nullptr);
+	SMEntry entry;
+	entry.vp = dir_lights[dl_idx].getSMData()[smd_idx].getVP();
+	entry.uv_ext_off = dir_lights[dl_idx].getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);
+
+	GH::updateBuffer(
+		lightub, 
+		&entry, 
+		sizeof(SMEntry), 
+		offsetof(LUBData, sm_entries) + (sc_dl_idx + smd_idx) * sizeof(SMEntry));
+}
+
 void Scene::updateSpotSMD(size_t sl_idx, size_t sc_sl_idx, size_t smd_idx) {
 	spot_lights[sl_idx].updateSMDatum(smd_idx, camera->getForward(), nullptr);
 	SMEntry entry;
-	// entry.vp = Light::smadjmat * spot_lights[sl_idx].getSMData()[smd_idx].getVP();
 	entry.vp = spot_lights[sl_idx].getSMData()[smd_idx].getVP();
 	entry.uv_ext_off = spot_lights[sl_idx].getSMData()[smd_idx].getUVExtOff(shadow_atlas.extent);
 
-	GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries) + (sc_sl_idx + smd_idx) * sizeof(SMEntry));
-	// GH::updateBuffer(lightub, &entry, sizeof(SMEntry), offsetof(LUBData, sm_entries));
+	GH::updateBuffer(
+		lightub, 
+		&entry, 
+		sizeof(SMEntry), 
+		offsetof(LUBData, sm_entries) + (sc_sl_idx + smd_idx) * sizeof(SMEntry));
 }
 
 void Scene::updateSMDCascade(Light& l, size_t smd_idx, glm::vec2 depths) {
