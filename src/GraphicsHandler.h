@@ -128,6 +128,8 @@ typedef struct ImageInfo {
 				return 4;
 			case VK_FORMAT_R8G8B8A8_UNORM:
 				return 4;
+			case VK_FORMAT_R8G8B8A8_SNORM:
+				return 4;
 			case VK_FORMAT_D32_SFLOAT:
 				return 4;
 			case VK_FORMAT_R32G32B32A32_SFLOAT:
@@ -160,18 +162,21 @@ typedef struct PipelineInfo {
 	VkExtent2D extent = {0, 0}; 
 	VkCullModeFlags cullmode = VK_CULL_MODE_BACK_BIT;
 	VkSampleCountFlagBits msaasamples = VK_SAMPLE_COUNT_1_BIT;
+	uint32_t n_color_attachments = 1;
 	// could /consider/ making this a RenderPassInfo ref to avoid redundant data like extent, msaa, etc
 	VkRenderPass renderpass;
 	bool dyn_viewport = false; // also implies dynamic scissor
+	uint32_t subpass = 0;
 } PipelineInfo;
 
 typedef std::function<bool (VkCommandBuffer&)> cbRecFunc;
 
 typedef enum cbRecTaskType {
-		CB_REC_TASK_TYPE_UNINITIALIZED,
-		CB_REC_TASK_TYPE_COMMAND_BUFFER,
-		CB_REC_TASK_TYPE_RENDERPASS,
-		CB_REC_TASK_TYPE_DEPENDENCY,
+	CB_REC_TASK_TYPE_UNINITIALIZED,
+	CB_REC_TASK_TYPE_COMMAND_BUFFER,
+	CB_REC_TASK_TYPE_RENDERPASS,
+	CB_REC_TASK_TYPE_DEPENDENCY,
+	CB_REC_TASK_TYPE_NEXT_SUBPASS,
 } cbRecTaskType;
 
 typedef struct cbRecTask {
@@ -189,23 +194,29 @@ typedef struct cbRecTask {
 		data.di = d;
 	}
 
+	static cbRecTask getNextSubpassTask() {
+		cbRecTask res;
+		res.type = CB_REC_TASK_TYPE_NEXT_SUBPASS;
+		return res;
+	}
+
 	cbRecTask (const cbRecTask& c) : type(c.type) {
 		if (type == CB_REC_TASK_TYPE_COMMAND_BUFFER) new(&data.func) cbRecFunc(c.data.func);
 		else if (type == CB_REC_TASK_TYPE_RENDERPASS) data.rpbi = c.data.rpbi;
-		else data.di = c.data.di;
+		else if (type == CB_REC_TASK_TYPE_DEPENDENCY) data.di = c.data.di;
 	}
 
 	void operator= (const cbRecTask& c) {
 		type = c.type;
 		if (type == CB_REC_TASK_TYPE_COMMAND_BUFFER) new(&data.func) cbRecFunc(c.data.func);
 		else if (type == CB_REC_TASK_TYPE_RENDERPASS) data.rpbi = c.data.rpbi;
-		else data.di = c.data.di;
+		else if (type == CB_REC_TASK_TYPE_DEPENDENCY) data.di = c.data.di;
 	}
 
 	~cbRecTask () {
 		if (type == CB_REC_TASK_TYPE_COMMAND_BUFFER) data.func.~function();
 		type.~cbRecTaskType();
-		data.~cbRecTaskData();
+		if (type != CB_REC_TASK_TYPE_NEXT_SUBPASS) data.~cbRecTaskData();
 	}
 
 	cbRecTaskType type;
@@ -222,6 +233,8 @@ typedef struct cbRecTask {
 } cbRecTask;
 
 typedef struct cbCollectInfo {
+	explicit cbCollectInfo () : type(CB_COLLECT_INFO_TYPE_UNINITIALIZED) {}
+
 	explicit cbCollectInfo (const VkCommandBuffer& c) : 
 		type(CB_COLLECT_INFO_TYPE_COMMAND_BUFFER), 
 		data {.cmdbuf = c} {}
@@ -234,10 +247,18 @@ typedef struct cbCollectInfo {
 		type(CB_COLLECT_INFO_TYPE_DEPENDENCY), 
 		data {.di = d} {}
 
+	static cbCollectInfo getNextSubpassCI() {
+		cbCollectInfo res;
+		res.type = CB_COLLECT_INFO_TYPE_NEXT_SUBPASS;
+		return res;
+	}
+
 	enum cbCollectInfoType {
 		CB_COLLECT_INFO_TYPE_COMMAND_BUFFER,
 		CB_COLLECT_INFO_TYPE_RENDERPASS,
-		CB_COLLECT_INFO_TYPE_DEPENDENCY
+		CB_COLLECT_INFO_TYPE_DEPENDENCY,
+		CB_COLLECT_INFO_TYPE_NEXT_SUBPASS,
+		CB_COLLECT_INFO_TYPE_UNINITIALIZED
 	} type;
 
 	union cbCollectInfoData {
@@ -311,6 +332,11 @@ typedef struct cbRecTaskTemplate {
 		}
 	}
 
+	static cbRecTaskTemplate getNextSubpassTaskTemplate() {
+		cbRecTaskTemplate res;
+		res.type = CB_REC_TASK_TYPE_NEXT_SUBPASS;
+		return res;
+	}
 
 	cbRecTaskType type;
 

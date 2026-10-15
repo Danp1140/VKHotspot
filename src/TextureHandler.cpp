@@ -153,7 +153,7 @@ TextureSet::TextureSet(const char* d, VkSampler s) {
 
 				dst->extent = {i.width, i.height};
 				// TODO: format setting
-				dst->format = VK_FORMAT_R8G8B8A8_SRGB;
+				dst->format = VK_FORMAT_R8G8B8A8_UNORM;
 				dst->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 				dst->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				dst->sampler = s;

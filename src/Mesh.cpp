@@ -248,10 +248,6 @@ void Mesh::loadOBJ(const char* fp) {
 	std::vector<glm::vec2> uvtemps;
 	FILE* obj = fopen(fp, "r");
 	if (!obj) FatalError("Couldn't open OBJ file").raise();
-	int expectedmatches = 0;
-	if (vbtraits & VERTEX_BUFFER_TRAIT_POSITION) expectedmatches += 3;
-	if (vbtraits & VERTEX_BUFFER_TRAIT_UV) expectedmatches += 3;
-	if (vbtraits & VERTEX_BUFFER_TRAIT_NORMAL) expectedmatches += 3;
 	char lineheader[128];
 	int res, matches;
 	glm::vec3 vertex;
@@ -275,7 +271,7 @@ void Mesh::loadOBJ(const char* fp) {
 					&vertidx[0], &uvidx[0], &normidx[0],
 					&vertidx[1], &uvidx[1], &normidx[1],
 					&vertidx[2], &uvidx[2], &normidx[2]);
-			if (matches != expectedmatches) {
+			if (matches != 9) {
 				FatalError("Malformed OBJ file").raise();
 				return;
 			}
@@ -316,24 +312,26 @@ void Mesh::loadOBJ(const char* fp) {
 				vscan += sizeof(glm::vec3);
 			}
 			// TODO this system of calculation does not work for smooth normals
-			glm::vec3 e1 = vertextemps[vertexindices[idx1]] - vertextemps[vertexindices[idx0]],
-								e2 = vertextemps[vertexindices[idx2]] - vertextemps[vertexindices[idx0]];
-			glm::vec2 uv1 = uvtemps[uvindices[idx1]] - uvtemps[uvindices[idx0]],
-								uv2 = uvtemps[uvindices[idx2]] - uvtemps[uvindices[idx0]];
-			float norm = uv1.x*uv2.y - uv2.x*uv1.y;
-			if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
-				*reinterpret_cast<glm::vec3*>(vscan) = glm::normalize(glm::vec3(
-					e1.x*uv2.y - e2.x*uv1.y, 
-					e1.y*uv2.y - e2.y*uv1.y, 
-					e1.z*uv2.y - e2.z*uv1.y) / norm);
-				vscan += sizeof(glm::vec3);
-			}
-			if (vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
-				*reinterpret_cast<glm::vec3*>(vscan) = glm::normalize(glm::vec3(
-					-e1.x*uv2.x + e2.x*uv1.x, 
-					-e1.y*uv2.x + e2.y*uv1.x, 
-					-e1.z*uv2.x + e2.z*uv1.x) / norm);
-				vscan += sizeof(glm::vec3);
+			if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT || vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
+				glm::vec3 e1 = vertextemps[vertexindices[idx1]] - vertextemps[vertexindices[idx0]],
+									e2 = vertextemps[vertexindices[idx2]] - vertextemps[vertexindices[idx0]];
+				glm::vec2 uv1 = uvtemps[uvindices[idx1]] - uvtemps[uvindices[idx0]],
+									uv2 = uvtemps[uvindices[idx2]] - uvtemps[uvindices[idx0]];
+				float norm = uv1.x*uv2.y - uv2.x*uv1.y;
+				if (vbtraits & VERTEX_BUFFER_TRAIT_TANGENT) {
+					*reinterpret_cast<glm::vec3*>(vscan) = glm::normalize(glm::vec3(
+						e1.x*uv2.y - e2.x*uv1.y, 
+						e1.y*uv2.y - e2.y*uv1.y, 
+						e1.z*uv2.y - e2.z*uv1.y) / norm);
+					vscan += sizeof(glm::vec3);
+				}
+				if (vbtraits & VERTEX_BUFFER_TRAIT_BITANGENT) {
+					*reinterpret_cast<glm::vec3*>(vscan) = glm::normalize(glm::vec3(
+						-e1.x*uv2.x + e2.x*uv1.x, 
+						-e1.y*uv2.x + e2.y*uv1.x, 
+						-e1.z*uv2.x + e2.z*uv1.x) / norm);
+					vscan += sizeof(glm::vec3);
+				}
 			}
 			itemp = 3 * x + y;
 			memcpy(iscan, &itemp, sizeof(MeshIndex));

@@ -127,7 +127,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 		vkCreateImageView(GH::getLD(), &imageviewcreateinfo, nullptr, &scimages[sciindex].view);
 	}
 	sciindex = 0;
-	GH_LOG_RESOURCE_SIZE(scimages, scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis)
+	GH_LOG_RESOURCE_SIZE(scimages, (scimages[0].getPixelSize() * scimages[0].extent.width * scimages[0].extent.height * numscis))
 
 	// it is the user's responsibility to not try to access this image if they haven't asked for MSAA
 	if (i.msaa != VK_SAMPLE_COUNT_1_BIT) {
@@ -137,7 +137,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 		mscolorbuffer.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		mscolorbuffer.samples = i.msaa;
 		GH::createImage(mscolorbuffer);
-		GH_LOG_RESOURCE_SIZE(mscolorbuffer, mscolorbuffer.getPixelSize() * mscolorbuffer.extent.width * mscolorbuffer.extent.height)
+		GH_LOG_RESOURCE_SIZE(mscolorbuffer, (mscolorbuffer.getPixelSize() * mscolorbuffer.extent.width * mscolorbuffer.extent.height))
 	}
 
 	depthbuffer.extent = scimages[0].extent;
@@ -146,7 +146,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 	depthbuffer.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	depthbuffer.samples = i.msaa;
 	GH::createImage(depthbuffer);
-	GH_LOG_RESOURCE_SIZE(depthbuffer, depthbuffer.getPixelSize() * mscolorbuffer.extent.width * depthbuffer.extent.height)
+	GH_LOG_RESOURCE_SIZE(depthbuffer, (depthbuffer.getPixelSize() * mscolorbuffer.extent.width * depthbuffer.extent.height))
 
 	createSyncObjects();
 	createPrimaryCBs();
@@ -247,6 +247,11 @@ void WindowInfo::addTask(const cbRecTaskTemplate& t, size_t i) {
 			}
 		}
 	}
+	else if (t.type == CB_REC_TASK_TYPE_NEXT_SUBPASS) {	
+		for (uint8_t scii = 0; scii < numscis; scii++) {
+			rectaskvec[scii].insert(rectaskvec[scii].begin() + i, cbRecTask::getNextSubpassTask());
+		}
+	}
 }
 
 void WindowInfo::addTask(const cbRecTaskTemplate& t) {
@@ -315,6 +320,11 @@ void WindowInfo::processRecordingTasks(
 			rectasks.pop();
 			continue;
 		}
+		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_NEXT_SUBPASS) {
+			collectinfos.push(cbCollectInfo::getNextSubpassCI());
+			rectasks.pop();
+			continue;
+		}
 		if (rectasks.front().type == cbRecTaskType::CB_REC_TASK_TYPE_DEPENDENCY) {
 			collectinfos.push(cbCollectInfo(rectasks.front().data.di));
 			rectasks.pop();
@@ -361,6 +371,8 @@ void WindowInfo::collectPrimaryCB() {
 			}
 			else inrp = false;
 		}
+		else if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_NEXT_SUBPASS)
+			vkCmdNextSubpass(primarycbs[fifindex], VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 		else if (collectinfos.front().type == cbCollectInfo::cbCollectInfoType::CB_COLLECT_INFO_TYPE_DEPENDENCY) {
 			if (collectinfos.front().data.di.imageMemoryBarrierCount) {
 				FatalError("Collection of dependencies/pipeline barriers not yet supported\n").raise();
@@ -1016,7 +1028,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		};
 	}
 	VkPipelineColorBlendAttachmentState colorblendattachmentstate {
-		VK_TRUE,
+		VK_FALSE,
 		VK_BLEND_FACTOR_SRC_ALPHA,
 		VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
 		VK_BLEND_OP_ADD,
@@ -1028,13 +1040,16 @@ void GH::createPipeline (PipelineInfo& pi) {
 			| VK_COLOR_COMPONENT_B_BIT 
 			| VK_COLOR_COMPONENT_A_BIT
 	};
+	VkPipelineColorBlendAttachmentState cbas[pi.n_color_attachments];
+	for (uint32_t i = 0; i < pi.n_color_attachments; i++)
+		cbas[i] = colorblendattachmentstate;
 	VkPipelineColorBlendStateCreateInfo colorblendstatecreateinfo {
 		VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
 		nullptr,
 		0,
 		VK_FALSE,
 		VK_LOGIC_OP_AND,
-		1, &colorblendattachmentstate,
+		pi.n_color_attachments, &cbas[0],
 		{0.0f, 0.0f, 0.0f, 0.0f}
 	};
 	VkGraphicsPipelineCreateInfo pipelinecreateinfo = {
@@ -1054,7 +1069,7 @@ void GH::createPipeline (PipelineInfo& pi) {
 		nullptr,
 		pi.layout,
 		pi.renderpass,
-		0,
+		pi.subpass,
 		VK_NULL_HANDLE,
 		-1
 	};
