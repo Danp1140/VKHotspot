@@ -191,6 +191,10 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 	return cbRecTaskRenderPassTemplate(renderpass, framebuffers, numscis, extent, clears.size(), clears.data());
 }
 
+RPNode::~RPNode() {
+	if (fb) delete fb;
+}
+
 RPNode* RGAttachInfo::getRenderPass() {
 	if (rp.rp != VK_NULL_HANDLE) return &rp;
 
@@ -199,24 +203,34 @@ RPNode* RGAttachInfo::getRenderPass() {
 		if (srcs[src_i]->type == RG_ATTACH_INFO_TYPE_DRAW) {
 			if (srcs[src_i]->rp.rp == VK_NULL_HANDLE) {
 				srcs[src_i]->createRP();
-				for (size_t src_dst_i = 0; src_dst_i < srcs[src_i]->dsts.size(); src_dst_i++) 
+				for (size_t src_dst_i = 0; src_dst_i < srcs[src_i]->dsts.size(); src_dst_i++) {
 					srcs[src_i]->dsts[src_dst_i]->rp.rp = srcs[src_i]->rp.rp;
+					std::cout << "set draw rp to target" << std::endl;
+				}
 			}
 		}
 		else {
-			rp.deps.insert(srcs[src_i]->getRenderPass());
+			RPNode* src_rp = srcs[src_i]->getRenderPass();
+			deps.insert(src_rp->rp);
+
+			std::cout << "added source dependency " << src_rp->rp << std::endl;
 		} 
 	}
 	
 	// if we never encountered a draw to set our RP, make our own
 	if (rp.rp == VK_NULL_HANDLE) {
 		createRP();
+		std::cout << "created rp (no draw source found)" << std::endl;
 	}
 
 	return &rp;
 }
 
 void RGAttachInfo::createRP() {
+	uint8_t n_fbs = 1;
+	WindowInfo* w = nullptr;
+	VkExtent2D fb_ext;
+
 	std::vector<VkAttachmentDescription> ads;
 	std::vector<VkAttachmentReference> ars;
 	VkAttachmentReference depth_ar;
@@ -233,6 +247,10 @@ void RGAttachInfo::createRP() {
 			ads[dst_i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			ads[dst_i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			ads[dst_i].finalLayout = dsts[dst_i]->dst_layout;
+			if (dsts[dst_i]->type == RG_ATTACH_INFO_TYPE_SWAPCHAIN) {
+				w = dsts[dst_i]->window;
+				n_fbs = w->getNumSCIs();
+			}
 			if (dsts[dst_i]->flags & RG_FLAG_DEPTH_BIT) {
 				if (depth_ar.layout != VK_IMAGE_LAYOUT_UNDEFINED)
 					FatalError("Only one depth buffer allowed").raise();
@@ -242,6 +260,7 @@ void RGAttachInfo::createRP() {
 			else 
 				ars.push_back({static_cast<uint32_t>(dst_i), dsts[dst_i]->src_layout});
 		}
+		fb_ext = dsts[0]->img.extent;
 	}
 	else {
 		ads.resize(1);
@@ -256,6 +275,13 @@ void RGAttachInfo::createRP() {
 		ars.resize(1);
 		ars[0].attachment = 0;
 		ars[0].layout = src_layout;
+
+		if (type == RG_ATTACH_INFO_TYPE_SWAPCHAIN) {
+			w = window;
+			n_fbs = w->getNumSCIs();
+		}
+
+		fb_ext = img.extent;
 	}
 
 	VkSubpassDescription subpass;
@@ -290,6 +316,41 @@ void RGAttachInfo::createRP() {
 		1, &sp_dep
 	};
 	vkCreateRenderPass(GH::getLD(), &rp_ci, nullptr, &rp.rp);
+	
+	rp.fb = new VkFramebuffer[n_fbs];
+	VkImageView fb_attach[ads.size()];
+	int sc_idx = -1;
+	if (type == RG_ATTACH_INFO_TYPE_DRAW) {
+		for (size_t dst_i = 0; dst_i < dsts.size(); dst_i++) {
+			if (dsts[dst_i]->type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
+				sc_idx = dst_i;
+			else {
+				GH::createImage(dsts[dst_i]->img);
+				fb_attach[dst_i] = dsts[dst_i]->img.view;
+			}
+		}
+	}
+	else {
+		if (type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
+			sc_idx = 0;
+		else {
+			GH::createImage(img);
+			fb_attach[0] = img.view;
+		}
+	}
+	VkFramebufferCreateInfo fb_ci {
+		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		rp.rp,
+		static_cast<uint32_t>(ads.size()), &fb_attach[0],
+		fb_ext.width, fb_ext.height, 1
+	};
+	for (uint8_t fb_i = 0; fb_i < n_fbs; fb_i++) {
+		if (sc_idx != -1) 
+			fb_attach[sc_idx] = w->getSCImages()[fb_i].view;
+		vkCreateFramebuffer(GH::getLD(), &fb_ci, nullptr, &rp.fb[fb_i]);
+	}
 }
 
 

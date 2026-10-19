@@ -95,8 +95,10 @@ private:
 class RPNode;
 class RPNode {
 public:
-	std::set<RPNode*> deps;	
+	~RPNode();
+
 	VkRenderPass rp = VK_NULL_HANDLE;
+	VkFramebuffer* fb = nullptr;
 };
 
 typedef enum RGAttachInfoType {
@@ -120,6 +122,10 @@ typedef struct RGAttachInfo {
 
 	// So this image will not be supplied by the user.
 	// the user will say props needed but the graph should handle image creation/mgmt
+	// required props are format, usage, extent, and sampler
+	// note that all attachments to a framebuffer must have same extent
+	// someday extent and sampler may be inferred
+	// img's layout will be ignored in favor of src & dst_layout
 	// it will need to be exposed for user DS bindings though
 	// we will also likely need to be able to swap layout between src/dst=
 	ImageInfo img;
@@ -127,6 +133,8 @@ typedef struct RGAttachInfo {
 	RGFlags flags = RG_FLAG_NONE;
 	VkImageLayout src_layout, dst_layout;
 	RPNode rp;
+	std::set<VkRenderPass> deps;	
+	WindowInfo* window;
 
 	RPNode* getRenderPass();
 
