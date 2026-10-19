@@ -25,6 +25,58 @@ typedef struct ScenePCData {
 	glm::mat4 vp;
 } ScenePCData;
 
+class RPNode {
+public:
+	~RPNode();
+
+	VkRenderPass rp = VK_NULL_HANDLE;
+	uint8_t n_attach;
+	VkFramebuffer* fb = nullptr;
+	VkClearValue* clears = nullptr;
+};
+
+typedef enum RGAttachInfoType {
+	RG_ATTACH_INFO_TYPE_DRAW,
+	RG_ATTACH_INFO_TYPE_SWAPCHAIN,
+	RG_ATTACH_INFO_TYPE_SAMPLE,
+	RG_ATTACH_INFO_TYPE_UNDEFINED
+} RGAttachInfoType;
+
+typedef enum RGFlagBits {
+	RG_FLAG_NONE = 0x00,
+	RG_FLAG_DEPTH_BIT = 0x01	
+} RGFlagBits;
+typedef uint8_t RGFlags;
+
+typedef struct RGAttachInfo {
+	std::vector<RGAttachInfo*> srcs;
+	std::vector<RGAttachInfo*> dsts;
+
+	// if draw or sc, only type is written
+
+	// So this image will not be supplied by the user.
+	// the user will say props needed but the graph should handle image creation/mgmt
+	// required props are format, usage, extent, and sampler
+	// note that all attachments to a framebuffer must have same extent
+	// someday extent and sampler may be inferred
+	// img's layout will be ignored in favor of src & dst_layout
+	// it will need to be exposed for user DS bindings though
+	// we will also likely need to be able to swap layout between src/dst=
+	ImageInfo img;
+	RGAttachInfoType type = RG_ATTACH_INFO_TYPE_UNDEFINED;
+	RGFlags flags = RG_FLAG_NONE;
+	VkImageLayout src_layout, dst_layout;
+	RPNode rp;
+	std::set<VkRenderPass> deps;	
+	WindowInfo* window;
+	VkClearValue clear;
+
+	RPNode* getRenderPass();
+
+private:
+	void createRP();
+} RGAttachInfo;
+
 typedef struct RenderSet {
 	PipelineInfo pipeline;
 	std::vector<const MeshBase*> meshes;
@@ -55,6 +107,7 @@ public:
 		const ImageInfo* d,
 		std::vector<VkClearValue>&& c);
 	RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx);
+	RenderPassInfo(RGAttachInfo& r);
 	~RenderPassInfo() = default;
 
 	void destroy(); // handles actual destruction of VK objects pointed to by handles
@@ -92,61 +145,6 @@ private:
 	void createFBs(const std::vector<const ImageInfo*>& imgs, uint32_t sci_attach_idx);
 };
 
-class RPNode;
-class RPNode {
-public:
-	~RPNode();
-
-	VkRenderPass rp = VK_NULL_HANDLE;
-	VkFramebuffer* fb = nullptr;
-};
-
-typedef enum RGAttachInfoType {
-	RG_ATTACH_INFO_TYPE_DRAW,
-	RG_ATTACH_INFO_TYPE_SWAPCHAIN,
-	RG_ATTACH_INFO_TYPE_SAMPLE,
-	RG_ATTACH_INFO_TYPE_UNDEFINED
-} RGAttachInfoType;
-
-typedef enum RGFlagBits {
-	RG_FLAG_NONE = 0x00,
-	RG_FLAG_DEPTH_BIT = 0x01	
-} RGFlagBits;
-typedef uint8_t RGFlags;
-
-typedef struct RGAttachInfo {
-	std::vector<RGAttachInfo*> srcs;
-	std::vector<RGAttachInfo*> dsts;
-
-	// if draw or sc, only type is written
-
-	// So this image will not be supplied by the user.
-	// the user will say props needed but the graph should handle image creation/mgmt
-	// required props are format, usage, extent, and sampler
-	// note that all attachments to a framebuffer must have same extent
-	// someday extent and sampler may be inferred
-	// img's layout will be ignored in favor of src & dst_layout
-	// it will need to be exposed for user DS bindings though
-	// we will also likely need to be able to swap layout between src/dst=
-	ImageInfo img;
-	RGAttachInfoType type = RG_ATTACH_INFO_TYPE_UNDEFINED;
-	RGFlags flags = RG_FLAG_NONE;
-	VkImageLayout src_layout, dst_layout;
-	RPNode rp;
-	std::set<VkRenderPass> deps;	
-	WindowInfo* window;
-
-	RPNode* getRenderPass();
-
-private:
-	void createRP();
-} RGAttachInfo;
-
-class RenderGraph {
-private:
-	RGAttachInfo** starts;
-	size_t n_starts;	
-};
 
 typedef struct SMEntry {
 	glm::mat4 vp;

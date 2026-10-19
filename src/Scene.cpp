@@ -28,6 +28,18 @@ RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D e
 	createFBs(att, sci_att_idx);
 }
 
+RenderPassInfo::RenderPassInfo(RGAttachInfo& r) : 
+	renderpass(r.rp.rp),
+	framebuffers(r.rp.fb),
+	extent(r.img.extent),
+	clears(r.rp.clears, r.rp.clears + r.rp.n_attach),
+	cull_map(nullptr) {
+	std::cout << "creating RPI with framebuffers @ " << r.rp.fb << std::endl;
+	if (r.type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
+		numscis = r.window->getNumSCIs();
+	else numscis = 1;
+}
+
 void RenderPassInfo::destroy() {
 	std::set<VkPipeline> destroyed;
 	for (RenderSet r : rendersets) {
@@ -97,6 +109,7 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 				tasks.emplace_back(
 					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
 					(uint8_t scii, VkCommandBuffer& c) {
+					std::cout << "drawing to framebuffers @ " << &fb << ", numscis = " << (int)ns << std::endl;
 					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
 					// window scis
 					m->recordDraw(fb[scii % ns], rp, r, counter, c);
@@ -192,7 +205,8 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 }
 
 RPNode::~RPNode() {
-	if (fb) delete fb;
+	// if (fb) delete fb;
+	// if (clears) delete clears;
 }
 
 RPNode* RGAttachInfo::getRenderPass() {
@@ -204,7 +218,7 @@ RPNode* RGAttachInfo::getRenderPass() {
 			if (srcs[src_i]->rp.rp == VK_NULL_HANDLE) {
 				srcs[src_i]->createRP();
 				for (size_t src_dst_i = 0; src_dst_i < srcs[src_i]->dsts.size(); src_dst_i++) {
-					srcs[src_i]->dsts[src_dst_i]->rp.rp = srcs[src_i]->rp.rp;
+					srcs[src_i]->dsts[src_dst_i]->rp = srcs[src_i]->rp;
 					std::cout << "set draw rp to target" << std::endl;
 				}
 			}
@@ -317,7 +331,9 @@ void RGAttachInfo::createRP() {
 	};
 	vkCreateRenderPass(GH::getLD(), &rp_ci, nullptr, &rp.rp);
 	
+	rp.n_attach = ads.size();
 	rp.fb = new VkFramebuffer[n_fbs];
+	rp.clears = new VkClearValue[rp.n_attach];
 	VkImageView fb_attach[ads.size()];
 	int sc_idx = -1;
 	if (type == RG_ATTACH_INFO_TYPE_DRAW) {
@@ -325,18 +341,28 @@ void RGAttachInfo::createRP() {
 			if (dsts[dst_i]->type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
 				sc_idx = dst_i;
 			else {
-				GH::createImage(dsts[dst_i]->img);
+				if (dsts[dst_i]->img.image == VK_NULL_HANDLE) {
+					dsts[dst_i]->img.sampler = GH::getNearestSampler();
+					dsts[dst_i]->img.layout = dsts[dst_i]->src_layout;
+					GH::createImage(dsts[dst_i]->img);
+				}
 				fb_attach[dst_i] = dsts[dst_i]->img.view;
 			}
+			rp.clears[dst_i] = dsts[dst_i]->clear;
 		}
 	}
 	else {
 		if (type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
 			sc_idx = 0;
 		else {
-			GH::createImage(img);
+			if (img.image == VK_NULL_HANDLE) {
+				img.sampler = GH::getNearestSampler();
+				img.layout = src_layout;
+				GH::createImage(img);
+			}
 			fb_attach[0] = img.view;
 		}
+		rp.clears[0] = clear;
 	}
 	VkFramebufferCreateInfo fb_ci {
 		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -346,6 +372,8 @@ void RGAttachInfo::createRP() {
 		static_cast<uint32_t>(ads.size()), &fb_attach[0],
 		fb_ext.width, fb_ext.height, 1
 	};
+	std::cout << "creating " << (int)n_fbs << " framebuffers, each w/ " << ads.size() << " attachments @ " << rp.fb << std::endl;
+	
 	for (uint8_t fb_i = 0; fb_i < n_fbs; fb_i++) {
 		if (sc_idx != -1) 
 			fb_attach[sc_idx] = w->getSCImages()[fb_i].view;
