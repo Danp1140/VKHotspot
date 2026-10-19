@@ -92,6 +92,54 @@ private:
 	void createFBs(const std::vector<const ImageInfo*>& imgs, uint32_t sci_attach_idx);
 };
 
+class RPNode;
+class RPNode {
+public:
+	std::set<RPNode*> deps;	
+	VkRenderPass rp = VK_NULL_HANDLE;
+};
+
+typedef enum RGAttachInfoType {
+	RG_ATTACH_INFO_TYPE_DRAW,
+	RG_ATTACH_INFO_TYPE_SWAPCHAIN,
+	RG_ATTACH_INFO_TYPE_SAMPLE,
+	RG_ATTACH_INFO_TYPE_UNDEFINED
+} RGAttachInfoType;
+
+typedef enum RGFlagBits {
+	RG_FLAG_NONE = 0x00,
+	RG_FLAG_DEPTH_BIT = 0x01	
+} RGFlagBits;
+typedef uint8_t RGFlags;
+
+typedef struct RGAttachInfo {
+	std::vector<RGAttachInfo*> srcs;
+	std::vector<RGAttachInfo*> dsts;
+
+	// if draw or sc, only type is written
+
+	// So this image will not be supplied by the user.
+	// the user will say props needed but the graph should handle image creation/mgmt
+	// it will need to be exposed for user DS bindings though
+	// we will also likely need to be able to swap layout between src/dst=
+	ImageInfo img;
+	RGAttachInfoType type = RG_ATTACH_INFO_TYPE_UNDEFINED;
+	RGFlags flags = RG_FLAG_NONE;
+	VkImageLayout src_layout, dst_layout;
+	RPNode rp;
+
+	RPNode* getRenderPass();
+
+private:
+	void createRP();
+} RGAttachInfo;
+
+class RenderGraph {
+private:
+	RGAttachInfo** starts;
+	size_t n_starts;	
+};
+
 typedef struct SMEntry {
 	glm::mat4 vp;
 	glm::vec4 uv_ext_off;

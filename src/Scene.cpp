@@ -191,6 +191,108 @@ cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
 	return cbRecTaskRenderPassTemplate(renderpass, framebuffers, numscis, extent, clears.size(), clears.data());
 }
 
+RPNode* RGAttachInfo::getRenderPass() {
+	if (rp.rp != VK_NULL_HANDLE) return &rp;
+
+	for (size_t src_i = 0; src_i < srcs.size(); src_i++) {
+		// assume only one draw node src per attachment
+		if (srcs[src_i]->type == RG_ATTACH_INFO_TYPE_DRAW) {
+			if (srcs[src_i]->rp.rp == VK_NULL_HANDLE) {
+				srcs[src_i]->createRP();
+				for (size_t src_dst_i = 0; src_dst_i < srcs[src_i]->dsts.size(); src_dst_i++) 
+					srcs[src_i]->dsts[src_dst_i]->rp.rp = srcs[src_i]->rp.rp;
+			}
+		}
+		else {
+			rp.deps.insert(srcs[src_i]->getRenderPass());
+		} 
+	}
+	
+	// if we never encountered a draw to set our RP, make our own
+	if (rp.rp == VK_NULL_HANDLE) {
+		createRP();
+	}
+
+	return &rp;
+}
+
+void RGAttachInfo::createRP() {
+	std::vector<VkAttachmentDescription> ads;
+	std::vector<VkAttachmentReference> ars;
+	VkAttachmentReference depth_ar;
+	depth_ar.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	if (type == RG_ATTACH_INFO_TYPE_DRAW) {
+		ads.resize(dsts.size());
+		for (size_t dst_i = 0; dst_i < dsts.size(); dst_i++) {
+			ads[dst_i].flags = 0;
+			ads[dst_i].format = dsts[dst_i]->img.format;
+			ads[dst_i].samples = VK_SAMPLE_COUNT_1_BIT;
+			ads[dst_i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			ads[dst_i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			ads[dst_i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			ads[dst_i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			ads[dst_i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			ads[dst_i].finalLayout = dsts[dst_i]->dst_layout;
+			if (dsts[dst_i]->flags & RG_FLAG_DEPTH_BIT) {
+				if (depth_ar.layout != VK_IMAGE_LAYOUT_UNDEFINED)
+					FatalError("Only one depth buffer allowed").raise();
+				depth_ar.attachment = static_cast<uint32_t>(dst_i);
+				depth_ar.layout = dsts[dst_i]->src_layout;
+			}
+			else 
+				ars.push_back({static_cast<uint32_t>(dst_i), dsts[dst_i]->src_layout});
+		}
+	}
+	else {
+		ads.resize(1);
+		ads[0].flags = 0;
+		ads[0].format = img.format;
+		ads[0].samples = VK_SAMPLE_COUNT_1_BIT;
+		ads[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		ads[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		ads[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		ads[0].finalLayout = dst_layout;
+
+		ars.resize(1);
+		ars[0].attachment = 0;
+		ars[0].layout = src_layout;
+	}
+
+	VkSubpassDescription subpass;
+	subpass.flags = 0;
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.inputAttachmentCount = 0;
+	if (ars.size() > 0) {
+		subpass.colorAttachmentCount = static_cast<uint32_t>(ars.size());
+		subpass.pColorAttachments = ars.data();
+	}	
+	else subpass.colorAttachmentCount = 0;
+	subpass.pResolveAttachments = 0;
+	if (depth_ar.layout != VK_IMAGE_LAYOUT_UNDEFINED)
+		subpass.pDepthStencilAttachment = &depth_ar;	
+	else subpass.pDepthStencilAttachment = nullptr;	
+	subpass.preserveAttachmentCount = 0;
+	VkSubpassDependency sp_dep;
+	sp_dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+	sp_dep.dstSubpass = 0;
+	sp_dep.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	sp_dep.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	sp_dep.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	sp_dep.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;	
+	sp_dep.dependencyFlags = 0;	
+
+	VkRenderPassCreateInfo rp_ci {
+		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+		nullptr,
+		0,
+		static_cast<uint32_t>(ads.size()), &ads[0],
+		1, &subpass,
+		1, &sp_dep
+	};
+	vkCreateRenderPass(GH::getLD(), &rp_ci, nullptr, &rp.rp);
+}
+
+
 Scene::Scene(float a) : 
 	n_dir_lights(0), 
 	n_spot_lights(0), 
@@ -300,7 +402,7 @@ SpotLight* Scene::addSpotLight(const SpotLight& l, const std::vector<VkExtent2D>
 	glm::vec4 vectors[3];
 	vectors[0] = glm::vec4(added.getCol().x, added.getCol().y, added.getCol().z, (float)sm_exts.size());
 	vectors[1] = glm::vec4(added.getForward().x, added.getForward().y, added.getForward().z, (float)first_sm_idx);
-	vectors[2] = glm::vec4(added.getPos().x, added.getPos().y, added.getPos().z, 0);
+	vectors[2] = glm::vec4(added.getPos().x, added.getPos().y, added.getPos().z, added.getFOVY());
 	GH::updateBuffer(
 		lightub, 
 		&vectors[0], 
