@@ -24,13 +24,12 @@ glm::mat4 ProjectionBase::ortho(float l, float r, float b, float t, float n, flo
 }
 
 /*
- * Presumes p in view space, and therefore camera at z = 1 pointing toward -z
+ * Presumes p in view space, and therefore camera at origin pointing toward -z
  * plane is distance along camera forward vector
- * if point is behind camera, it is brought just to the near plane
+ * if point is behind near plane, it is brought just to the near plane
  */
 glm::vec2 ProjectionBase::projectIntoCameraPlane(glm::vec3 p, float plane) {
-	// return plane / (p.z - 1) * glm::vec2(p.x, p.y);
-	if (p.z < 1 - plane) p.z = 1 - plane;
+	if (p.z > -plane) p.z = -plane;
 	return -plane / p.z * glm::vec2(p.x, p.y);
 }
 
@@ -218,14 +217,7 @@ void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 		ls_aabb[1].x = ls_cam_aabb[1].x;
 		ls_aabb[0].y = ls_cam_aabb[0].y;
 		ls_aabb[1].y = ls_cam_aabb[1].y;
-	}	
-
-	/* 
-	 * To get temp_aabb for real:
-	 * project extrema into plane at near_clip normal to ±z,
-	 * find where line from origin to extrema intersects this plane
-	 * use these as bounds of frust
-	 */
+	}		
 
 	glm::vec2 temp2d = ProjectionBase::projectIntoCameraPlane(ls_aabb[0], near_clip);
 	glm::vec2 temp_aabb[2] = {temp2d, temp2d};
@@ -241,14 +233,16 @@ void SpotLight::updateSMDatum(size_t sm_i, glm::vec3 up, glm::vec3* cam_AABB) {
 		}
 	}
 
-	/* new thing im trying: clamp aabb so that it cant artificial raise the fov */
+	// clamp aabb so that it cant artificially raise the fov
 	float v_max = near_clip * tan(fov_y / 2);
 	float h_max = v_max * aspect_ratio;
 
+/*
 	temp_aabb[0].x = fmax(-h_max, temp_aabb[0].x);
 	temp_aabb[1].x = fmin(h_max, temp_aabb[1].x);
 	temp_aabb[0].y = fmax(-v_max, temp_aabb[0].y);
 	temp_aabb[1].y = fmin(v_max, temp_aabb[1].y);
+*/
 
 
 	sm_data[sm_i].setProj(glm::frustumRH_ZO<float>(
