@@ -109,7 +109,6 @@ std::vector<cbRecTaskTemplate> RenderPassInfo::getTasks() const {
 				tasks.emplace_back(
 					[m, r, &rp = renderpass, &fb = framebuffers, counter, ns = numscis] 
 					(uint8_t scii, VkCommandBuffer& c) {
-					std::cout << "drawing to framebuffers @ " << &fb << ", numscis = " << (int)ns << std::endl;
 					// a little bit of an odd impl, but allows for mismatch between framebuffer scis and
 					// window scis
 					m->recordDraw(fb[scii % ns], rp, r, counter, c);
@@ -201,12 +200,17 @@ void RenderPassInfo::createFBs(const uint32_t nsci, uint32_t sciidx, const std::
 
 // could p be inline/constexpr
 cbRecTaskRenderPassTemplate RenderPassInfo::getRPT() const {
+	std::cout << "getRPT numscis: " << (int)numscis << std::endl;
 	return cbRecTaskRenderPassTemplate(renderpass, framebuffers, numscis, extent, clears.size(), clears.data());
 }
 
 RPNode::~RPNode() {
 	// if (fb) delete fb;
 	// if (clears) delete clears;
+}
+
+RGAttachInfo::~RGAttachInfo() {
+	if (img_owned) GH::destroyImage(img);
 }
 
 RPNode* RGAttachInfo::getRenderPass() {
@@ -255,9 +259,8 @@ void RGAttachInfo::createRP() {
 			ads[dst_i].flags = 0;
 			ads[dst_i].format = dsts[dst_i]->img.format;
 			ads[dst_i].samples = VK_SAMPLE_COUNT_1_BIT;
-			ads[dst_i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			ads[dst_i].loadOp = dsts[dst_i]->should_clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			ads[dst_i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			ads[dst_i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			ads[dst_i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			ads[dst_i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			ads[dst_i].finalLayout = dsts[dst_i]->dst_layout;
@@ -273,6 +276,7 @@ void RGAttachInfo::createRP() {
 			}
 			else 
 				ars.push_back({static_cast<uint32_t>(dst_i), dsts[dst_i]->src_layout});
+			if (dsts[dst_i]->should_clear) std::cout << "setting att " << dst_i << " to clear" << std::endl;
 		}
 		fb_ext = dsts[0]->img.extent;
 	}
@@ -281,7 +285,7 @@ void RGAttachInfo::createRP() {
 		ads[0].flags = 0;
 		ads[0].format = img.format;
 		ads[0].samples = VK_SAMPLE_COUNT_1_BIT;
-		ads[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		ads[0].loadOp = should_clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		ads[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		ads[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		ads[0].finalLayout = dst_layout;
@@ -345,6 +349,7 @@ void RGAttachInfo::createRP() {
 					dsts[dst_i]->img.sampler = GH::getNearestSampler();
 					dsts[dst_i]->img.layout = dsts[dst_i]->src_layout;
 					GH::createImage(dsts[dst_i]->img);
+					dsts[dst_i]->img_owned = true;
 				}
 				fb_attach[dst_i] = dsts[dst_i]->img.view;
 			}
@@ -359,6 +364,7 @@ void RGAttachInfo::createRP() {
 				img.sampler = GH::getNearestSampler();
 				img.layout = src_layout;
 				GH::createImage(img);
+				img_owned = true;
 			}
 			fb_attach[0] = img.view;
 		}
@@ -380,7 +386,6 @@ void RGAttachInfo::createRP() {
 		vkCreateFramebuffer(GH::getLD(), &fb_ci, nullptr, &rp.fb[fb_i]);
 	}
 }
-
 
 Scene::Scene(float a) : 
 	n_dir_lights(0), 

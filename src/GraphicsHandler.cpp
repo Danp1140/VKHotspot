@@ -91,7 +91,7 @@ WindowInfo::WindowInfo(const WindowInitInfo& i) {
 		VK_COLORSPACE_SRGB_NONLINEAR_KHR,
 		surfacecaps.currentExtent,
 		1,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, // TODO make customizable
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, // TODO make customizable
 		VK_SHARING_MODE_EXCLUSIVE,
 		0, nullptr,
 		surfacecaps.currentTransform,

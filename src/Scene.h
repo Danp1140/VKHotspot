@@ -49,6 +49,8 @@ typedef enum RGFlagBits {
 typedef uint8_t RGFlags;
 
 typedef struct RGAttachInfo {
+	~RGAttachInfo();
+	
 	std::vector<RGAttachInfo*> srcs;
 	std::vector<RGAttachInfo*> dsts;
 
@@ -63,13 +65,17 @@ typedef struct RGAttachInfo {
 	// it will need to be exposed for user DS bindings though
 	// we will also likely need to be able to swap layout between src/dst=
 	ImageInfo img;
-	RGAttachInfoType type = RG_ATTACH_INFO_TYPE_UNDEFINED;
+	bool img_owned = false;
+	RGAttachInfoType type = RG_ATTACH_INFO_TYPE_SAMPLE;
 	RGFlags flags = RG_FLAG_NONE;
-	VkImageLayout src_layout, dst_layout;
+	VkImageLayout src_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+							  dst_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	WindowInfo* window = nullptr;
+	bool should_clear = false;
+	VkClearValue clear = {0, 0, 0, 0};
+
 	RPNode rp;
-	std::set<VkRenderPass> deps;	
-	WindowInfo* window;
-	VkClearValue clear;
+	std::set<VkRenderPass> deps;		
 
 	RPNode* getRenderPass();
 
@@ -127,6 +133,7 @@ public:
 	const VkExtent2D& getExtent() const {return extent;}
 	const std::vector<VkClearValue>& getClears() const {return clears;}
 	cbRecTaskRenderPassTemplate getRPT() const;
+	uint32_t getNumSCIs() const {return numscis;}
 
 	void enableFrustumCulling(std::map<const MeshBase*, bool>* cm) {cull_map = cm;}
 
