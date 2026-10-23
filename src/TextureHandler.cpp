@@ -171,6 +171,55 @@ TextureSet::TextureSet(const char* d, VkSampler s) {
 	}
 }
 
+TextureSet::TextureSet(const TextureSetInitInfo& ii) {
+#ifdef VERBOSE_TEXTURESET_OBJECTS
+	std::cout << this << " TextureSet(const char*)" << std::endl;
+#endif
+	char dcpy[strlen(ii.src_dir)];
+	strcpy(&dcpy[0], ii.src_dir);
+	char* dirptr[2] = {dcpy, nullptr};
+	FTS* dir = fts_open(dirptr, FTS_LOGICAL, 0);
+	FTSENT* f;
+	png_image i;
+	png_bytep buffer;
+	ImageInfo* dst;
+	const char* setname = strrchr(ii.src_dir, '/') + 1;
+	size_t setnamelen = strlen(setname);
+	while ((f = fts_read(dir))) {
+		if (f->fts_level == 1) {
+			if (strcmp(f->fts_name + f->fts_namelen - 4, ".png") == 0) {
+				dst = &textures.insert(
+					{std::string(f->fts_name + setnamelen, f->fts_namelen - setnamelen - 4), {}}
+				).first->second;
+
+				i.version = PNG_IMAGE_VERSION;
+				i.opaque = NULL;
+				png_image_begin_read_from_file(&i, f->fts_accpath);
+				i.format = PNG_FORMAT_RGBA;
+				buffer = static_cast<png_bytep>(malloc(PNG_IMAGE_SIZE(i)));
+
+				png_image_finish_read(&i, NULL, buffer, 0, NULL);
+
+				dst->extent = {i.width, i.height};
+				dst->format = ii.format;
+				dst->usage = ii.usage;
+				dst->layout = ii.layout;
+				dst->sampler = ii.sampler;
+				dst->mip_lvls = ii.mip_lvls;
+				GH::createImage(*dst);
+				GH::updateImage(*dst, buffer);
+
+#ifdef VERBOSE_TEXTURESET_OBJECTS
+				std::cout << "creating image " << dst->image << std::endl;
+#endif
+
+				free(buffer);
+				png_image_free(&i);
+			}
+		}
+	}
+}
+
 TextureSet::~TextureSet() {
 #ifdef VERBOSE_TEXTURESET_OBJECTS
 	std::cout << this << " ~TextureSet()" << std::endl;
