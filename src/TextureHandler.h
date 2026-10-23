@@ -322,6 +322,15 @@ private:
 	std::conditional_t<std::is_integral_v<U>, std::uniform_int_distribution<U>, std::uniform_real_distribution<U>> dist;
 };
 
+typedef struct TextureSetInitInfo {
+	const char* src_dir;
+	VkSampler sampler;
+	VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
+	VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	uint32_t mip_lvls = 1;	
+} TextureSetInitInfo;
+
 class TextureSet {
 public:
 	TextureSet() = default;
@@ -329,6 +338,7 @@ public:
 	TextureSet(TextureSet&& rvalue);
 	// TODO: constructor allowing different sampler for each tex
 	TextureSet(const char* d, VkSampler s);
+	TextureSet(const TextureSetInitInfo& ii);
 	~TextureSet();
 
 	friend void swap(TextureSet& lhs, TextureSet& rhs);
@@ -392,6 +402,7 @@ public:
 		VkFilter mag, VkFilter min, 
 		VkSamplerAddressMode addr, 
 		VkBool32 aniso);
+	void addSampler(const char* n, VkSampler s) {samplers.insert({n, s});}
 	void setDefaultSampler(VkSampler s) {defaultsampler = s;}
 private:
 	/*

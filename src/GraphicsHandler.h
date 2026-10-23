@@ -93,6 +93,7 @@ typedef struct ImageInfo {
 	VkMemoryPropertyFlags memprops = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	VkImageTiling tiling; // set by GH::createImage depending on img props
 	VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+	uint32_t mip_lvls = 1;
 
 	constexpr VkImageSubresource getDefaultSubresource() const {
 		return {
