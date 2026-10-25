@@ -28,17 +28,13 @@ RenderPassInfo::RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D e
 	createFBs(att, sci_att_idx);
 }
 
-RenderPassInfo::RenderPassInfo(RGAttachInfo& r) : 
-	renderpass(r.rp.rp),
-	framebuffers(r.rp.fb),
-	extent(r.img.extent),
-	clears(r.rp.clears, r.rp.clears + r.rp.n_attach),
-	cull_map(nullptr) {
-	std::cout << "creating RPI with framebuffers @ " << r.rp.fb << std::endl;
-	if (r.type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
-		numscis = r.window->getNumSCIs();
-	else numscis = 1;
-}
+RenderPassInfo::RenderPassInfo(RGNodeImage& r) : 
+	renderpass(r.getRP()->rp),
+	framebuffers(r.getRP()->fb),
+	extent(r.getImage()[0].extent),
+	clears(r.getRP()->clears, r.getRP()->clears + r.getRP()->n_attach),
+	numscis(r.getNImages()),
+	cull_map(nullptr) {}
 
 void RenderPassInfo::destroy() {
 	std::set<VkPipeline> destroyed;
@@ -209,97 +205,51 @@ RPNode::~RPNode() {
 	// if (clears) delete clears;
 }
 
-RGAttachInfo::~RGAttachInfo() {
-	if (img_owned) GH::destroyImage(img);
+RPNode* RGNodeDraw::visit(VkExtent2D ext) {
+	if (!rp) {
+		createRP(ext);
+
+		for (RGNodeImage* d : dsts) d->setRP(rp);
+	}
+	return rp;
 }
 
-RPNode* RGAttachInfo::getRenderPass() {
-	if (rp.rp != VK_NULL_HANDLE) return &rp;
+void RGNodeDraw::createRP(VkExtent2D ext) {
+	rp = new RPNode();
 
-	for (size_t src_i = 0; src_i < srcs.size(); src_i++) {
-		// assume only one draw node src per attachment
-		if (srcs[src_i]->type == RG_ATTACH_INFO_TYPE_DRAW) {
-			if (srcs[src_i]->rp.rp == VK_NULL_HANDLE) {
-				srcs[src_i]->createRP();
-				for (size_t src_dst_i = 0; src_dst_i < srcs[src_i]->dsts.size(); src_dst_i++) {
-					srcs[src_i]->dsts[src_dst_i]->rp = srcs[src_i]->rp;
-					std::cout << "set draw rp to target" << std::endl;
-				}
-			}
-		}
-		else {
-			RPNode* src_rp = srcs[src_i]->getRenderPass();
-			deps.insert(src_rp->rp);
-
-			std::cout << "added source dependency " << src_rp->rp << std::endl;
-		} 
-	}
-	
-	// if we never encountered a draw to set our RP, make our own
-	if (rp.rp == VK_NULL_HANDLE) {
-		createRP();
-		std::cout << "created rp (no draw source found)" << std::endl;
-	}
-
-	return &rp;
-}
-
-void RGAttachInfo::createRP() {
 	uint8_t n_fbs = 1;
-	WindowInfo* w = nullptr;
-	VkExtent2D fb_ext;
-
-	std::vector<VkAttachmentDescription> ads;
+	VkAttachmentDescription ads[dsts.size()];
 	std::vector<VkAttachmentReference> ars;
 	VkAttachmentReference depth_ar;
 	depth_ar.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-	if (type == RG_ATTACH_INFO_TYPE_DRAW) {
-		ads.resize(dsts.size());
-		for (size_t dst_i = 0; dst_i < dsts.size(); dst_i++) {
-			ads[dst_i].flags = 0;
-			ads[dst_i].format = dsts[dst_i]->img.format;
-			ads[dst_i].samples = VK_SAMPLE_COUNT_1_BIT;
-			ads[dst_i].loadOp = dsts[dst_i]->should_clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-			ads[dst_i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			ads[dst_i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			ads[dst_i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			ads[dst_i].finalLayout = dsts[dst_i]->dst_layout;
-			if (dsts[dst_i]->type == RG_ATTACH_INFO_TYPE_SWAPCHAIN) {
-				w = dsts[dst_i]->window;
-				n_fbs = w->getNumSCIs();
+	int sc_idx = -1;
+	for (size_t dst_i = 0; dst_i < dsts.size(); dst_i++) {
+		ads[dst_i].flags = 0;
+		ads[dst_i].format = dsts[dst_i]->getImage()[0].format;
+		ads[dst_i].samples = VK_SAMPLE_COUNT_1_BIT;
+		ads[dst_i].loadOp = dsts[dst_i]->shouldClear() ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		ads[dst_i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		ads[dst_i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		ads[dst_i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		ads[dst_i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		ads[dst_i].finalLayout = dsts[dst_i]->getDstLayout();
+		if (dsts[dst_i]->getNImages() > 1) {
+			if (n_fbs == 1) {
+				n_fbs = dsts[dst_i]->getNImages();
+				sc_idx = dst_i;
 			}
-			if (dsts[dst_i]->flags & RG_FLAG_DEPTH_BIT) {
-				if (depth_ar.layout != VK_IMAGE_LAYOUT_UNDEFINED)
-					FatalError("Only one depth buffer allowed").raise();
-				depth_ar.attachment = static_cast<uint32_t>(dst_i);
-				depth_ar.layout = dsts[dst_i]->src_layout;
+			else {
+				FatalError("Only one swapchain allowed per RP tree").raise();
 			}
-			else 
-				ars.push_back({static_cast<uint32_t>(dst_i), dsts[dst_i]->src_layout});
-			if (dsts[dst_i]->should_clear) std::cout << "setting att " << dst_i << " to clear" << std::endl;
 		}
-		fb_ext = dsts[0]->img.extent;
-	}
-	else {
-		ads.resize(1);
-		ads[0].flags = 0;
-		ads[0].format = img.format;
-		ads[0].samples = VK_SAMPLE_COUNT_1_BIT;
-		ads[0].loadOp = should_clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		ads[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		ads[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		ads[0].finalLayout = dst_layout;
-
-		ars.resize(1);
-		ars[0].attachment = 0;
-		ars[0].layout = src_layout;
-
-		if (type == RG_ATTACH_INFO_TYPE_SWAPCHAIN) {
-			w = window;
-			n_fbs = w->getNumSCIs();
+		if (dsts[dst_i]->getFlags() & RG_FLAG_DEPTH_BIT) {
+			if (depth_ar.layout != VK_IMAGE_LAYOUT_UNDEFINED)
+				FatalError("Only one depth buffer allowed").raise();
+			depth_ar.attachment = static_cast<uint32_t>(dst_i);
+			depth_ar.layout = dsts[dst_i]->getSrcLayout();
 		}
-
-		fb_ext = img.extent;
+		else 
+			ars.push_back({static_cast<uint32_t>(dst_i), dsts[dst_i]->getSrcLayout()});
 	}
 
 	VkSubpassDescription subpass;
@@ -329,61 +279,200 @@ void RGAttachInfo::createRP() {
 		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
 		nullptr,
 		0,
-		static_cast<uint32_t>(ads.size()), &ads[0],
+		static_cast<uint32_t>(dsts.size()), &ads[0],
 		1, &subpass,
 		1, &sp_dep
 	};
-	vkCreateRenderPass(GH::getLD(), &rp_ci, nullptr, &rp.rp);
+	vkCreateRenderPass(GH::getLD(), &rp_ci, nullptr, &rp->rp);
+
+	rp->n_attach = dsts.size();
+	rp->fb = new VkFramebuffer[n_fbs];
+	rp->clears = new VkClearValue[rp->n_attach];
+	VkImageView fb_attach[rp->n_attach];
+	for (size_t dst_i = 0; dst_i < dsts.size(); dst_i++) {
+		if (dst_i != sc_idx) {
+			dsts[dst_i]->tryMakeImg(ext);
+			fb_attach[dst_i] = dsts[dst_i]->getImage()[0].view;
+		}
+		if (dsts[dst_i]->shouldClear()) 
+			rp->clears[dst_i] = dsts[dst_i]->getClear();
+	}
 	
-	rp.n_attach = ads.size();
-	rp.fb = new VkFramebuffer[n_fbs];
-	rp.clears = new VkClearValue[rp.n_attach];
-	VkImageView fb_attach[ads.size()];
-	int sc_idx = -1;
-	if (type == RG_ATTACH_INFO_TYPE_DRAW) {
-		for (size_t dst_i = 0; dst_i < dsts.size(); dst_i++) {
-			if (dsts[dst_i]->type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
-				sc_idx = dst_i;
-			else {
-				if (dsts[dst_i]->img.image == VK_NULL_HANDLE) {
-					dsts[dst_i]->img.sampler = GH::getNearestSampler();
-					dsts[dst_i]->img.layout = dsts[dst_i]->src_layout;
-					GH::createImage(dsts[dst_i]->img);
-					dsts[dst_i]->img_owned = true;
-				}
-				fb_attach[dst_i] = dsts[dst_i]->img.view;
-			}
-			rp.clears[dst_i] = dsts[dst_i]->clear;
-		}
-	}
-	else {
-		if (type == RG_ATTACH_INFO_TYPE_SWAPCHAIN)
-			sc_idx = 0;
-		else {
-			if (img.image == VK_NULL_HANDLE) {
-				img.sampler = GH::getNearestSampler();
-				img.layout = src_layout;
-				GH::createImage(img);
-				img_owned = true;
-			}
-			fb_attach[0] = img.view;
-		}
-		rp.clears[0] = clear;
-	}
 	VkFramebufferCreateInfo fb_ci {
 		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 		nullptr,
 		0,
-		rp.rp,
-		static_cast<uint32_t>(ads.size()), &fb_attach[0],
-		fb_ext.width, fb_ext.height, 1
+		rp->rp,
+		static_cast<uint32_t>(dsts.size()), &fb_attach[0],
+		dsts[0]->getImage()[0].extent.width, dsts[0]->getImage()[0].extent.height, 1
 	};
-	std::cout << "creating " << (int)n_fbs << " framebuffers, each w/ " << ads.size() << " attachments @ " << rp.fb << std::endl;
 	
 	for (uint8_t fb_i = 0; fb_i < n_fbs; fb_i++) {
 		if (sc_idx != -1) 
-			fb_attach[sc_idx] = w->getSCImages()[fb_i].view;
-		vkCreateFramebuffer(GH::getLD(), &fb_ci, nullptr, &rp.fb[fb_i]);
+			fb_attach[sc_idx] = dsts[sc_idx]->getImage()[fb_i].view;
+		vkCreateFramebuffer(GH::getLD(), &fb_ci, nullptr, &rp->fb[fb_i]);
+	}
+}
+
+RGNodeImage::RGNodeImage(const RGNodeImageInitInfo& ii) :
+		srcs(ii.srcs),
+		should_clear(ii.should_clear) {
+	if (should_clear) clear = ii.clear;
+}
+
+RPNode* RGNodeImage::visit(VkExtent2D ext) {
+	if (!rp) {	
+		for (RGNode* s : srcs) {
+			deps.insert(s->visit(ext)->rp);
+		}
+
+		if (!rp || rp->rp == VK_NULL_HANDLE) {
+			createRP(ext);
+		}
+	}
+	return rp;
+}
+
+void RGNodeImage::createRP(VkExtent2D ext) {
+	rp = new RPNode();
+
+	VkAttachmentDescription ad;
+	VkAttachmentReference ar;
+
+	ad.flags = 0;
+	ad.format = getImage()[0].format;
+	ad.samples = VK_SAMPLE_COUNT_1_BIT;
+	ad.loadOp = should_clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	ad.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	ad.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	ad.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	ad.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	ad.finalLayout = getDstLayout();
+
+	ar.attachment = 0;
+	ar.layout = getSrcLayout();
+
+	VkSubpassDescription subpass;
+	subpass.flags = 0;
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.inputAttachmentCount = 0;
+	if (getFlags() & RG_FLAG_DEPTH_BIT) {
+		subpass.colorAttachmentCount = 0;
+		subpass.pDepthStencilAttachment = &ar;	
+	}
+	else {
+		subpass.colorAttachmentCount = 1;
+		subpass.pColorAttachments = &ar;
+		subpass.pDepthStencilAttachment = nullptr;	
+	}	
+	subpass.pResolveAttachments = 0;
+	subpass.preserveAttachmentCount = 0;
+	VkSubpassDependency sp_dep;
+	sp_dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+	sp_dep.dstSubpass = 0;
+	sp_dep.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	sp_dep.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	sp_dep.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	sp_dep.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;	
+	sp_dep.dependencyFlags = 0;	
+
+	VkRenderPassCreateInfo rp_ci {
+		VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+		nullptr,
+		0,
+		1, &ad,
+		1, &subpass,
+		1, &sp_dep
+	};
+	vkCreateRenderPass(GH::getLD(), &rp_ci, nullptr, &rp->rp);
+	
+	createFBs(ext);
+}
+
+RGNodeSample::RGNodeSample(const RGNodeSampleInitInfo& ii) :
+		RGNodeImage(ii.super_image),
+		flags(ii.flags),
+		src_layout(ii.src_layout),
+		dst_layout(ii.dst_layout),
+		img(ii.img) {
+	if (img.image == VK_NULL_HANDLE) {
+		img_owned = true;
+	}
+	else {
+		img_owned = false;
+	}
+}
+
+RGNodeSample::~RGNodeSample() {
+	if (img_owned && img.image != VK_NULL_HANDLE) GH::destroyImage(img);
+}
+
+bool RGNodeSample::tryMakeImg(VkExtent2D ext) {
+	if (img.image != VK_NULL_HANDLE) return false;
+	img.sampler = GH::getNearestSampler();
+	img.layout = src_layout;
+	img.extent = ext;
+	GH::createImage(img);
+	img_owned = true;
+	return true;
+}
+
+void RGNodeSample::createFBs(VkExtent2D ext) {
+	uint8_t n_fbs = 1;
+	rp->n_attach = 1;
+	rp->fb = new VkFramebuffer[n_fbs];
+	rp->clears = new VkClearValue[rp->n_attach];
+	if (img.image == VK_NULL_HANDLE) {
+		img.sampler = GH::getNearestSampler();
+		img.layout = src_layout;
+		img.extent = ext;
+		GH::createImage(img);
+		img_owned = true;
+	}
+	rp->clears[0] = clear;
+
+	VkImageView fb_attach = img.view;
+	
+	VkFramebufferCreateInfo fb_ci {
+		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		rp->rp,
+		1, &fb_attach,
+		ext.width, ext.height, 1
+	};
+	
+	vkCreateFramebuffer(GH::getLD(), &fb_ci, nullptr, &rp->fb[0]);
+}
+
+RGNodeSwapchain::RGNodeSwapchain(const RGNodeSwapchainInitInfo& ii) : 
+		RGNodeImage(ii.super_image),
+		window(ii.w) {}
+
+RPNode* RGNodeSwapchain::getRPTree() {
+	return visit(window->getSCExtent());
+}
+
+void RGNodeSwapchain::createFBs(VkExtent2D ext) {
+	uint8_t n_fbs = window->getNumSCIs();
+	rp->n_attach = 1;
+	rp->fb = new VkFramebuffer[n_fbs];
+	rp->clears = new VkClearValue[rp->n_attach];
+	VkImageView fb_attach;
+	if (should_clear) rp->clears[0] = clear;
+	
+	VkFramebufferCreateInfo fb_ci {
+		VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		rp->rp,
+		1, &fb_attach,
+		ext.width, ext.height, 1
+	};
+	
+	for (uint8_t fb_i = 0; fb_i < n_fbs; fb_i++) {
+		fb_attach = window->getSCImages()[fb_i].view;
+		vkCreateFramebuffer(GH::getLD(), &fb_ci, nullptr, &rp->fb[fb_i]);
 	}
 }
 
