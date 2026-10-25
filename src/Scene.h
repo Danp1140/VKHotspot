@@ -35,53 +35,127 @@ public:
 	VkClearValue* clears = nullptr;
 };
 
-typedef enum RGAttachInfoType {
-	RG_ATTACH_INFO_TYPE_DRAW,
-	RG_ATTACH_INFO_TYPE_SWAPCHAIN,
-	RG_ATTACH_INFO_TYPE_SAMPLE,
-	RG_ATTACH_INFO_TYPE_UNDEFINED
-} RGAttachInfoType;
-
 typedef enum RGFlagBits {
 	RG_FLAG_NONE = 0x00,
 	RG_FLAG_DEPTH_BIT = 0x01	
 } RGFlagBits;
 typedef uint8_t RGFlags;
 
-typedef struct RGAttachInfo {
-	~RGAttachInfo();
-	
-	std::vector<RGAttachInfo*> srcs;
-	std::vector<RGAttachInfo*> dsts;
+class RGNode {
+public:
+	RGNode() : rp(nullptr) {}
+	~RGNode() = default; // TODO: prob need smth more sophisticated for rp
 
-	// if draw or sc, only type is written
+	virtual RPNode* visit(VkExtent2D ext) = 0;
 
-	// So this image will not be supplied by the user.
-	// the user will say props needed but the graph should handle image creation/mgmt
-	// required props are format, usage, extent, and sampler
-	// note that all attachments to a framebuffer must have same extent
-	// someday extent and sampler may be inferred
-	// img's layout will be ignored in favor of src & dst_layout
-	// it will need to be exposed for user DS bindings though
-	// we will also likely need to be able to swap layout between src/dst=
-	ImageInfo img;
-	bool img_owned = false;
-	RGAttachInfoType type = RG_ATTACH_INFO_TYPE_SAMPLE;
-	RGFlags flags = RG_FLAG_NONE;
+	void setRP(RPNode* r) {rp = r;}
+
+	const RPNode* getRP() const {return rp;}
+protected:
+	RPNode* rp;
+};
+
+typedef struct RGNodeImageInitInfo {
+	std::vector<RGNode*> srcs;
 	VkImageLayout src_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
 							  dst_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	WindowInfo* window = nullptr;
 	bool should_clear = false;
 	VkClearValue clear = {0, 0, 0, 0};
+} RGNodeImageInitInfo;
 
-	RPNode rp;
-	std::set<VkRenderPass> deps;		
+class RGNodeImage : public RGNode {
+public:
+	RGNodeImage() : RGNodeImage((RGNodeImageInitInfo){}) {}
+	RGNodeImage(const RGNodeImageInitInfo& ii);
 
-	RPNode* getRenderPass();
+	virtual bool tryMakeImg(VkExtent2D ext) = 0;
+	void createRP(VkExtent2D ext);
+
+	virtual uint8_t getNImages() const = 0;
+	virtual const ImageInfo* getImage() const = 0;
+	virtual RGFlags getFlags() const = 0;
+	VkImageLayout getSrcLayout() const {return src_layout;}
+	VkImageLayout getDstLayout() const {return dst_layout;}
+	bool shouldClear() const {return should_clear;}
+	VkClearValue getClear() const {return clear;}
+
+protected:
+	std::vector<RGNode*> srcs;
+	VkImageLayout src_layout, dst_layout;
+	bool should_clear;
+	VkClearValue clear;
+
+	RPNode* visit(VkExtent2D ext);
 
 private:
-	void createRP();
-} RGAttachInfo;
+	std::set<VkRenderPass> deps;	
+
+	virtual void createFBs(VkExtent2D ext) = 0;
+};
+
+typedef struct RGNodeSampleInitInfo {
+	RGNodeImageInitInfo super_image = {};
+	RGFlags flags = RG_FLAG_NONE;
+	ImageInfo img = {};
+} RGNodeSampleInitInfo;
+
+class RGNodeSample : public RGNodeImage {
+public:
+	RGNodeSample() : RGNodeSample((RGNodeSampleInitInfo){}) {}
+	RGNodeSample(const RGNodeSampleInitInfo& ii);
+	~RGNodeSample();
+
+	bool tryMakeImg(VkExtent2D ext);
+
+	void setImageOwned(bool o) {img_owned = o;}
+
+	uint8_t getNImages() const {return 1;}
+	const ImageInfo* getImage() const {return &img;}
+	RGFlags getFlags() const {return flags;}
+
+private:
+	ImageInfo img;
+	bool img_owned;
+	RGFlags flags;
+
+	void createFBs(VkExtent2D ext);
+};
+
+typedef struct RGNodeSwapchainInitInfo {
+	RGNodeImageInitInfo super_image = {.dst_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR};
+	WindowInfo* w = nullptr;
+} RGNodeSwapchainInitInfo;
+
+class RGNodeSwapchain : public RGNodeImage {
+public:
+	RGNodeSwapchain() : RGNodeSwapchain((RGNodeSwapchainInitInfo){}) {}
+	RGNodeSwapchain(const RGNodeSwapchainInitInfo& ii);
+
+	RPNode* getRPTree();
+	bool tryMakeImg(VkExtent2D ext) {return false;}
+
+	uint8_t getNImages() const {return window->getNumSCIs();}
+	const ImageInfo* getImage() const {return window->getSCImages();}
+	RGFlags getFlags() const {return RG_FLAG_NONE;}
+
+private:
+	WindowInfo* window;
+
+	void createFBs(VkExtent2D ext);
+};
+
+class RGNodeDraw : public RGNode {
+public:
+	RGNodeDraw() = default;
+	RGNodeDraw(const std::vector<RGNodeImage*>& d) : dsts(d) {};
+	~RGNodeDraw() = default;
+
+private:
+	std::vector<RGNodeImage*> dsts;
+
+	RPNode* visit(VkExtent2D ext);
+	void createRP(VkExtent2D ext);
+};
 
 typedef struct RenderSet {
 	PipelineInfo pipeline;
@@ -113,7 +187,7 @@ public:
 		const ImageInfo* d,
 		std::vector<VkClearValue>&& c);
 	RenderPassInfo(VkRenderPass r, const uint32_t nsci, VkExtent2D ext, std::vector<VkClearValue>&& c, std::vector<const ImageInfo*> att, uint8_t sci_att_idx);
-	RenderPassInfo(RGAttachInfo& r);
+	RenderPassInfo(RGNodeImage& r);
 	~RenderPassInfo() = default;
 
 	void destroy(); // handles actual destruction of VK objects pointed to by handles
