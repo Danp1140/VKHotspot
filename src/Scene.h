@@ -57,6 +57,8 @@ protected:
 
 typedef struct RGNodeImageInitInfo {
 	std::vector<RGNode*> srcs;
+	VkImageLayout src_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+							  dst_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	bool should_clear = false;
 	VkClearValue clear = {0, 0, 0, 0};
 } RGNodeImageInitInfo;
@@ -72,13 +74,14 @@ public:
 	virtual uint8_t getNImages() const = 0;
 	virtual const ImageInfo* getImage() const = 0;
 	virtual RGFlags getFlags() const = 0;
-	virtual VkImageLayout getSrcLayout() const = 0;
-	virtual VkImageLayout getDstLayout() const = 0;
+	VkImageLayout getSrcLayout() const {return src_layout;}
+	VkImageLayout getDstLayout() const {return dst_layout;}
 	bool shouldClear() const {return should_clear;}
 	VkClearValue getClear() const {return clear;}
 
 protected:
 	std::vector<RGNode*> srcs;
+	VkImageLayout src_layout, dst_layout;
 	bool should_clear;
 	VkClearValue clear;
 
@@ -93,8 +96,6 @@ private:
 typedef struct RGNodeSampleInitInfo {
 	RGNodeImageInitInfo super_image = {};
 	RGFlags flags = RG_FLAG_NONE;
-	VkImageLayout src_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-							  dst_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	ImageInfo img = {};
 } RGNodeSampleInitInfo;
 
@@ -111,20 +112,17 @@ public:
 	uint8_t getNImages() const {return 1;}
 	const ImageInfo* getImage() const {return &img;}
 	RGFlags getFlags() const {return flags;}
-	VkImageLayout getSrcLayout() const {return src_layout;}
-	VkImageLayout getDstLayout() const {return dst_layout;}
 
 private:
 	ImageInfo img;
 	bool img_owned;
 	RGFlags flags;
-	VkImageLayout src_layout, dst_layout;
 
 	void createFBs(VkExtent2D ext);
 };
 
 typedef struct RGNodeSwapchainInitInfo {
-	RGNodeImageInitInfo super_image = {};
+	RGNodeImageInitInfo super_image = {.dst_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR};
 	WindowInfo* w = nullptr;
 } RGNodeSwapchainInitInfo;
 
@@ -139,8 +137,6 @@ public:
 	uint8_t getNImages() const {return window->getNumSCIs();}
 	const ImageInfo* getImage() const {return window->getSCImages();}
 	RGFlags getFlags() const {return RG_FLAG_NONE;}
-	VkImageLayout getSrcLayout() const {return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;}
-	VkImageLayout getDstLayout() const {return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;}
 
 private:
 	WindowInfo* window;

@@ -316,6 +316,8 @@ void RGNodeDraw::createRP(VkExtent2D ext) {
 
 RGNodeImage::RGNodeImage(const RGNodeImageInitInfo& ii) :
 		srcs(ii.srcs),
+		src_layout(ii.src_layout),
+		dst_layout(ii.dst_layout),
 		should_clear(ii.should_clear) {
 	if (should_clear) clear = ii.clear;
 }
@@ -392,8 +394,6 @@ void RGNodeImage::createRP(VkExtent2D ext) {
 RGNodeSample::RGNodeSample(const RGNodeSampleInitInfo& ii) :
 		RGNodeImage(ii.super_image),
 		flags(ii.flags),
-		src_layout(ii.src_layout),
-		dst_layout(ii.dst_layout),
 		img(ii.img) {
 	if (img.image == VK_NULL_HANDLE) {
 		img_owned = true;
