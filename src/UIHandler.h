@@ -8,17 +8,23 @@
 
 class UIHandler {
 public:
-	UIHandler() = delete;
+	UIHandler() = default;
 	UIHandler(const UIHandler& lvalue) = delete;
-	UIHandler(UIHandler&& rvalue) = delete;
+	UIHandler(UIHandler&& rvalue);
 	UIHandler(const PipelineInfo& p, VkExtent2D extent);
 	~UIHandler();
+
+	UIHandler& operator=(UIHandler rhs);
+
+	friend void swap(UIHandler& lhs, UIHandler& rhs);
 
 	const UIContainer& getRoot() const {return root;}
 
 	void clear() {
 		root.clearChildren();
 	}
+
+	void terminate();
 
 	/* 
 	 * another hack to get polymorphic functions to work

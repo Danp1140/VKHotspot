@@ -23,6 +23,12 @@
 
 class AudioObject;
 
+typedef uint8_t AOIndex;
+typedef unsigned long FrameSampleIndex;
+typedef uint8_t ChannelIndex;
+typedef int16_t Sample;
+typedef uint8_t ListenerIndex;
+typedef uint8_t SoundIndex;
 typedef float (*AudioResponseFunction)(const glm::vec3&, const glm::vec3&);
 
 typedef struct AudioObjectInitInfo {
@@ -57,25 +63,39 @@ private:
 	AudioResponseFunction rf;
 };
 
+
 class Sound : public AudioObject {
 public:
 	Sound() = delete;
 	// TODO: copy/move constructors, nontrivial b/c of buf
 	Sound(const char* fp);
+	// src is channel-interlaced audio samples
+	// len is size in bytes of entire buffer
+	Sound(Sample* src, size_t len) : buf(src), buflen(len), playhead(src) {}
 
-	const uint8_t* getBuf() const {return buf;} 
+	const Sample* getBuf() const {return buf;} 
 	uint32_t getBufLen() const {return buflen;}
-	const int16_t* getPlayhead() const {return playhead;}
+	const Sample* getPlayhead() const {return playhead;}
 	void advancePlayhead(size_t numsamples) {playhead += numsamples;}
 
 private:
 	// buf and buflen are presumed untouched after creation
 	// playhead should ONLY be touched by audio thread
-	uint8_t* buf;
+	Sample* buf;
 	uint32_t buflen;
-	int16_t* playhead;
+	Sample* playhead;
 
 	void load();
+};
+
+class MultiChannelSound : public Sound {
+public:	
+	MultiChannelSound() = delete;
+	MultiChannelSound(const char* fp, ChannelIndex nc) : Sound(fp), n_channels(nc) {}
+
+	ChannelIndex getNChannels() const {return n_channels;}	
+private:
+	ChannelIndex n_channels;
 };
 
 typedef enum ListenerPropBits {
@@ -97,7 +117,7 @@ public:
 	Listener(ListenerInitInfo ii);
 
 	const float* getMix() const {return &mix[0];}
-	float getMix(uint8_t c) const {return mix[c];}
+	float getMix(ChannelIndex c) const {return mix[c];}
 	ListenerProps getProps() const {return props;}
 
 private:
@@ -113,26 +133,30 @@ public:
 	void start();
 
 	void addSound(Sound&& s);
+	void addDirectSound(const MultiChannelSound& s);
 	void addListener(Listener&& l);
-	void addImmediateListener(Listener&& l);
 
 	const std::unordered_set<Sound*>& getSounds() const {return sounds;}
-	Listener& getListener(size_t i) {return *listeners[i];}
+	const std::unordered_set<MultiChannelSound*>& getDirectSounds() const {return direct_sounds;}
+	Listener& getListener(ListenerIndex i) {return *listeners[i];}
 
 private:
 	PaStream* stream;
 	std::unordered_set<Sound*> sounds;
+	std::unordered_set<MultiChannelSound*> direct_sounds;
 	std::vector<Listener*> listeners;
-	std::mutex mut;
-	uint8_t numchannels;
+	ChannelIndex numchannels;
+
+	std::mutex sounds_mut, direct_sounds_mut, listeners_mut;
 
 	// below is scratch data to avoid realloc during func invocation
 	// this should NEVER be touched by the main thread
-	int16_t* outdst, sampletemp;
-	const int16_t* playheadtemp;
+	Sample* outdst, sampletemp;
+	const Sample* playheadtemp;
 	float respfactor, lrespfactor, respfactortemp, loffset, offset, offsettemp, dt;
 	glm::vec3 diffvec, ldiffvec;
-	uint8_t lcount, scount;
+	ListenerIndex lcount;
+	SoundIndex scount;
 	std::unordered_set<Sound*> stokill;
 	ListenerProps proptemp;
 	float mixtemp[AH_MAX_CHANNELS];
