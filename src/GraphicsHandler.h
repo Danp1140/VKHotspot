@@ -528,6 +528,16 @@ public:
 	/* cpysize is dist from first cpy to last IN DST */
 	/* presumed stride > elemsize */
 	static void updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize);
+	/*
+	 * Returns pointer to memmapped vulkan memory in which to write data to allow for direct 
+   * streaming either into image or staging buffer before copy.
+	 */
+	static void* getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch);
+	/*
+	 * Updates image presuming mapped memory has been filled if host coherent or staging buffer
+	 * if device local
+	 */
+	static void updateWholeImage(const ImageInfo& i);
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
@@ -598,6 +608,7 @@ private:
 	static void terminateDescriptorPoolsAndSetLayouts();
 
 	static void transitionImageLayout(ImageInfo& i, VkImageLayout newlayout);
+	static void transitionImageLayout(const ImageInfo& i, VkImageLayout oldlayout, VkImageLayout newlayout);
 
 	static void createShader(
 		VkShaderStageFlags stages,
