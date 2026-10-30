@@ -98,10 +98,30 @@ UIHandler::UIHandler(const PipelineInfo& p, VkExtent2D extent) {
 	root.setExt(UICoord(extent.width, extent.height));
 }
 
-UIHandler::~UIHandler() {
+UIHandler::UIHandler(UIHandler&& rvalue) : 
+		cbbegininfo(rvalue.cbbegininfo),
+		cbinherinfo(rvalue.cbinherinfo),
+		root(rvalue.root) {}
+
+UIHandler::~UIHandler() {}
+
+UIHandler& UIHandler::operator=(UIHandler rhs) {
+	swap(*this, rhs);
+	return *this;
+}
+
+void swap(UIHandler& lhs, UIHandler& rhs) {
+	std::swap(lhs.cbbegininfo, rhs.cbbegininfo);
+	std::swap(lhs.cbinherinfo, rhs.cbinherinfo);
+	std::swap(lhs.root, rhs.root);
+}
+
+void UIHandler::terminate() {
 	ImageInfo temp = uiToGHImageInfo(UIComponent::getNoTex());
-	if (temp.image != GH::getBlankImage().image) GH::destroyImage(temp);
-	vkDestroySampler(GH::getLD(), textsampler, nullptr);
+	if (temp.image != VK_NULL_HANDLE && temp.image != GH::getBlankImage().image)
+		GH::destroyImage(temp);
+	if (textsampler != VK_NULL_HANDLE) 
+		vkDestroySampler(GH::getLD(), textsampler, nullptr);
 }
 
 void UIHandler::setTex(UIImage& i, const ImageInfo& ii, const PipelineInfo& p) {

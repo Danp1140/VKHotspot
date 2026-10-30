@@ -247,6 +247,14 @@ TextureSet& TextureSet::operator=(TextureSet&& rhs) {
 	return *this;
 }
 
+void TextureSet::addTexture(std::string n, const ImageInfo& i) {
+#ifdef VKH_DEBUG
+	if (textures.contains(n))
+		FatalError(std::string("texture set already contains texture ") + n).raise();
+#endif
+	textures.insert({n, i});
+}
+
 void TextureSet::nukeTextures() {
 	for (auto& [_, t] : textures) t = {};
 }

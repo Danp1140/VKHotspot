@@ -1,3 +1,6 @@
+#ifndef TEXTURE_HANDLER_H
+#define TEXTURE_HANDLER_H
+
 #include <map>
 #include <fts.h>
 #include <random>
@@ -348,6 +351,7 @@ public:
 
 	// could also make this operator[]
 	const ImageInfo& getTexture(std::string n) const {return textures.at(n);}
+	void addTexture(std::string n, const ImageInfo& i);
 	template <class T>
 	void addTexture(std::string n, const std::vector<GenStep<T>*>& roots, size_t res, VkFormat fmt, VkSampler s) {
 		ImageInfo* dst;
@@ -414,3 +418,4 @@ private:
 	std::map<std::string, VkSampler> samplers;
 	VkSampler defaultsampler;
 };
+#endif

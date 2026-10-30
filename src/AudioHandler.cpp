@@ -19,9 +19,12 @@ float AudioObject::hemisphericalResponseFunction(const glm::vec3& f, const glm::
 }
 
 Sound::Sound(const char* fp) {
-	SDL_AudioSpec temp;
-	FatalError("Bad LoadWAV").sdlCatch(SDL_LoadWAV(fp, &temp, &buf, &buflen));
-	playhead = reinterpret_cast<int16_t*>(buf);
+	SDL_AudioSpec spec;
+	FatalError("Bad LoadWAV").sdlCatch(
+		SDL_LoadWAV(fp, &spec, (Uint8**)&buf, &buflen));
+	if (spec.format != SDL_AUDIO_S16LE) 
+		FatalError("WAV file must be 16 bit little endian").raise();
+	playhead = reinterpret_cast<Sample*>(buf);
 }
 
 Listener::Listener(ListenerInitInfo ii) :
@@ -30,16 +33,11 @@ Listener::Listener(ListenerInitInfo ii) :
 	// TODO: audiostream num channels, not just total max channels
 	if (ii.mix.size() > AH_MAX_CHANNELS) 
 		WarningError("Too many audio channels, taking as many as possible").raise();
-	for (uint8_t c = 0; c < std::min(ii.mix.size(), (size_t)AH_MAX_CHANNELS); c++) mix[c] = ii.mix[c];
+	for (ChannelIndex c = 0; c < std::min(ii.mix.size(), (size_t)AH_MAX_CHANNELS); c++) mix[c] = ii.mix[c];
 }
 
-AudioHandler::AudioHandler() {
-	// TODO: allow for multiple AH's, don't always initialize PA
+AudioHandler::AudioHandler() : numchannels(2) {
 	Pa_Initialize();
-	int numdev = Pa_GetDeviceCount();
-	for (int i = 0; i < numdev; i++) {
-		std::cout << Pa_GetDeviceInfo(i)->name << std::endl;
-	}
 }
 
 AudioHandler::~AudioHandler() {
@@ -52,7 +50,6 @@ AudioHandler::~AudioHandler() {
 }
 
 void AudioHandler::start() {
-	numchannels = 2;
 	// TODO: device querying, also allows setting channels
 	Pa_OpenDefaultStream(
 		&stream,
@@ -66,15 +63,23 @@ void AudioHandler::start() {
 }
 
 void AudioHandler::addSound(Sound&& s) {
-	mut.lock();
+	sounds_mut.lock();
 	sounds.insert(new Sound(s));
-	mut.unlock();
+	sounds_mut.unlock();
+}
+
+void AudioHandler::addDirectSound(const MultiChannelSound& s) {
+	if (s.getNChannels() != numchannels)
+		FatalError("Direct sound must have same num channels as audio handler").raise();
+	direct_sounds_mut.lock();
+	direct_sounds.insert(new MultiChannelSound(s));
+	direct_sounds_mut.unlock();
 }
 
 void AudioHandler::addListener(Listener&& l) {
-	mut.lock();
+	listeners_mut.lock();
 	listeners.push_back(new Listener(l));
-	mut.unlock();
+	listeners_mut.unlock();
 }
 
 /*
@@ -95,7 +100,7 @@ int AudioHandler::streamCallback(
 		PaStreamCallbackFlags flags,
 		void *data) {
 	AudioHandler* d = static_cast<AudioHandler*>(data);
-	memset(out, 0, framecount * d->numchannels * sizeof(int16_t));
+	memset(out, 0, framecount * d->numchannels * sizeof(Sample));
 	d->dt = (float)framecount / AH_SAMPLE_RATE;
 	d->stokill.clear();
 
@@ -105,15 +110,16 @@ int AudioHandler::streamCallback(
 	
 	// to avoid stopping main thread for long, have add/remove funcs dispatch separate thread
 	// TODO: deadlock insurance
-	d->mut.lock();
+	d->sounds_mut.lock();
+	d->listeners_mut.lock();
 	d->lcount = d->listeners.size();
 	d->scount = d->sounds.size();
 	// watch out for overflow, although >256 listeners and/or sounds is criminal
-	for (uint8_t li = 0; li < d->lcount; li++) {
+	for (ListenerIndex li = 0; li < d->lcount; li++) {
 		d->proptemp = d->listeners[li]->getProps();
 		memcpy(d->mixtemp, d->listeners[li]->getMix(), d->numchannels * sizeof(float));
 		for (Sound* s : d->sounds) {
-			d->outdst = static_cast<int16_t*>(out);
+			d->outdst = static_cast<Sample*>(out);
 			d->playheadtemp = s->getPlayhead();
 			d->soundongoing = false;
 			// TODO: conslidate d->diffvec length calcs as stored float
@@ -135,16 +141,15 @@ int AudioHandler::streamCallback(
 				}
 			}
 			d->listenerdone = false;
-			for (unsigned long i = 0; i < framecount; i++) {
-				if ((uint8_t*)d->playheadtemp - s->getBuf() == s->getBufLen()) {
+			for (FrameSampleIndex i = 0; i < framecount; i++) {
+				if ((d->playheadtemp - s->getBuf()) * sizeof(Sample) == s->getBufLen()) {
 					d->listenerdone = true;
-					std::cout << "listener done" << std::endl;
 					break;
 				}
 				if (d->proptemp & AH_LISTENER_PROP_BIT_SPEED_OF_SOUND) {
 					d->offsettemp = std::lerp(d->loffset, d->offset, (float)i / (float)framecount);
 					// TODO: see if you can adjust the math to remove a subtraction of unsigned values
-					if ((uint8_t*)(d->playheadtemp - (size_t)ceil(d->offsettemp)) < s->getBuf())
+					if ((d->playheadtemp - (size_t)ceil(d->offsettemp)) < s->getBuf())
 						d->sampletemp = 0;
 					else 
 						d->sampletemp = std::lerp(
@@ -156,7 +161,7 @@ int AudioHandler::streamCallback(
 					d->sampletemp = *d->playheadtemp;
 				}
 				d->respfactortemp = std::lerp(d->lrespfactor, d->respfactor, (float)i / (float)framecount);
-				for (uint8_t c = 0; c < d->numchannels; c++) { 
+				for (ChannelIndex c = 0; c < d->numchannels; c++) { 
 #ifdef AH_SPEED_OF_SOUND
 					if (INT16_MAX - *d->outdst < d->sampletemp * d->mixtemp[c] * d->respfactortemp) 
 						WarningError("audio sample overflow").raise();
@@ -182,14 +187,42 @@ int AudioHandler::streamCallback(
 			}
 		}
 	}
-	d->mut.unlock();
+	d->listeners_mut.unlock();
 	if (!d->stokill.empty()) {
-		d->mut.lock();
 		for (Sound* k : d->stokill) {
 			d->sounds.erase(k);
-			std::cout << "killed " << k << std::endl;
 		}
-		d->mut.unlock();
 	}
+	d->sounds_mut.unlock();
+
+	d->stokill.clear();
+	d->direct_sounds_mut.lock();
+	for (MultiChannelSound* s : d->direct_sounds) {	
+		d->outdst = static_cast<Sample*>(out);
+		d->playheadtemp = s->getPlayhead();
+		d->soundongoing = true;
+		for (FrameSampleIndex frame_i = 0; frame_i < framecount; frame_i++) {
+			if ((d->playheadtemp - s->getBuf()) * sizeof(Sample) == s->getBufLen()) {
+				d->soundongoing = false;
+				break;
+			}
+			for (ChannelIndex c_i = 0; c_i < d->numchannels; c_i++) { 
+				*d->outdst += *d->playheadtemp;
+				d->outdst++;
+				d->playheadtemp++;
+			}
+		}
+		if (!d->soundongoing) d->stokill.insert(s);
+		else s->advancePlayhead(framecount * d->numchannels);
+	}
+	if (!d->stokill.empty()) {
+		for (Sound* k : d->stokill) {
+			// slightly sketchy/risky, but unless something crazy is happening should be safe
+			// just watch out whenever you change stuff around here
+			d->direct_sounds.erase(static_cast<MultiChannelSound*>(k));
+		}
+	}
+	d->direct_sounds_mut.unlock();
+
 	return 0;
 }
