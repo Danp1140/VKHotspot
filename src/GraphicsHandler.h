@@ -94,6 +94,8 @@ typedef struct ImageInfo {
 	VkImageTiling tiling; // set by GH::createImage depending on img props
 	VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 	uint32_t mip_lvls = 1;
+	VkAccessFlags access = 0;
+	VkPipelineStageFlags pipeline_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
 	constexpr VkImageSubresource getDefaultSubresource() const {
 		return {
