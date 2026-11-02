@@ -142,7 +142,7 @@ int AudioHandler::streamCallback(
 			}
 			d->listenerdone = false;
 			for (FrameSampleIndex i = 0; i < framecount; i++) {
-				if ((d->playheadtemp - s->getBuf()) * sizeof(Sample) == s->getBufLen()) {
+				if (d->playheadtemp - s->getBuf() == s->getBufLen()) {
 					d->listenerdone = true;
 					break;
 				}
@@ -162,7 +162,7 @@ int AudioHandler::streamCallback(
 				}
 				d->respfactortemp = std::lerp(d->lrespfactor, d->respfactor, (float)i / (float)framecount);
 				for (ChannelIndex c = 0; c < d->numchannels; c++) { 
-#ifdef AH_SPEED_OF_SOUND
+#ifdef AH_CHECK_SAMPLE_OVERFLOW
 					if (INT16_MAX - *d->outdst < d->sampletemp * d->mixtemp[c] * d->respfactortemp) 
 						WarningError("audio sample overflow").raise();
 					if (INT16_MIN - *d->outdst > d->sampletemp * d->mixtemp[c] * d->respfactortemp) 

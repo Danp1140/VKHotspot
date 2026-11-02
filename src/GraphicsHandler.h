@@ -539,6 +539,45 @@ public:
 	 */
 	static void updateWholeImage(const ImageInfo& i);
 
+	static void recordAndSubmitInterimCB(cbRecFunc rec_func);
+	static void recordBufMemBar(
+		VkCommandBuffer& cb, 
+		const BufferInfo& b, VkDeviceSize offset, VkDeviceSize size, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordWholeBufMemBar(
+		VkCommandBuffer& cb, const BufferInfo& b,
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, const VkImageSubresourceRange& subrec_range, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordWholeImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordBufBufCopy(
+		VkCommandBuffer& cb, 
+		const BufferInfo& src, const BufferInfo& dst,
+		VkDeviceSize src_offset, VkDeviceSize dst_offset, VkDeviceSize size);
+	static void recordWholeBufBufCopy(
+		VkCommandBuffer& cb, const BufferInfo& src, const BufferInfo& dst);
+	static void recordWholeBufToImgCopy(
+		VkCommandBuffer& cb,
+		const BufferInfo& src, const ImageInfo& dst,
+		VkImageLayout dst_layout);
+	static void recordImageBlit(
+		VkCommandBuffer& cb,
+		const ImageInfo& src, const ImageInfo& dst,
+		VkImageSubresourceLayers src_subrec, VkImageSubresourceLayers dst_subrec,
+		VkExtent2D src_ext, VkExtent2D dst_ext,
+		VkFilter filter);
+
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}
 	static const VkPhysicalDevice& getPD() {return physicaldevice;}

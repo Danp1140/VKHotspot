@@ -46,7 +46,11 @@ void PositionalProjectionBase::setPos(const glm::vec3& p) {
  */
 
 void DirectionalProjectionBase::setForward(const glm::vec3& f) {
-	forward = glm::normalize(f);
+#ifdef VKH_DEBUG
+	if (glm::length(f) != 1)
+		FatalError("setForward given unnormalized vector").raise();
+#endif
+	forward = f;
 }
 
 /*

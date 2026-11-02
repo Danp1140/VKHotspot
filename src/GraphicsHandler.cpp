@@ -1808,6 +1808,134 @@ void GH::updateWholeImage(const ImageInfo& i) {
 	}
 }
 
+void GH::recordAndSubmitInterimCB(cbRecFunc rec_func) {
+	vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
+	rec_func(interimcb);
+	vkEndCommandBuffer(interimcb);
+	VkSubmitInfo subinfo {
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		nullptr,
+		0,
+		nullptr,
+		nullptr,
+		1,
+		&interimcb,
+		0,
+		nullptr
+	};
+	vkQueueSubmit(genericqueue, 1, &subinfo, interimfence);	
+	vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, UINT64_MAX);
+	vkResetFences(logicaldevice, 1, &interimfence);
+}
+
+void GH::recordBufMemBar(
+		VkCommandBuffer& cb, 
+		const BufferInfo& b, VkDeviceSize offset, VkDeviceSize size, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	VkBufferMemoryBarrier bar;
+	bar.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	bar.pNext = nullptr;
+	bar.srcAccessMask = src_acc_mask;
+	bar.dstAccessMask = dst_acc_mask;
+	bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.buffer = b.buffer;
+	bar.offset = offset;
+	bar.size = size;
+	vkCmdPipelineBarrier(
+		cb, src_stage_mask, dst_stage_mask, 0,
+		0, nullptr,
+		1, &bar,
+		0, nullptr);
+}
+
+void GH::recordWholeBufMemBar(
+		VkCommandBuffer& cb, const BufferInfo& b,
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	recordBufMemBar(cb, b, 0, b.size, src_acc_mask, dst_acc_mask, src_stage_mask, dst_stage_mask);
+};
+
+void GH::recordImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, const VkImageSubresourceRange& subrec_range, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	VkImageMemoryBarrier bar;
+	bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	bar.pNext = nullptr;
+	bar.srcAccessMask = src_acc_mask;
+	bar.dstAccessMask = dst_acc_mask;
+	bar.oldLayout = old_layout;
+	bar.newLayout = new_layout;
+	bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.image = i.image;
+	bar.subresourceRange = subrec_range;
+	vkCmdPipelineBarrier(
+		cb, src_stage_mask, dst_stage_mask, 0,
+		0, nullptr,
+		0, nullptr,
+		1, &bar);
+}
+
+void GH::recordWholeImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	recordImgMemBar(cb, i, i.getDefaultSubresourceRange(), src_acc_mask, dst_acc_mask,
+		old_layout, new_layout, src_stage_mask, dst_stage_mask);
+}
+
+void GH::recordBufBufCopy(
+		VkCommandBuffer& cb, 
+		const BufferInfo& src, const BufferInfo& dst,
+		VkDeviceSize src_offset, VkDeviceSize dst_offset, VkDeviceSize size) {
+	VkBufferCopy cpy_reg {src_offset, dst_offset, size};
+	vkCmdCopyBuffer(cb, src.buffer, dst.buffer, 1, &cpy_reg);
+}
+
+void GH::recordWholeBufBufCopy(
+		VkCommandBuffer& cb, const BufferInfo& src, const BufferInfo& dst) {
+#ifdef VKH_DEBUG
+	if (src.size != dst.size)
+		FatalError("Tried to whole buf copy on src and dst that were not same size").raise();
+#endif
+	recordBufBufCopy(cb, src, dst, 0, 0, src.size);
+}
+
+void GH::recordWholeBufToImgCopy(
+		VkCommandBuffer& cb,
+		const BufferInfo& src, const ImageInfo& dst,
+		VkImageLayout dst_layout) {
+	VkBufferImageCopy cpy_reg {0, 0, 0, dst.getDefaultSubresourceLayers(), 
+		{0, 0, 0}, {dst.extent.width, dst.extent.height, 1}};
+	vkCmdCopyBufferToImage(cb, src.buffer, dst.image, dst_layout, 1, &cpy_reg);
+}
+		
+void GH::recordImageBlit(
+		VkCommandBuffer& cb,
+		const ImageInfo& src, const ImageInfo& dst,
+		VkImageSubresourceLayers src_subrec, VkImageSubresourceLayers dst_subrec,
+		VkExtent2D src_ext, VkExtent2D dst_ext,
+		VkFilter filter) {
+	VkImageBlit blit;
+	blit.srcSubresource = src_subrec;
+	blit.srcOffsets[0] = {0, 0, 0}; 
+	blit.srcOffsets[1] = {static_cast<int32_t>(src_ext.width), static_cast<int32_t>(src_ext.height), 1};
+	blit.dstSubresource = dst_subrec;
+	blit.dstOffsets[0] = {0, 0, 0};
+	blit.dstOffsets[1] = {static_cast<int32_t>(dst_ext.width), static_cast<int32_t>(dst_ext.height), 1};
+	vkCmdBlitImage(cb, 
+		src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &blit, filter);
+}
+
 void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
 	transitionImageLayout(const_cast<const ImageInfo&>(i), i.layout, newlayout);
 	i.layout = newlayout;
