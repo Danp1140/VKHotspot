@@ -1415,15 +1415,15 @@ void GH::destroyImage(ImageInfo& i) {
 }
 
 void GH::updateImage(ImageInfo& i, void* src) {
-	updateImage(i, src, 0, 1, 0, 0);
+	updateImage(i, src, 0, 1, 0, VK_WHOLE_SIZE);
 }
 
-void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize) {
+void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, VkDeviceSize cpysize) {
 	// TODO: these whole update functions are no good
 	VkDeviceSize pitch;
-	void* dst = getWholeImageUpdateDst(i, pitch);
+	void* dst = getImageUpdateDst(i, offset, cpysize, pitch);
 	char* dst_scan = static_cast<char*>(dst) + offset, * src_scan = static_cast<char*>(src);
-	if (stride == 1 && cpysize == 0) {
+	if (stride == 1 && cpysize == VK_WHOLE_SIZE) {
 		for (uint32_t x = 0; x < i.extent.height; x++) {
 			memcpy(dst_scan, src_scan, i.extent.width * i.getPixelSize());
 			dst_scan += pitch;
@@ -1431,7 +1431,8 @@ void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size
 		}
 	}
 	else {
-		for (size_t i = 0; i < cpysize; i += stride) {
+		VkDeviceSize real_cpy_size = cpysize == VK_WHOLE_SIZE ? i.extent.width * i.extent.height * i.getPixelSize() : cpysize;
+		for (size_t i = 0; i < real_cpy_size; i += stride) {
 			memcpy(dst_scan, src_scan, elemsize);
 			src_scan += elemsize;
 			dst_scan += stride;
@@ -1440,7 +1441,7 @@ void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size
 	updateWholeImage(i);
 }
 
-void* GH::getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch) {
+void* GH::getImageUpdateDst(const ImageInfo& i, VkDeviceSize offset, VkDeviceSize size, VkDeviceSize& pitch) {
 	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
 	VkSubresourceLayout subresourcelayout;
 	VkImageSubresource imgsubresource = i.getDefaultSubresource();
@@ -1457,11 +1458,15 @@ void* GH::getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch) {
 	if (i.memprops & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
 		scratchbuffer.size = pitch * i.extent.height;
 		createBuffer(scratchbuffer);
-		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, offset, size, 0, &dst);
 	}
 	else 
-		vkMapMemory(logicaldevice, i.memory, 0, VK_WHOLE_SIZE, 0, &dst);
+		vkMapMemory(logicaldevice, i.memory, offset, size, 0, &dst);
 	return dst;
+}
+
+void* GH::getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch) {
+	return getImageUpdateDst(i, 0, VK_WHOLE_SIZE, pitch);
 }
 
 // TODO: consolidate these into one interim submission

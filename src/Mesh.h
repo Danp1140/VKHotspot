@@ -75,8 +75,7 @@ typedef struct MeshPCData {
 
 class Mesh : public MeshBase {
 public:
-	Mesh() : MeshBase(),
-		vbtraits(VERTEX_BUFFER_TRAIT_POSITION | VERTEX_BUFFER_TRAIT_UV | VERTEX_BUFFER_TRAIT_NORMAL) {}
+	Mesh() : MeshBase(), vbtraits(VERTEX_BUFFER_TRAIT_NONE), vertexbuffer(VK_NULL_HANDLE), indexbuffer(VK_NULL_HANDLE) {}
 	Mesh(const Mesh& lvalue) = delete;
 	Mesh(Mesh&& rvalue);
 	Mesh(const char* f);
