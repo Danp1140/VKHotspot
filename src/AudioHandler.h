@@ -44,7 +44,7 @@ public:
 	AudioObject(AudioObjectInitInfo ii);
 
 	void setPos(glm::vec3 pos) {p = pos;}
-	void setForward(glm::vec3 forw) {f = glm::normalize(forw);}
+	void setForward(glm::vec3 forw) {f = forw;}
 	void setVel(glm::vec3 vel) {v = vel;}
 	void setRespFunc(float (*f)(const glm::vec3&, const glm::vec3&)) {rf = f;}
 
@@ -62,7 +62,6 @@ private:
 	glm::vec3 p, f, v;
 	AudioResponseFunction rf;
 };
-
 
 class Sound : public AudioObject {
 public:

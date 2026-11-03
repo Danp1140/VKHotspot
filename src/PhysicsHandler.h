@@ -8,6 +8,7 @@
 #include "Errors.h"
 
 #define PH_MAX_NUM_COLLIDERS 64
+// TODO: change to a velocity check, not momentum, so theres no issue with massive objects
 #define PH_CONTACT_THRESHOLD 0.5 // if the momentum exchanged during a collision is less than this, the objects are presumed to be in contact
 /*
  * Trying smth different here. Velocity is probably more important than momentum for display,
@@ -368,9 +369,10 @@ public:
 	 * May be prudent to put in some requirements for what type can be passed in.
 	 */
 	template<class T>
-	Collider* addCollider(T&& c) {
-		colliders.push_back(new T(c));
-		return colliders.back();
+	T* addCollider(T&& c) {
+		T* result = new T(c);
+		colliders.push_back(result);
+		return result;
 	}
 	ColliderPair* addColliderPair(ColliderPair&& p, bool active);
 	void removeColliderPair(ColliderPair* p);

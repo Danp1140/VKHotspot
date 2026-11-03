@@ -94,6 +94,8 @@ typedef struct ImageInfo {
 	VkImageTiling tiling; // set by GH::createImage depending on img props
 	VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 	uint32_t mip_lvls = 1;
+	VkAccessFlags access = 0;
+	VkPipelineStageFlags pipeline_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
 	constexpr VkImageSubresource getDefaultSubresource() const {
 		return {
@@ -527,17 +529,57 @@ public:
 	/* src assumed tightly packed, stride only affects dst */
 	/* cpysize is dist from first cpy to last IN DST */
 	/* presumed stride > elemsize */
-	static void updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize);
+	static void updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, VkDeviceSize cpysize);
 	/*
 	 * Returns pointer to memmapped vulkan memory in which to write data to allow for direct 
    * streaming either into image or staging buffer before copy.
 	 */
+	static void* getImageUpdateDst(const ImageInfo& i, VkDeviceSize offset, VkDeviceSize size, VkDeviceSize& pitch);
 	static void* getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch);
 	/*
 	 * Updates image presuming mapped memory has been filled if host coherent or staging buffer
 	 * if device local
 	 */
 	static void updateWholeImage(const ImageInfo& i);
+
+	static void recordAndSubmitInterimCB(cbRecFunc rec_func);
+	static void recordBufMemBar(
+		VkCommandBuffer& cb, 
+		const BufferInfo& b, VkDeviceSize offset, VkDeviceSize size, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordWholeBufMemBar(
+		VkCommandBuffer& cb, const BufferInfo& b,
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, const VkImageSubresourceRange& subrec_range, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordWholeImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask);
+	static void recordBufBufCopy(
+		VkCommandBuffer& cb, 
+		const BufferInfo& src, const BufferInfo& dst,
+		VkDeviceSize src_offset, VkDeviceSize dst_offset, VkDeviceSize size);
+	static void recordWholeBufBufCopy(
+		VkCommandBuffer& cb, const BufferInfo& src, const BufferInfo& dst);
+	static void recordWholeBufToImgCopy(
+		VkCommandBuffer& cb,
+		const BufferInfo& src, const ImageInfo& dst,
+		VkImageLayout dst_layout);
+	static void recordImageBlit(
+		VkCommandBuffer& cb,
+		const ImageInfo& src, const ImageInfo& dst,
+		VkImageSubresourceLayers src_subrec, VkImageSubresourceLayers dst_subrec,
+		VkExtent2D src_ext, VkExtent2D dst_ext,
+		VkFilter filter);
 
 	static const VkInstance& getInstance() {return instance;}
 	static const VkDevice& getLD() {return logicaldevice;}

@@ -1350,26 +1350,12 @@ void GH::updateBuffer(const BufferInfo& b, const void* src, size_t size, size_t 
 		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, size, 0, &dst);
 		memcpy(dst, src, size);
 		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
-		VkBufferCopy cpyregion {0, offset, size};
-		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
-		vkCmdCopyBuffer(
-			interimcb,
-			scratchbuffer.buffer,
-			b.buffer,
-			1, &cpyregion);
-		vkEndCommandBuffer(interimcb);
-		vkResetFences(logicaldevice, 1, &interimfence);
-		const VkSubmitInfo si {
-			VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			nullptr,
-			0, nullptr, nullptr,
-			1, &interimcb,
-			0, nullptr
-		};
-		vkQueueSubmit(genericqueue, 1, &si, interimfence);
-		FatalError("Buffer copy took too long\n").vkCatch(
-			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
-		);
+		
+		recordAndSubmitInterimCB([b, offset, size] (VkCommandBuffer& cb) {
+			recordBufBufCopy(cb, scratchbuffer, b, 0, offset, size);
+			return true;
+		});
+		
 		destroyBuffer(scratchbuffer);
 	}
 }
@@ -1429,211 +1415,33 @@ void GH::destroyImage(ImageInfo& i) {
 }
 
 void GH::updateImage(ImageInfo& i, void* src) {
-	updateImage(i, src, 0, 1, 0, 0);
+	updateImage(i, src, 0, 1, 0, VK_WHOLE_SIZE);
 }
 
-void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, size_t cpysize) {
-	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
-	VkSubresourceLayout subresourcelayout;
-	VkImageSubresource imgsubresource = i.getDefaultSubresource();
-	if (querysubresource) {
-		vkGetImageSubresourceLayout(
-			logicaldevice, 
-			i.image, 
-			&imgsubresource, 
-			&subresourcelayout);
-	}
-	void* dst;
+void GH::updateImage(ImageInfo& i, void* src, size_t offset, size_t stride, size_t elemsize, VkDeviceSize cpysize) {
+	// TODO: these whole update functions are no good
 	VkDeviceSize pitch;
-	if (querysubresource) pitch = subresourcelayout.rowPitch;
-	else pitch = i.extent.width * i.getPixelSize();
-	// TODO: change this and buffer update casts to static_cast where possible
-	char* dstscan, * srcscan = reinterpret_cast<char*>(src);
-	// TODO: refactor to consolidate identical code
-	VkImageLayout lastlayout = i.layout, curr_layout;
-	if (i.memprops & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-		if (i.layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-			transitionImageLayout(i, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		}
-		scratchbuffer.size = pitch * i.extent.height;
-		createBuffer(scratchbuffer);
-		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst) + offset;
+	void* dst = getImageUpdateDst(i, offset, cpysize, pitch);
+	char* dst_scan = static_cast<char*>(dst) + offset, * src_scan = static_cast<char*>(src);
+	if (stride == 1 && cpysize == VK_WHOLE_SIZE) {
 		for (uint32_t x = 0; x < i.extent.height; x++) {
-			memcpy(reinterpret_cast<void*>(dstscan), 
-				reinterpret_cast<void*>(srcscan),
-				i.extent.width * i.getPixelSize());
-			dstscan += pitch;
-			srcscan += i.extent.width * i.getPixelSize();
+			memcpy(dst_scan, src_scan, i.extent.width * i.getPixelSize());
+			dst_scan += pitch;
+			src_scan += i.extent.width * i.getPixelSize();
 		}
-		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
-		VkBufferImageCopy cpyregion {
-			0, i.extent.width, i.extent.height, 
-			i.getDefaultSubresourceLayers(), {0, 0, 0}, {i.extent.width, i.extent.height, 1}
-		};
-		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
-		vkCmdCopyBufferToImage(
-			interimcb,
-			scratchbuffer.buffer,
-			i.image,
-			i.layout, 
-			1, &cpyregion);
-		vkEndCommandBuffer(interimcb);
-		// TODO: move this and buffer update to executeinterimcb that can take a lambda
-		vkResetFences(logicaldevice, 1, &interimfence);
-		const VkSubmitInfo si {
-			VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			nullptr,
-			0, nullptr, nullptr,
-			1, &interimcb,
-			0, nullptr
-		};
-		vkQueueSubmit(genericqueue, 1, &si, interimfence);
-		FatalError("Image-buffer copy took too long\n").vkCatch(
-			// TODO: move this timeout and the one in the buffer update to macro
-			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
-		);
-		destroyBuffer(scratchbuffer);
-		if (i.mip_lvls == 1 && lastlayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) 
-			transitionImageLayout(i, lastlayout);
-		else curr_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	}
 	else {
-		vkMapMemory(logicaldevice, i.memory, 0, VK_WHOLE_SIZE, 0, &dst);
-		dstscan = static_cast<char*>(dst) + offset;
-		// TODO: incorporate this system into dev loc update
-		if (stride == 1 && cpysize == 0) {
-			for (uint32_t x = 0; x < i.extent.height; x++) {
-				memcpy(reinterpret_cast<void*>(dstscan), 
-					reinterpret_cast<void*>(srcscan),
-					i.extent.width * i.getPixelSize());
-				dstscan += pitch;
-				srcscan += i.extent.width * i.getPixelSize();
-			}
+		VkDeviceSize real_cpy_size = cpysize == VK_WHOLE_SIZE ? i.extent.width * i.extent.height * i.getPixelSize() : cpysize;
+		for (size_t i = 0; i < real_cpy_size; i += stride) {
+			memcpy(dst_scan, src_scan, elemsize);
+			src_scan += elemsize;
+			dst_scan += stride;
 		}
-		else {
-			for (size_t i = 0; i < cpysize; i += stride) {
-				memcpy(dstscan, srcscan, elemsize);
-				srcscan += elemsize;
-				dstscan += stride;
-			}
-		}
-		vkUnmapMemory(logicaldevice, i.memory);
-		curr_layout = i.layout;
 	}
-
-	if (i.mip_lvls > 1) {
-		VkImageBlit blit;
-		blit.srcSubresource = i.getDefaultSubresourceLayers();
-		blit.srcOffsets[0] = {0, 0, 0}; 
-		blit.srcOffsets[1] = {static_cast<int32_t>(i.extent.width), static_cast<int32_t>(i.extent.height), 1};
-		blit.dstSubresource = i.getDefaultSubresourceLayers();
-		blit.dstOffsets[0] = {0, 0, 0};
-		VkImageMemoryBarrier mem_bar {
-			VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			nullptr,
-			0,
-			0,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_QUEUE_FAMILY_IGNORED,
-			VK_QUEUE_FAMILY_IGNORED,
-			i.image,
-			i.getDefaultSubresourceRange()
-		};
-		VkPipelineStageFlags src_mask, dst_mask;	
-		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
-		for (uint32_t mip_lvl = 1; 
-			mip_lvl < i.mip_lvls && blit.srcOffsets[1].x > 1 && blit.srcOffsets[1].y > 1;
-			mip_lvl++) {
-			mem_bar.subresourceRange.baseMipLevel = mip_lvl - 1;
-			mem_bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			mem_bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			mem_bar.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			mem_bar.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			src_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dst_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			vkCmdPipelineBarrier(
-				interimcb, 
-				src_mask, dst_mask, 
-				0, 
-				0, nullptr, 
-				0, nullptr,
-				1, &mem_bar);	
-			mem_bar.subresourceRange.baseMipLevel = mip_lvl;
-			mem_bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			mem_bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			mem_bar.srcAccessMask = 0;
-			mem_bar.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			src_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-			dst_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			vkCmdPipelineBarrier(
-				interimcb, 
-				src_mask, dst_mask, 
-				0, 
-				0, nullptr, 
-				0, nullptr,
-				1, &mem_bar);	
-
-			blit.srcSubresource.mipLevel = mip_lvl - 1;
-			blit.dstSubresource.mipLevel = mip_lvl;
-			blit.dstOffsets[1] = {blit.srcOffsets[1].x / 2, blit.srcOffsets[1].y / 2, 1};
-			std::cout << "dst off: " << blit.dstOffsets[1].x << ", " << blit.dstOffsets[1].y << std::endl;
-			vkCmdBlitImage(
-				interimcb, 
-				i.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				i.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				1, &blit, 
-				VK_FILTER_LINEAR);
-			mem_bar.subresourceRange.baseMipLevel = mip_lvl - 1;
-			mem_bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			mem_bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			mem_bar.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			mem_bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT; // TODO: should prob adapt to final layout
-			src_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dst_mask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-			vkCmdPipelineBarrier(
-				interimcb, 
-				src_mask, dst_mask, 
-				0, 
-				0, nullptr, 
-				0, nullptr,
-				1, &mem_bar);
-			
-			blit.srcOffsets[1] = blit.dstOffsets[1];
-		}
-		mem_bar.subresourceRange.baseMipLevel = i.mip_lvls - 1;
-		mem_bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		mem_bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		mem_bar.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-		mem_bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT; // TODO: should prob adapt to final layout
-		src_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		dst_mask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		vkCmdPipelineBarrier(
-			interimcb, 
-			src_mask, dst_mask, 
-			0, 
-			0, nullptr, 
-			0, nullptr,
-			1, &mem_bar);
-		vkEndCommandBuffer(interimcb);
-		vkResetFences(logicaldevice, 1, &interimfence);
-		const VkSubmitInfo si {
-			VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			nullptr,
-			0, nullptr, nullptr,
-			1, &interimcb,
-			0, nullptr
-		};
-		vkQueueSubmit(genericqueue, 1, &si, interimfence);
-		FatalError("Mipmap blit took too long\n").vkCatch(
-			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
-		);
-		i.layout = lastlayout;
-	}
+	updateWholeImage(i);
 }
 
-void* GH::getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch) {
+void* GH::getImageUpdateDst(const ImageInfo& i, VkDeviceSize offset, VkDeviceSize size, VkDeviceSize& pitch) {
 	bool querysubresource = (i.tiling == VK_IMAGE_TILING_LINEAR);
 	VkSubresourceLayout subresourcelayout;
 	VkImageSubresource imgsubresource = i.getDefaultSubresource();
@@ -1648,164 +1456,222 @@ void* GH::getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch) {
 	if (querysubresource) pitch = subresourcelayout.rowPitch;
 	else pitch = i.extent.width * i.getPixelSize();
 	if (i.memprops & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-		if (i.layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-			transitionImageLayout(const_cast<const ImageInfo&>(i), i.layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		}
 		scratchbuffer.size = pitch * i.extent.height;
 		createBuffer(scratchbuffer);
-		vkMapMemory(logicaldevice, scratchbuffer.memory, 0, VK_WHOLE_SIZE, 0, &dst);
+		vkMapMemory(logicaldevice, scratchbuffer.memory, offset, size, 0, &dst);
 	}
 	else 
-		vkMapMemory(logicaldevice, i.memory, 0, VK_WHOLE_SIZE, 0, &dst);
+		vkMapMemory(logicaldevice, i.memory, offset, size, 0, &dst);
 	return dst;
 }
 
+void* GH::getWholeImageUpdateDst(const ImageInfo& i, VkDeviceSize& pitch) {
+	return getImageUpdateDst(i, 0, VK_WHOLE_SIZE, pitch);
+}
+
+// TODO: consolidate these into one interim submission
 void GH::updateWholeImage(const ImageInfo& i) {
 	if (i.memprops & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
 		vkUnmapMemory(logicaldevice, scratchbuffer.memory);
-		VkBufferImageCopy cpyregion {
-			0, i.extent.width, i.extent.height, 
-			i.getDefaultSubresourceLayers(), {0, 0, 0}, {i.extent.width, i.extent.height, 1}
-		};
-		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
-		vkCmdCopyBufferToImage(
-			interimcb,
-			scratchbuffer.buffer,
-			i.image,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
-			1, &cpyregion);
-		vkEndCommandBuffer(interimcb);
-		// TODO: move this and buffer update to executeinterimcb that can take a lambda
-		vkResetFences(logicaldevice, 1, &interimfence);
-		const VkSubmitInfo si {
-			VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			nullptr,
-			0, nullptr, nullptr,
-			1, &interimcb,
-			0, nullptr
-		};
-		vkQueueSubmit(genericqueue, 1, &si, interimfence);
-		FatalError("Image-buffer copy took too long\n").vkCatch(
-			// TODO: move this timeout and the one in the buffer update to macro
-			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
-		);
-		destroyBuffer(scratchbuffer);
-		if (i.mip_lvls == 1 && i.layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-			transitionImageLayout(i, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, i.layout);
-		}
+
+		recordAndSubmitInterimCB([i] (VkCommandBuffer& cb) {
+			recordWholeImgMemBar(
+				cb, i, 
+				0, VK_ACCESS_TRANSFER_WRITE_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+			recordWholeBufToImgCopy(cb, scratchbuffer, i, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			if (i.mip_lvls == 1 && i.layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+				recordWholeImgMemBar(
+					cb, i, 
+					VK_ACCESS_TRANSFER_WRITE_BIT, i.access,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, i.layout,
+					VK_PIPELINE_STAGE_TRANSFER_BIT, i.pipeline_stage);
+			}
+			return true;
+		});
 	}
 	else
 		vkUnmapMemory(logicaldevice, i.memory);
 
 
-	if (i.mip_lvls > 1) {
-		VkImageBlit blit;
-		blit.srcSubresource = i.getDefaultSubresourceLayers();
-		blit.srcOffsets[0] = {0, 0, 0}; 
-		blit.srcOffsets[1] = {static_cast<int32_t>(i.extent.width), static_cast<int32_t>(i.extent.height), 1};
-		blit.dstSubresource = i.getDefaultSubresourceLayers();
-		blit.dstOffsets[0] = {0, 0, 0};
-		VkImageMemoryBarrier mem_bar {
-			VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			nullptr,
-			0,
-			0,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_QUEUE_FAMILY_IGNORED,
-			VK_QUEUE_FAMILY_IGNORED,
-			i.image,
-			i.getDefaultSubresourceRange()
-		};
-		VkPipelineStageFlags src_mask, dst_mask;	
-		vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
-		for (uint32_t mip_lvl = 1; 
-			mip_lvl < i.mip_lvls && blit.srcOffsets[1].x > 1 && blit.srcOffsets[1].y > 1;
-			mip_lvl++) {
-			mem_bar.subresourceRange.baseMipLevel = mip_lvl - 1;
-			mem_bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			mem_bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			mem_bar.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			mem_bar.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			src_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dst_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			vkCmdPipelineBarrier(
-				interimcb, 
-				src_mask, dst_mask, 
-				0, 
-				0, nullptr, 
-				0, nullptr,
-				1, &mem_bar);	
-			mem_bar.subresourceRange.baseMipLevel = mip_lvl;
-			mem_bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			mem_bar.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			mem_bar.srcAccessMask = 0;
-			mem_bar.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			src_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-			dst_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			vkCmdPipelineBarrier(
-				interimcb, 
-				src_mask, dst_mask, 
-				0, 
-				0, nullptr, 
-				0, nullptr,
-				1, &mem_bar);	
-
-			blit.srcSubresource.mipLevel = mip_lvl - 1;
-			blit.dstSubresource.mipLevel = mip_lvl;
-			blit.dstOffsets[1] = {blit.srcOffsets[1].x / 2, blit.srcOffsets[1].y / 2, 1};
-			std::cout << "dst off: " << blit.dstOffsets[1].x << ", " << blit.dstOffsets[1].y << std::endl;
-			vkCmdBlitImage(
-				interimcb, 
-				i.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				i.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				1, &blit, 
-				VK_FILTER_LINEAR);
-			mem_bar.subresourceRange.baseMipLevel = mip_lvl - 1;
-			mem_bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			mem_bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			mem_bar.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			mem_bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT; // TODO: should prob adapt to final layout
-			src_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dst_mask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-			vkCmdPipelineBarrier(
-				interimcb, 
-				src_mask, dst_mask, 
-				0, 
-				0, nullptr, 
-				0, nullptr,
-				1, &mem_bar);
-			
-			blit.srcOffsets[1] = blit.dstOffsets[1];
-		}
-		mem_bar.subresourceRange.baseMipLevel = i.mip_lvls - 1;
-		mem_bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		mem_bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		mem_bar.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-		mem_bar.dstAccessMask = VK_ACCESS_SHADER_READ_BIT; // TODO: should prob adapt to final layout
-		src_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		dst_mask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		vkCmdPipelineBarrier(
-			interimcb, 
-			src_mask, dst_mask, 
-			0, 
-			0, nullptr, 
-			0, nullptr,
-			1, &mem_bar);
-		vkEndCommandBuffer(interimcb);
-		vkResetFences(logicaldevice, 1, &interimfence);
-		const VkSubmitInfo si {
-			VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			nullptr,
-			0, nullptr, nullptr,
-			1, &interimcb,
-			0, nullptr
-		};
-		vkQueueSubmit(genericqueue, 1, &si, interimfence);
-		FatalError("Mipmap blit took too long\n").vkCatch(
-			vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, 10000000000)
-		);
+	if (i.mip_lvls > 1) {	
+		recordAndSubmitInterimCB([i] (VkCommandBuffer& cb) {
+			VkExtent2D src_ext = i.extent, dst_ext;
+			VkImageSubresourceRange src_rng = i.getDefaultSubresourceRange(), dst_rng = src_rng;
+			VkImageSubresourceLayers src_lay = i.getDefaultSubresourceLayers(), dst_lay = src_lay;
+			for (
+					uint32_t mip_lvl = 1; 
+					mip_lvl < i.mip_lvls && src_ext.width >= 2 && src_ext.height >= 2; 
+					mip_lvl++) {
+				dst_ext = {src_ext.width / 2, src_ext.height / 2};
+				src_rng.baseMipLevel = mip_lvl - 1;
+				dst_rng.baseMipLevel = mip_lvl;
+				recordImgMemBar(
+					cb, i, src_rng,
+					VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+				recordImgMemBar(
+					cb, i, dst_rng,
+					0, VK_ACCESS_TRANSFER_WRITE_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+				src_lay.mipLevel = mip_lvl - 1;
+				dst_lay.mipLevel = mip_lvl;
+				recordImageBlit(
+					cb, i, i,
+					src_lay, dst_lay,
+					src_ext, dst_ext, VK_FILTER_LINEAR);
+				recordImgMemBar(
+					cb, i, src_rng,
+					VK_ACCESS_TRANSFER_WRITE_BIT, i.access,
+					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, i.layout,
+					VK_PIPELINE_STAGE_TRANSFER_BIT, i.pipeline_stage);
+				src_ext = dst_ext;
+			}
+			recordImgMemBar(
+				cb, i, dst_rng,
+				VK_ACCESS_TRANSFER_WRITE_BIT, i.access,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, i.layout,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, i.pipeline_stage);
+			return true;
+		});	
 	}
+}
+
+void GH::recordAndSubmitInterimCB(cbRecFunc rec_func) {
+	vkBeginCommandBuffer(interimcb, &interimcbbegininfo);
+	rec_func(interimcb);
+	vkEndCommandBuffer(interimcb);
+	VkSubmitInfo subinfo {
+		VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		nullptr,
+		0,
+		nullptr,
+		nullptr,
+		1,
+		&interimcb,
+		0,
+		nullptr
+	};
+	vkQueueSubmit(genericqueue, 1, &subinfo, interimfence);	
+#ifdef VKH_DEBUG
+	FatalError("Interim CB submission timed out").vkCatch(
+		vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, UINT64_MAX);
+	);
+#else
+	vkWaitForFences(logicaldevice, 1, &interimfence, VK_FALSE, UINT64_MAX);
+#endif
+	vkResetFences(logicaldevice, 1, &interimfence);	
+}
+
+void GH::recordBufMemBar(
+		VkCommandBuffer& cb, 
+		const BufferInfo& b, VkDeviceSize offset, VkDeviceSize size, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	VkBufferMemoryBarrier bar;
+	bar.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	bar.pNext = nullptr;
+	bar.srcAccessMask = src_acc_mask;
+	bar.dstAccessMask = dst_acc_mask;
+	bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.buffer = b.buffer;
+	bar.offset = offset;
+	bar.size = size;
+	vkCmdPipelineBarrier(
+		cb, src_stage_mask, dst_stage_mask, 0,
+		0, nullptr,
+		1, &bar,
+		0, nullptr);
+}
+
+void GH::recordWholeBufMemBar(
+		VkCommandBuffer& cb, const BufferInfo& b,
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	recordBufMemBar(cb, b, 0, b.size, src_acc_mask, dst_acc_mask, src_stage_mask, dst_stage_mask);
+};
+
+void GH::recordImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, const VkImageSubresourceRange& subrec_range, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	VkImageMemoryBarrier bar;
+	bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	bar.pNext = nullptr;
+	bar.srcAccessMask = src_acc_mask;
+	bar.dstAccessMask = dst_acc_mask;
+	bar.oldLayout = old_layout;
+	bar.newLayout = new_layout;
+	bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	bar.image = i.image;
+	bar.subresourceRange = subrec_range;
+	vkCmdPipelineBarrier(
+		cb, src_stage_mask, dst_stage_mask, 0,
+		0, nullptr,
+		0, nullptr,
+		1, &bar);
+}
+
+void GH::recordWholeImgMemBar(
+		VkCommandBuffer& cb, 
+		const ImageInfo& i, 
+		VkAccessFlags src_acc_mask, VkAccessFlags dst_acc_mask,
+		VkImageLayout old_layout, VkImageLayout new_layout,
+		VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask) {
+	recordImgMemBar(cb, i, i.getDefaultSubresourceRange(), src_acc_mask, dst_acc_mask,
+		old_layout, new_layout, src_stage_mask, dst_stage_mask);
+}
+
+void GH::recordBufBufCopy(
+		VkCommandBuffer& cb, 
+		const BufferInfo& src, const BufferInfo& dst,
+		VkDeviceSize src_offset, VkDeviceSize dst_offset, VkDeviceSize size) {
+	VkBufferCopy cpy_reg {src_offset, dst_offset, size};
+	vkCmdCopyBuffer(cb, src.buffer, dst.buffer, 1, &cpy_reg);
+}
+
+void GH::recordWholeBufBufCopy(
+		VkCommandBuffer& cb, const BufferInfo& src, const BufferInfo& dst) {
+#ifdef VKH_DEBUG
+	if (src.size != dst.size)
+		FatalError("Tried to whole buf copy on src and dst that were not same size").raise();
+#endif
+	recordBufBufCopy(cb, src, dst, 0, 0, src.size);
+}
+
+void GH::recordWholeBufToImgCopy(
+		VkCommandBuffer& cb,
+		const BufferInfo& src, const ImageInfo& dst,
+		VkImageLayout dst_layout) {
+	VkBufferImageCopy cpy_reg {0, 0, 0, dst.getDefaultSubresourceLayers(), 
+		{0, 0, 0}, {dst.extent.width, dst.extent.height, 1}};
+	vkCmdCopyBufferToImage(cb, src.buffer, dst.image, dst_layout, 1, &cpy_reg);
+}
+		
+void GH::recordImageBlit(
+		VkCommandBuffer& cb,
+		const ImageInfo& src, const ImageInfo& dst,
+		VkImageSubresourceLayers src_subrec, VkImageSubresourceLayers dst_subrec,
+		VkExtent2D src_ext, VkExtent2D dst_ext,
+		VkFilter filter) {
+	VkImageBlit blit;
+	blit.srcSubresource = src_subrec;
+	blit.srcOffsets[0] = {0, 0, 0}; 
+	blit.srcOffsets[1] = {static_cast<int32_t>(src_ext.width), static_cast<int32_t>(src_ext.height), 1};
+	blit.dstSubresource = dst_subrec;
+	blit.dstOffsets[0] = {0, 0, 0};
+	blit.dstOffsets[1] = {static_cast<int32_t>(dst_ext.width), static_cast<int32_t>(dst_ext.height), 1};
+	vkCmdBlitImage(cb, 
+		src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &blit, filter);
 }
 
 void GH::transitionImageLayout(ImageInfo& i, VkImageLayout newlayout) {
