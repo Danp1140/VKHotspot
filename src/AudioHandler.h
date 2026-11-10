@@ -14,7 +14,7 @@
 #define AH_SPEED_OF_SOUND 343.f // m/s
 
 // doesn't stop overflow, just puts a warning out if it happens
-#define AH_CHECK_SAMPLE_OVERFLOW
+// #define AH_CHECK_SAMPLE_OVERFLOW
 
 /*
  * TODO before merge:
@@ -41,7 +41,9 @@ typedef struct AudioObjectInitInfo {
 class AudioObject {
 public:
 	AudioObject() : AudioObject((AudioObjectInitInfo){}) {}
-	AudioObject(AudioObjectInitInfo ii);
+	AudioObject(const AudioObject& lvalue) : p(lvalue.p), f(lvalue.f), v(lvalue.v), rf(lvalue.rf) {}
+	AudioObject(AudioObject&& rvalue) : p(rvalue.p), f(rvalue.f), v(rvalue.v), rf(rvalue.rf) {}
+	AudioObject(const AudioObjectInitInfo& ii);
 
 	void setPos(glm::vec3 pos) {p = pos;}
 	void setForward(glm::vec3 forw) {f = forw;}
@@ -63,19 +65,32 @@ private:
 	AudioResponseFunction rf;
 };
 
+typedef struct SoundInitInfo {
+	AudioObjectInitInfo super_audio;
+	Sample* src = nullptr;
+	size_t src_len = 0;
+	const char* fp = nullptr;
+	bool loop = false;
+} SoundInitInfo;
+
 class Sound : public AudioObject {
 public:
-	Sound() = delete;
+	Sound() : Sound((SoundInitInfo){}) {}
+	Sound(const Sound& lvalue) : AudioObject(lvalue), buf(lvalue.buf), buflen(lvalue.buflen), playhead(lvalue.playhead), loop(lvalue.loop) {}
+	Sound(Sound&& rvalue) : AudioObject(rvalue), buf(rvalue.buf), buflen(rvalue.buflen), playhead(rvalue.playhead), loop(rvalue.loop) {}
 	// TODO: copy/move constructors, nontrivial b/c of buf
-	Sound(const char* fp);
+	Sound(const char* fp) : Sound((SoundInitInfo){.fp = fp}) {}
 	// src is channel-interlaced audio samples
 	// len is size in bytes of entire buffer
-	Sound(Sample* src, size_t len) : buf(src), buflen(len), playhead(src) {}
+	Sound(Sample* src, size_t len) : Sound((SoundInitInfo){.src = src, .src_len = len}) {}
+	Sound(const SoundInitInfo& ii);
 
 	const Sample* getBuf() const {return buf;} 
 	uint32_t getBufLen() const {return buflen;}
 	const Sample* getPlayhead() const {return playhead;}
-	void advancePlayhead(size_t numsamples) {playhead += numsamples;}
+	void advancePlayhead(size_t numsamples);
+	void resetPlayhead() {playhead = buf;}
+	bool shouldLoop() const {return loop;}
 
 private:
 	// buf and buflen are presumed untouched after creation
@@ -83,8 +98,7 @@ private:
 	Sample* buf;
 	uint32_t buflen;
 	Sample* playhead;
-
-	void load();
+	bool loop;
 };
 
 class MultiChannelSound : public Sound {
@@ -100,7 +114,7 @@ private:
 typedef enum ListenerPropBits {
 	AH_LISTENER_PROPS_NONE = 0x00,
 	AH_LISTENER_PROP_BIT_SPEED_OF_SOUND = 0x01,
-	AH_LISTENER_PROP_BIT_INV_SQRT = 0x02
+	AH_LISTENER_PROP_BIT_INV_SQ = 0x02
 } ListenerPropBits;
 typedef uint8_t ListenerProps;
 
@@ -132,7 +146,9 @@ public:
 	void start();
 
 	void addSound(Sound&& s);
-	void addDirectSound(const MultiChannelSound& s);
+	void removeSound(Sound* s);
+	MultiChannelSound* addDirectSound(const MultiChannelSound& s);
+	void removeDirectSound(MultiChannelSound* s);
 	void addListener(Listener&& l);
 
 	const std::unordered_set<Sound*>& getSounds() const {return sounds;}

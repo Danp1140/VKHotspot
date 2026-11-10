@@ -1111,7 +1111,6 @@ void GH::createPipeline (PipelineInfo& pi) {
 	viewportstatecreateinfo.viewportCount = 1;
 	viewportstatecreateinfo.scissorCount = 1;
 	pipelinecreateinfo.pViewportState = &viewportstatecreateinfo;
-
 	
 	vkCreateGraphicsPipelines(
 		logicaldevice,
@@ -1490,6 +1489,8 @@ void GH::updateWholeImage(const ImageInfo& i) {
 			}
 			return true;
 		});
+
+		destroyBuffer(scratchbuffer);
 	}
 	else
 		vkUnmapMemory(logicaldevice, i.memory);
