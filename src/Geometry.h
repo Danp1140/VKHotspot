@@ -100,6 +100,15 @@ public:
 		return res;
 	}
 
+	Mat<D_row, D_col, T> operator+(const Mat<D_row, D_col, T>& rhs) const {
+		Mat<D_row, D_col, T> M;
+		for (Dim r = 0; r < D_row; r++) {
+			for (Dim c = 0; c < D_col; c++) {
+				M.data[r * D_col + c] = data[r * D_col + c] + rhs.data[r * D_col + c];
+			}
+		}
+		return M;
+	}
 	template<Dim rhs_D_row>
 	Mat<rhs_D_row, D_col, T> operator*(const Mat<rhs_D_row, D_row, T>& rhs) {
 		Mat<rhs_D_row, D_col, T> M;		

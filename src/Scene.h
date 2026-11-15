@@ -293,14 +293,10 @@ public:
 	// diff btwn below two functions is that hookup increments numcatchers and 
 	// writes LUB DS. both with write SM array and CUB DS
 	uint32_t addLightCatcher(
-		const MeshBase* m, 
-		const VkDescriptorSet& ds, 
 		const std::vector<uint32_t>& d_l_idxs, 
 		const std::vector<uint32_t>& s_l_idxs, 
 		const std::vector<uint32_t>& p_l_idxs);
 	void updateLightCatcher(
-		const MeshBase* m, 
-		const VkDescriptorSet& ds, 
 		const std::vector<uint32_t>& d_l_idxs, 
 		const std::vector<uint32_t>& s_l_idxs, 
 		const std::vector<uint32_t>& p_l_idxs,

@@ -932,11 +932,13 @@ void GH::createPipeline (PipelineInfo& pi) {
 		&shadermodules[0],
 		&shaderstagecreateinfos[0],
 		pi.specinfo);
-	vkCreateDescriptorSetLayout(
-		logicaldevice,
-		&pi.descsetlayoutci,
-		nullptr,
-		&pi.dsl);
+	if (pi.dsl == VK_NULL_HANDLE) {
+		vkCreateDescriptorSetLayout(
+			logicaldevice,
+			&pi.descsetlayoutci,
+			nullptr,
+			&pi.dsl);
+	}
 	VkPipelineLayoutCreateInfo pipelinelayoutcreateinfo {
 		VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		nullptr,
@@ -1225,12 +1227,12 @@ void GH::freeDeviceMemory(VkDeviceMemory& m) {
 	vkFreeMemory(logicaldevice, m, nullptr);
 }
 
-void GH::createDS(const PipelineInfo& p, VkDescriptorSet& ds) {
+void GH::createDS(VkDescriptorSetLayout dsl, VkDescriptorSet& ds) {
 	VkDescriptorSetAllocateInfo allocinfo {
 		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 		nullptr,
 		descriptorpool,
-		1, &p.dsl
+		1, &dsl
 	};
 	vkAllocateDescriptorSets(logicaldevice, &allocinfo, &ds);
 }

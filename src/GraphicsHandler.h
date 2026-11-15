@@ -492,7 +492,8 @@ public:
 	static void createPipeline(PipelineInfo& pi);
 	static void destroyPipeline(PipelineInfo& pi);
 
-	static void createDS(const PipelineInfo& p, VkDescriptorSet& ds);
+	static void createDS(const PipelineInfo& p, VkDescriptorSet& ds) {createDS(p.dsl, ds);}
+	static void createDS(VkDescriptorSetLayout dsl, VkDescriptorSet& ds);
 	static void updateDS(
 		const VkDescriptorSet& ds, 
 		uint32_t i,

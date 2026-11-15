@@ -677,30 +677,20 @@ void Scene::addShadowCaster(
 }
 
 uint32_t Scene::addLightCatcher(
-	const MeshBase* m, 
-	const VkDescriptorSet& ds, 
 	const std::vector<uint32_t>& d_l_idxs, 
 	const std::vector<uint32_t>& s_l_idxs, 
 	const std::vector<uint32_t>& p_l_idxs) {
+#ifdef VKH_DEBUG
 	if (n_catchers + 1 == SCENE_MAX_SHADOW_CATCHERS) {
 		WarningError("Max shadowcatchers reached, not adding").raise();
 		return -1u;
 	}
-
-	if (ds != VK_NULL_HANDLE) {
-		GH::updateDS(ds, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, 0, offsetof(LUBData, catcher_entries)});
-		GH::updateDS(ds, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shadow_atlas.getDII(), {});
-		GH::updateDS(ds, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, {}, {lightub.buffer, offsetof(LUBData, catcher_entries), SCENE_MAX_SHADOW_CATCHERS *  sizeof(CatcherEntry)});
-	}
-	
-	updateLightCatcher(m, ds, d_l_idxs, s_l_idxs, p_l_idxs, n_catchers);
-
+#endif
+	updateLightCatcher(d_l_idxs, s_l_idxs, p_l_idxs, n_catchers);
 	return n_catchers++;
 }
 
 void Scene::updateLightCatcher(
-		const MeshBase* m, 
-		const VkDescriptorSet& ds, 
 		const std::vector<uint32_t>& d_l_idxs, 
 		const std::vector<uint32_t>& s_l_idxs, 
 		const std::vector<uint32_t>& p_l_idxs,

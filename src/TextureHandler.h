@@ -377,6 +377,8 @@ public:
 		GH::updateImage(*dst, data);
 		free(data);
 	}
+	uint8_t getNumTextures() const {return textures.size();}
+	const std::map<std::string, ImageInfo>& getTextures() const {return textures;}
 
 private:
 	std::map<std::string, ImageInfo> textures;
