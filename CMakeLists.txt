@@ -30,10 +30,6 @@ find_path(GLM_INCLUDE glm.hpp PATH_SUFFIXES glm REQUIRED)
 find_path(USMINT_INCLUDE UI.h PATH_SUFFIXES UsMInt REQUIRED)
 if (APPLE)
 	find_path(FBX_INCLUDE fbxsdk.h PATH_SUFFIXES "2020.3.10/include" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
-	# find_library(FBX_LIB fbxsdk PATH_SUFFIXES "2020.3.9/lib/clang/release" HINTS "/Applications/Autodesk/FBX SDK/" REQUIRED)
-	# add_library(FBX SHARED IMPORTED)
-	# set_target_properties(FBX PROPERTIES IMPORTED_LOCATION "${FBX_LIB}")
-
 else ()
 	message(FATAL_ERROR "FBX import and lib search not defined for non-apple OSs")
 endif()
@@ -50,19 +46,19 @@ include_directories(
 	${FBX_INCLUDE})
 
 # Adding and Linking Library
-add_library(${PROJECT_NAME} ../src/GraphicsHandler.cpp ../src/GraphicsHandler.h
-	../src/Errors.cpp ../src/Errors.h
-	../src/UIHandler.cpp ../src/UIHandler.h
-	../src/Scene.cpp ../src/Scene.h
-	../src/Projection.cpp ../src/Projection.h
-	../src/Mesh.cpp ../src/Mesh.h
-	../src/PostProcessing.cpp ../src/PostProcessing.h
-	../src/TextureHandler.cpp ../src/TextureHandler.h
-	../src/PhysicsHandler.cpp ../src/PhysicsHandler.h
-	../src/InputHandler.cpp ../src/InputHandler.h
-	../src/AudioHandler.cpp ../src/AudioHandler.h
-	../src/Geometry.cpp ../src/Geometry.h
-	../src/AnimationHandler.cpp ../src/AnimationHandler.h)
+add_library(${PROJECT_NAME} src/GraphicsHandler.cpp src/GraphicsHandler.h
+	src/Errors.cpp src/Errors.h
+	src/UIHandler.cpp src/UIHandler.h
+	src/Scene.cpp src/Scene.h
+	src/Projection.cpp src/Projection.h
+	src/Mesh.cpp src/Mesh.h
+	src/PostProcessing.cpp src/PostProcessing.h
+	src/TextureHandler.cpp src/TextureHandler.h
+	src/PhysicsHandler.cpp src/PhysicsHandler.h
+	src/InputHandler.cpp src/InputHandler.h
+	src/AudioHandler.cpp src/AudioHandler.h
+	src/Geometry.cpp src/Geometry.h
+	src/AnimationHandler.cpp src/AnimationHandler.h)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${GLM_INCLUDE} ${USMINT_INCLUDE} ${FBX_INCLUDE})
 
@@ -80,37 +76,37 @@ set_target_properties(${PROJECT_NAME} PROPERTIES INSTALL_NAME_DIR "@rpath" BUILD
 # Installing Library Files
 install(
 	FILES 
-	../src/GraphicsHandler.h
-	../src/Errors.h
-	../src/UIHandler.h
-	../src/Scene.h
-	../src/Projection.h
-	../src/Mesh.h
-	../src/PostProcessing.h
-	../src/TextureHandler.h
-	../src/PhysicsHandler.h
-	../src/InputHandler.h
-	../src/AudioHandler.h
-	../src/Geometry.h
-	../src/AnimationHandler.h
+	src/GraphicsHandler.h
+	src/Errors.h
+	src/UIHandler.h
+	src/Scene.h
+	src/Projection.h
+	src/Mesh.h
+	src/PostProcessing.h
+	src/TextureHandler.h
+	src/PhysicsHandler.h
+	src/InputHandler.h
+	src/AudioHandler.h
+	src/Geometry.h
+	src/AnimationHandler.h
 	DESTINATION /usr/local/include/VKHotspot)
 
 include(GNUInstallDirs)
 install(
 	FILES
-	../src/GraphicsHandler.h
-	../src/Errors.h
-	../src/UIHandler.h
-	../src/Scene.h
-	../src/Projection.h
-	../src/Mesh.h
-	../src/PostProcessing.h
-	../src/TextureHandler.h
-	../src/PhysicsHandler.h
-	../src/InputHandler.h
-	../src/AudioHandler.h
-	../src/Geometry.h
-	../src/AnimationHandler.h
+	src/GraphicsHandler.h
+	src/Errors.h
+	src/UIHandler.h
+	src/Scene.h
+	src/Projection.h
+	src/Mesh.h
+	src/PostProcessing.h
+	src/TextureHandler.h
+	src/PhysicsHandler.h
+	src/InputHandler.h
+	src/AudioHandler.h
+	src/Geometry.h
+	src/AnimationHandler.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Package Config Hell
